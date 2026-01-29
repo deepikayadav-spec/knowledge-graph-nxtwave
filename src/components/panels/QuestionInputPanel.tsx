@@ -1,10 +1,8 @@
 import { useState } from 'react';
 import { Button } from '@/components/ui/button';
-import { Input } from '@/components/ui/input';
 import { Textarea } from '@/components/ui/textarea';
-import { Label } from '@/components/ui/label';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
-import { Loader2, Sparkles, BookOpen, Code } from 'lucide-react';
+import { Loader2, Sparkles, Code } from 'lucide-react';
 import { supabase } from '@/integrations/supabase/client';
 import { toast } from '@/hooks/use-toast';
 import { KnowledgeGraph } from '@/types/graph';
@@ -16,20 +14,10 @@ interface QuestionInputPanelProps {
 }
 
 export function QuestionInputPanel({ onGraphGenerated, isOpen, onClose }: QuestionInputPanelProps) {
-  const [courseName, setCourseName] = useState('');
   const [questionsText, setQuestionsText] = useState('');
   const [isLoading, setIsLoading] = useState(false);
 
   const handleGenerate = async () => {
-    if (!courseName.trim()) {
-      toast({
-        title: "Course name required",
-        description: "Please enter a course name.",
-        variant: "destructive",
-      });
-      return;
-    }
-
     const questions = questionsText
       .split('\n')
       .map(q => q.trim())
@@ -48,7 +36,7 @@ export function QuestionInputPanel({ onGraphGenerated, isOpen, onClose }: Questi
 
     try {
       const { data, error } = await supabase.functions.invoke('generate-graph', {
-        body: { courseName: courseName.trim(), questions },
+        body: { questions },
       });
 
       if (error) {
@@ -59,7 +47,6 @@ export function QuestionInputPanel({ onGraphGenerated, isOpen, onClose }: Questi
         throw new Error(data.error);
       }
 
-      // Transform the response to match our expected format
       const graph: KnowledgeGraph = {
         globalNodes: data.globalNodes || [],
         edges: data.edges || [],
@@ -106,24 +93,10 @@ export function QuestionInputPanel({ onGraphGenerated, isOpen, onClose }: Questi
         </CardHeader>
         <CardContent className="space-y-4">
           <div className="space-y-2">
-            <Label htmlFor="courseName" className="flex items-center gap-2">
-              <BookOpen className="h-4 w-4 text-muted-foreground" />
-              Course Name
-            </Label>
-            <Input
-              id="courseName"
-              placeholder="e.g., Python Fundamentals, Data Structures 101"
-              value={courseName}
-              onChange={(e) => setCourseName(e.target.value)}
-              disabled={isLoading}
-            />
-          </div>
-
-          <div className="space-y-2">
-            <Label htmlFor="questions" className="flex items-center gap-2">
+            <label htmlFor="questions" className="flex items-center gap-2 text-sm font-medium">
               <Code className="h-4 w-4 text-muted-foreground" />
               Coding Questions (one per line)
-            </Label>
+            </label>
             <Textarea
               id="questions"
               placeholder={`Write a function that checks if a key exists in a dictionary

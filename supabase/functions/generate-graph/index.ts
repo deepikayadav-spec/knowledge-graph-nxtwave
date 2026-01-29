@@ -176,18 +176,16 @@ serve(async (req) => {
   }
 
   try {
-    const { courseName, questions } = await req.json();
+    const { questions } = await req.json();
     const GEMINI_API_KEY = Deno.env.get("GEMINI_API_KEY");
     
     if (!GEMINI_API_KEY) {
       throw new Error("GEMINI_API_KEY is not configured");
     }
 
-    console.log(`Generating graph for course: ${courseName} with ${questions.length} questions`);
+    console.log(`Generating graph for ${questions.length} questions`);
 
-    const userPrompt = `Course: ${courseName}
-
-Questions to analyze:
+    const userPrompt = `Questions to analyze:
 ${questions.map((q: string, i: number) => `${i + 1}. ${q}`).join('\n')}
 
 Remember:

@@ -2,7 +2,6 @@ import { useCallback, useMemo, useState, useRef, useEffect } from 'react';
 import { GraphNode, GraphEdge, NodeType } from '@/types/graph';
 import { GraphNodeComponent } from './GraphNode';
 import { GraphEdgeComponent } from './GraphEdge';
-import { LevelBand } from './LevelBand';
 import { ZoomControls } from './ZoomControls';
 
 interface GraphCanvasProps {
@@ -12,7 +11,6 @@ interface GraphCanvasProps {
   selectedNodeId: string | null;
   onNodeSelect: (nodeId: string | null) => void;
   highlightedPath?: string[];
-  focusLevel?: number | null;
 }
 
 interface NodePosition {
@@ -38,7 +36,6 @@ export function GraphCanvas({
   selectedNodeId,
   onNodeSelect,
   highlightedPath,
-  focusLevel,
 }: GraphCanvasProps) {
   const [hoveredNodeId, setHoveredNodeId] = useState<string | null>(null);
   const [transform, setTransform] = useState<Transform>({ x: 0, y: 0, scale: 1 });
@@ -155,15 +152,7 @@ export function GraphCanvas({
     return positions;
   }, [levelGroups, levels]);
 
-  // Level band data
-  const levelBands = useMemo(() => {
-    return levels.map((level, index) => ({
-      level,
-      y: TOP_MARGIN + index * LEVEL_HEIGHT,
-      height: LEVEL_HEIGHT,
-      nodeCount: (levelGroups[level] || []).length,
-    }));
-  }, [levels, levelGroups]);
+  // Removed level bands - no longer displaying levels
 
   // Determine which edges should be highlighted
   const highlightedEdges = useMemo(() => {
@@ -294,20 +283,7 @@ export function GraphCanvas({
     }
   }, [handleWheel]);
 
-  // Focus on level when focusLevel changes
-  useEffect(() => {
-    if (focusLevel !== null && focusLevel !== undefined) {
-      const levelIndex = levels.indexOf(focusLevel);
-      if (levelIndex >= 0 && containerRef.current) {
-        const containerRect = containerRef.current.getBoundingClientRect();
-        const targetY = TOP_MARGIN + levelIndex * LEVEL_HEIGHT;
-        setTransform((prev) => ({
-          ...prev,
-          y: containerRect.height / 2 - targetY * prev.scale - (LEVEL_HEIGHT * prev.scale) / 2,
-        }));
-      }
-    }
-  }, [focusLevel, levels]);
+  // Removed focusLevel effect - levels are no longer displayed
 
   // Double-click to focus on node
   const handleNodeDoubleClick = useCallback(
@@ -345,20 +321,6 @@ export function GraphCanvas({
         <g
           transform={`translate(${transform.x}, ${transform.y}) scale(${transform.scale})`}
         >
-          {/* Level bands */}
-          <g className="level-bands">
-            {levelBands.map((band) => (
-              <LevelBand
-                key={band.level}
-                level={band.level}
-                y={band.y}
-                height={band.height}
-                nodeCount={band.nodeCount}
-                width={canvasWidth}
-              />
-            ))}
-          </g>
-
           {/* Edges */}
           <g className="edges">
             {edges.map((edge) => {
