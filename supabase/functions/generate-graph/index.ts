@@ -259,6 +259,7 @@ Generate the knowledge graph JSON following all steps.`;
           ],
           generationConfig: {
             responseMimeType: "application/json",
+            maxOutputTokens: 65536,
           },
         }),
       }
