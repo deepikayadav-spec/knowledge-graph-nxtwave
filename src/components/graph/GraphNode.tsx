@@ -204,18 +204,21 @@ export function GraphNodeComponent({
 
       {/* Node label */}
       <foreignObject
-        x={-55}
+        x={-60}
         y={nodeRadius + 4}
-        width={110}
-        height={40}
+        width={120}
+        height={44}
       >
         <div className="flex items-start justify-center">
           <span
             className={cn(
-              "text-[10px] leading-tight text-center font-medium px-1",
+              "text-[11px] leading-tight text-center font-semibold px-1",
               state === 'dimmed' ? "text-muted-foreground/50" : "text-foreground"
             )}
-            style={{ wordBreak: 'break-word' }}
+            style={{ 
+              wordBreak: 'break-word',
+              textShadow: '0 1px 2px rgba(255,255,255,0.8), 0 0 4px rgba(255,255,255,0.6)'
+            }}
           >
             {displayName}
           </span>

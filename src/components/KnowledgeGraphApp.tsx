@@ -139,17 +139,11 @@ export function KnowledgeGraphApp() {
             </div>
           </div>
 
-          <div className="flex items-center gap-3">
-            <QuestionPathSelector
-              questions={graph.questionPaths}
-              selectedQuestion={selectedQuestion}
-              onQuestionSelect={setSelectedQuestion}
-            />
-            <QuickQuestionInput
-              onGenerate={handleGenerate}
-              isLoading={isGenerating}
-            />
-          </div>
+          <QuestionPathSelector
+            questions={graph.questionPaths}
+            selectedQuestion={selectedQuestion}
+            onQuestionSelect={setSelectedQuestion}
+          />
         </div>
       </header>
 
