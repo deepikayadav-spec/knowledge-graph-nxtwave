@@ -5,7 +5,8 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/com
 import { Loader2, Sparkles, Code } from 'lucide-react';
 import { supabase } from '@/integrations/supabase/client';
 import { toast } from '@/hooks/use-toast';
-import { KnowledgeGraph } from '@/types/graph';
+import { KnowledgeGraph, GraphNode, GraphEdge, QuestionPath } from '@/types/graph';
+import { Progress } from '@/components/ui/progress';
 
 interface QuestionInputPanelProps {
   onGraphGenerated: (graph: KnowledgeGraph) => void;
@@ -13,9 +14,70 @@ interface QuestionInputPanelProps {
   onClose: () => void;
 }
 
+const BATCH_SIZE = 15; // Process 15 questions at a time to avoid truncation
+
+function mergeGraphs(graphs: KnowledgeGraph[]): KnowledgeGraph {
+  const nodeMap = new Map<string, GraphNode>();
+  const edgeSet = new Set<string>();
+  const edges: GraphEdge[] = [];
+  const courses: Record<string, { nodes: { id: string; inCourse: boolean }[] }> = {};
+  const questionPaths: Record<string, QuestionPath | string[]> = {};
+
+  for (const graph of graphs) {
+    // Merge nodes (dedupe by id)
+    for (const node of graph.globalNodes) {
+      if (!nodeMap.has(node.id)) {
+        nodeMap.set(node.id, node);
+      } else {
+        // Merge appearsInQuestions arrays
+        const existing = nodeMap.get(node.id)!;
+        const existingQuestions = existing.knowledgePoint?.appearsInQuestions || [];
+        const newQuestions = node.knowledgePoint?.appearsInQuestions || [];
+        const merged = [...new Set([...existingQuestions, ...newQuestions])];
+        existing.knowledgePoint = { ...existing.knowledgePoint, appearsInQuestions: merged };
+      }
+    }
+
+    // Merge edges (dedupe by from+to)
+    for (const edge of graph.edges) {
+      const key = `${edge.from}:${edge.to}`;
+      if (!edgeSet.has(key)) {
+        edgeSet.add(key);
+        edges.push(edge);
+      }
+    }
+
+    // Merge courses
+    for (const [courseName, courseData] of Object.entries(graph.courses || {})) {
+      if (!courses[courseName]) {
+        courses[courseName] = { nodes: [] };
+      }
+      const existingIds = new Set(courses[courseName].nodes.map(n => n.id));
+      for (const node of courseData.nodes) {
+        if (!existingIds.has(node.id)) {
+          courses[courseName].nodes.push(node);
+          existingIds.add(node.id);
+        }
+      }
+    }
+
+    // Merge question paths
+    Object.assign(questionPaths, graph.questionPaths || {});
+  }
+
+  return {
+    globalNodes: Array.from(nodeMap.values()),
+    edges,
+    courses,
+    questionPaths,
+  };
+}
+
 export function QuestionInputPanel({ onGraphGenerated, isOpen, onClose }: QuestionInputPanelProps) {
   const [questionsText, setQuestionsText] = useState('');
   const [isLoading, setIsLoading] = useState(false);
+  const [progress, setProgress] = useState(0);
+  const [statusText, setStatusText] = useState('');
 
   const handleGenerate = async () => {
     const questions = questionsText
@@ -33,33 +95,54 @@ export function QuestionInputPanel({ onGraphGenerated, isOpen, onClose }: Questi
     }
 
     setIsLoading(true);
+    setProgress(0);
 
     try {
-      const { data, error } = await supabase.functions.invoke('generate-graph', {
-        body: { questions },
-      });
-
-      if (error) {
-        throw error;
+      // Split into batches if needed
+      const batches: string[][] = [];
+      for (let i = 0; i < questions.length; i += BATCH_SIZE) {
+        batches.push(questions.slice(i, i + BATCH_SIZE));
       }
 
-      if (data.error) {
-        throw new Error(data.error);
+      const graphs: KnowledgeGraph[] = [];
+
+      for (let i = 0; i < batches.length; i++) {
+        const batch = batches[i];
+        setStatusText(`Processing batch ${i + 1} of ${batches.length} (${batch.length} questions)...`);
+        setProgress(((i) / batches.length) * 100);
+
+        const { data, error } = await supabase.functions.invoke('generate-graph', {
+          body: { questions: batch },
+        });
+
+        if (error) {
+          throw error;
+        }
+
+        if (data.error) {
+          throw new Error(data.error);
+        }
+
+        graphs.push({
+          globalNodes: data.globalNodes || [],
+          edges: data.edges || [],
+          courses: data.courses || {},
+          questionPaths: data.questionPaths || {},
+        });
+
+        setProgress(((i + 1) / batches.length) * 100);
       }
 
-      const graph: KnowledgeGraph = {
-        globalNodes: data.globalNodes || [],
-        edges: data.edges || [],
-        courses: data.courses || {},
-        questionPaths: data.questionPaths || {},
-      };
+      // Merge all batch results
+      setStatusText('Merging results...');
+      const mergedGraph = batches.length === 1 ? graphs[0] : mergeGraphs(graphs);
 
-      onGraphGenerated(graph);
+      onGraphGenerated(mergedGraph);
       onClose();
       
       toast({
         title: "Graph generated!",
-        description: `Created ${graph.globalNodes.length} concept nodes with ${graph.edges.length} relationships.`,
+        description: `Created ${mergedGraph.globalNodes.length} concept nodes with ${mergedGraph.edges.length} relationships.`,
       });
     } catch (error) {
       console.error('Graph generation error:', error);
@@ -70,10 +153,15 @@ export function QuestionInputPanel({ onGraphGenerated, isOpen, onClose }: Questi
       });
     } finally {
       setIsLoading(false);
+      setProgress(0);
+      setStatusText('');
     }
   };
 
   if (!isOpen) return null;
+
+  const questionCount = questionsText.split('\n').filter(q => q.trim().length > 0).length;
+  const batchCount = Math.ceil(questionCount / BATCH_SIZE);
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-background/80 backdrop-blur-sm animate-fade-in">
@@ -110,8 +198,20 @@ Write code to find the most common element in a list`}
             />
             <p className="text-xs text-muted-foreground">
               Enter each coding question on a new line. The AI will analyze mental steps needed to solve each.
+              {questionCount > BATCH_SIZE && (
+                <span className="block mt-1 text-primary">
+                  {questionCount} questions will be processed in {batchCount} batches.
+                </span>
+              )}
             </p>
           </div>
+
+          {isLoading && (
+            <div className="space-y-2">
+              <Progress value={progress} className="h-2" />
+              <p className="text-xs text-muted-foreground text-center">{statusText}</p>
+            </div>
+          )}
 
           <div className="flex gap-3 pt-2">
             <Button
@@ -130,7 +230,7 @@ Write code to find the most common element in a list`}
               {isLoading ? (
                 <>
                   <Loader2 className="h-4 w-4 animate-spin" />
-                  Analyzing Questions...
+                  Analyzing...
                 </>
               ) : (
                 <>
