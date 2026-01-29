@@ -3,6 +3,7 @@ import { GraphCanvas } from './graph/GraphCanvas';
 import { NodeDetailPanel } from './panels/NodeDetailPanel';
 import { CourseSelector } from './panels/CourseSelector';
 import { QuestionPathSelector } from './panels/QuestionPathSelector';
+import { QuickQuestionInput } from './panels/QuickQuestionInput';
 import { LegendPanel } from './panels/LegendPanel';
 import { QuestionInputPanel } from './panels/QuestionInputPanel';
 import { LevelSummary } from './panels/LevelSummary';
@@ -11,6 +12,8 @@ import { sampleGraph } from '@/data/sampleGraph';
 import { Network, Sparkles, Plus } from 'lucide-react';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
+import { supabase } from '@/integrations/supabase/client';
+import { toast } from '@/hooks/use-toast';
 
 export function KnowledgeGraphApp() {
   const [graph, setGraph] = useState<KnowledgeGraph>(sampleGraph);
@@ -20,6 +23,7 @@ export function KnowledgeGraphApp() {
   const [isInputPanelOpen, setIsInputPanelOpen] = useState(false);
   const [isLevelSummaryOpen, setIsLevelSummaryOpen] = useState(true);
   const [focusLevel, setFocusLevel] = useState<number | null>(null);
+  const [isQuickGenerating, setIsQuickGenerating] = useState(false);
 
   const handleGraphGenerated = (newGraph: KnowledgeGraph) => {
     setGraph(newGraph);
@@ -32,6 +36,42 @@ export function KnowledgeGraphApp() {
     setFocusLevel(level);
     // Reset after animation
     setTimeout(() => setFocusLevel(null), 500);
+  }, []);
+
+  const handleQuickGenerate = useCallback(async (courseName: string, questions: string[]) => {
+    setIsQuickGenerating(true);
+    
+    try {
+      const { data, error } = await supabase.functions.invoke('generate-graph', {
+        body: { courseName, questions },
+      });
+
+      if (error) throw error;
+      if (data.error) throw new Error(data.error);
+
+      const graph: KnowledgeGraph = {
+        globalNodes: data.globalNodes || [],
+        edges: data.edges || [],
+        courses: data.courses || {},
+        questionPaths: data.questionPaths || {},
+      };
+
+      handleGraphGenerated(graph);
+      
+      toast({
+        title: "Graph generated!",
+        description: `Created ${graph.globalNodes.length} concept nodes with ${graph.edges.length} relationships.`,
+      });
+    } catch (error) {
+      console.error('Graph generation error:', error);
+      toast({
+        title: "Generation failed",
+        description: error instanceof Error ? error.message : "Failed to generate knowledge graph.",
+        variant: "destructive",
+      });
+    } finally {
+      setIsQuickGenerating(false);
+    }
   }, []);
 
   const selectedNode = useMemo(
@@ -118,6 +158,12 @@ export function KnowledgeGraphApp() {
             selectedQuestion={selectedQuestion}
             onQuestionSelect={setSelectedQuestion}
           />
+          <div className="ml-auto">
+            <QuickQuestionInput
+              onGenerate={handleQuickGenerate}
+              isLoading={isQuickGenerating}
+            />
+          </div>
         </div>
       </div>
 

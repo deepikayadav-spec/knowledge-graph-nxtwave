@@ -99,6 +99,7 @@ export function GraphNodeComponent({
 
   return (
     <g
+      data-node-id={node.id}
       className="graph-node cursor-pointer"
       style={{ 
         opacity: getOpacity(),

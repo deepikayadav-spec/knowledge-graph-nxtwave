@@ -35,7 +35,7 @@ export function QuestionPathSelector({
             <ChevronDown className="h-4 w-4 opacity-50" />
           </Button>
         </DropdownMenuTrigger>
-        <DropdownMenuContent align="start" className="w-80">
+        <DropdownMenuContent align="start" className="w-80 max-h-[300px] overflow-y-auto bg-popover border border-border shadow-lg z-50">
           {questionList.map((question) => (
             <DropdownMenuItem
               key={question}
