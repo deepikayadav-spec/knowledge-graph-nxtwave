@@ -1,36 +1,61 @@
-export interface CME {
-  highestConceptLevel: number; // 1-7
-  levelLabels: string[];
-  independence: 'Independent' | 'Lightly Scaffolded' | 'Heavily Assisted';
-  retention: 'Current' | 'Aging' | 'Expired';
-  evidenceByLevel: Record<number, number>; // level -> percentage
+// Knowledge Point metadata - describes atomic cognitive capability
+export interface KnowledgePoint {
+  atomicityCheck: string;       // Self-check that this is truly atomic
+  assessmentExample: string;    // Sample question testing ONLY this skill
+  targetAssessmentLevel: 1 | 2 | 3 | 4; // What level we TEACH to (Recognition to Direct Application)
+  appearsInQuestions: string[]; // Which input questions use this
 }
 
+// CME - now separates measured from AI-generated data
+export interface CME {
+  measured: boolean;            // false until real student data exists
+  highestConceptLevel: number;  // 0 until measured, 1-7 when measured
+  levelLabels: string[];
+  independence: 'Unknown' | 'Independent' | 'Lightly Scaffolded' | 'Heavily Assisted';
+  retention: 'Unknown' | 'Current' | 'Aging' | 'Expired';
+  evidenceByLevel: Record<number, number>; // level -> percentage (empty if unmeasured)
+}
+
+// LE - distinguishes AI estimates from measured student data
 export interface LE {
-  passiveTime: number; // minutes
-  activeTime: number; // minutes
-  weightedEngagementTime: number; // WET
-  persistenceSignals: {
+  estimated: boolean;           // true = AI estimate, false = measured
+  estimatedMinutes: number;     // AI-generated estimate
+  measuredMinutes?: number;     // From actual student data (optional)
+  // Detailed breakdown (for measured data)
+  passiveTime?: number;
+  activeTime?: number;
+  weightedEngagementTime?: number;
+  persistenceSignals?: {
     reattemptAfterWrong: boolean;
     returnAfterExit: boolean;
   };
-  persistenceFactor: number;
-  finalLE: number;
+  persistenceFactor?: number;
+  finalLE?: number;
 }
 
 export interface GraphNode {
   id: string;
   name: string;
-  level: number;
+  level: number;                // Computed from prerequisites
+  description?: string;
+  knowledgePoint: KnowledgePoint;
   cme: CME;
   le: LE;
-  description?: string;
 }
 
 export interface GraphEdge {
   from: string;
   to: string;
   reason: string;
+  relationshipType?: 'requires' | 'builds_on' | 'extends';
+}
+
+// Enhanced question path with validation
+export interface QuestionPath {
+  requiredNodes: string[];
+  executionOrder: string[];
+  validationStatus: 'valid' | 'missing_prereqs' | 'invalid_order';
+  validationErrors?: string[];
 }
 
 export interface CourseView {
@@ -40,11 +65,19 @@ export interface CourseView {
   }>;
 }
 
+// IPA step for transparent analysis
+export interface IPAStep {
+  step: number;
+  type: 'RECOGNIZE' | 'RECALL' | 'APPLY' | 'CHECK' | 'BRANCH';
+  operation: string;
+}
+
 export interface KnowledgeGraph {
   globalNodes: GraphNode[];
   edges: GraphEdge[];
   courses: Record<string, CourseView>;
-  questionPaths: Record<string, string[]>;
+  questionPaths: Record<string, QuestionPath | string[]>; // Support both formats for backwards compat
+  ipaByQuestion?: Record<string, IPAStep[]>; // Raw IPA analysis (optional)
 }
 
 export const LEVEL_LABELS = [
@@ -77,12 +110,14 @@ export const NODE_TYPE_COLORS = {
 };
 
 export const INDEPENDENCE_COLORS = {
+  'Unknown': 'hsl(var(--muted))',
   'Independent': 'hsl(var(--node-level-0))',
   'Lightly Scaffolded': 'hsl(var(--node-level-2))',
   'Heavily Assisted': 'hsl(var(--node-level-4))',
 };
 
 export const RETENTION_COLORS = {
+  'Unknown': 'hsl(var(--muted))',
   'Current': 'hsl(var(--node-level-0))',
   'Aging': 'hsl(var(--node-level-3))',
   'Expired': 'hsl(var(--destructive))',

@@ -7,7 +7,15 @@ import { QuickQuestionInput } from './panels/QuickQuestionInput';
 import { LegendPanel } from './panels/LegendPanel';
 import { QuestionInputPanel } from './panels/QuestionInputPanel';
 import { LevelSummary } from './panels/LevelSummary';
-import { KnowledgeGraph } from '@/types/graph';
+import { KnowledgeGraph, QuestionPath } from '@/types/graph';
+
+// Helper to get path array from either format (backward compatible)
+const getPathArray = (path: QuestionPath | string[]): string[] => {
+  if (Array.isArray(path)) {
+    return path;
+  }
+  return path.executionOrder || path.requiredNodes || [];
+};
 import { sampleGraph } from '@/data/sampleGraph';
 import { Network, Sparkles, Plus } from 'lucide-react';
 import { Badge } from '@/components/ui/badge';
@@ -94,7 +102,8 @@ export function KnowledgeGraphApp() {
     if (!selectedQuestion || !graph.questionPaths[selectedQuestion]) {
       return undefined;
     }
-    return graph.questionPaths[selectedQuestion];
+    // Convert to array format for backward compatibility
+    return getPathArray(graph.questionPaths[selectedQuestion]);
   }, [selectedQuestion, graph.questionPaths]);
 
   const courses = Object.keys(graph.courses);
