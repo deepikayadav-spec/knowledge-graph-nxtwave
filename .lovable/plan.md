@@ -1,97 +1,164 @@
 
-# Graph Navigation and Level-Based Display Improvements
+# Prerequisite-Based Level Layout (Math Academy Style)
 
 ## Overview
-Transform the current knowledge graph visualization into a Math Academy-style level-based learning map with enhanced navigation, interactivity, and clearer visual hierarchy.
+Transform the graph to compute levels dynamically from prerequisite relationships, with foundational nodes at the bottom and advanced nodes at the top - exactly like Math Academy.
 
 ---
 
-## Current State Analysis
+## Current vs Desired
 
-### Issues Identified:
-1. **No zoom/pan controls** - Large graphs become cramped in fixed 1000x600 viewBox
-2. **Level labels missing** - Levels are numbers without context (e.g., "Level 0" instead of "Foundational")
-3. **No visual level separation** - Nodes at same level blend together without horizontal bands
-4. **Limited interactivity** - No keyboard navigation, no focus-to-node, no minimap
-5. **Console warning** - Badge component needs `forwardRef` (line 59 in NodeDetailPanel)
-6. **Fixed canvas size** - No responsive scaling for different screen sizes
-7. **No level summary** - Users can't see what concepts exist at each level
+| Aspect | Current | Desired |
+|--------|---------|---------|
+| Level source | `node.level` property from data | Computed from prerequisite edges |
+| Level 0 | Whatever data says | Root nodes (no prerequisites) |
+| Higher levels | Whatever data says | `1 + max(level of prerequisites)` |
+| Direction | Arbitrary | Bottom = simple, Top = advanced |
+| Node colors | Based on data level | Based on graph position (Root/Intermediate/Leaf) |
+| Node size | Fixed | Proportional to Learning Effort (LE) |
 
 ---
 
-## Proposed Improvements
-
-### 1. Level-Based Visual Layout (Math Academy Style)
-
-Add horizontal level bands with labels on the left side:
+## Visual Layout
 
 ```text
 +------------------------------------------------------------------+
-| Level 0: Foundational                                             |
-|   [○]────────[○]────────[○]                                       |
-|-------------------------------------------------------------------|
-| Level 1: Core Concepts                                            |
-|   [○]────[○]────[○]────[○]                                        |
-|-------------------------------------------------------------------|
-| Level 2: Applications                                             |
-|   [○]────────[○]────[○]                                           |
-|-------------------------------------------------------------------|
-| Level 3: Advanced                                                 |
-|   [○]────────[○]                                                  |
+|                           TOP (Advanced)                          |
+|      [Leaf]    [Leaf]    [Leaf]         <- Orange nodes          |
+|         \        |        /                                       |
+|          \       |       /                                        |
+|    [Intermediate]  [Intermediate]       <- Purple nodes          |
+|           \          /                                            |
+|            \        /                                             |
+|         [Root]  [Root]  [Root]          <- Green nodes           |
+|                         BOTTOM (Foundational)                     |
 +------------------------------------------------------------------+
 ```
 
-**Implementation:**
-- Add level row backgrounds with alternating subtle colors
-- Display level labels on the left margin
-- Show node count per level
-- Increase spacing between levels for clarity
+Arrows point UPWARD from prerequisites to dependents.
 
-### 2. Zoom and Pan Controls
+---
 
-Add navigation controls for exploring larger graphs:
+## Changes Required
 
-- **Mouse wheel zoom** - Scroll to zoom in/out centered on cursor
-- **Drag to pan** - Click and drag the canvas to move around
-- **Zoom controls** - Buttons for zoom in, zoom out, fit-to-view, reset
-- **Minimap (optional)** - Small overview showing current viewport position
+### 1. Compute Levels from Prerequisites (GraphCanvas.tsx)
 
-**Implementation:**
-- Track `transform` state: `{ x, y, scale }`
-- Apply transform to inner `<g>` element
-- Add control buttons in corner overlay
-- Implement wheel/drag event handlers
+Add a function to calculate levels based on graph topology:
 
-### 3. Enhanced Node Interactivity
-
-Improve how users interact with nodes:
-
-- **Double-click to focus** - Centers and zooms to the clicked node
-- **Keyboard navigation** - Arrow keys to move between connected nodes
-- **Focus ring** - Visual indicator of currently focused node
-- **Connected nodes highlight** - When hovering, highlight all prerequisites and dependents
-
-### 4. Level Summary Sidebar
-
-Add a collapsible sidebar showing level statistics:
-
-| Level | Name | Nodes | Mastered |
-|-------|------|-------|----------|
-| 0 | Foundational | 3 | 100% |
-| 1 | Core Concepts | 4 | 75% |
-| 2 | Applications | 5 | 40% |
-| 3 | Advanced | 1 | 0% |
-
-Clicking a level row scrolls/zooms to that level in the graph.
-
-### 5. Fix Console Warning
-
-Update Badge component usage in NodeDetailPanel to avoid ref warnings:
-
-```tsx
-// Change from passing refs to Badge (which doesn't support them)
-// to wrapping in a span or using Badge without ref-requiring patterns
+```typescript
+const computedLevels = useMemo(() => {
+  const inDegree: Record<string, Set<string>> = {};
+  
+  // Find prerequisites for each node
+  edges.forEach(edge => {
+    if (!inDegree[edge.to]) inDegree[edge.to] = new Set();
+    inDegree[edge.to].add(edge.from);
+  });
+  
+  const levels: Record<string, number> = {};
+  
+  // Level = 0 for nodes with no prerequisites
+  // Level = 1 + max(level of all prerequisites)
+  const getLevel = (nodeId: string, visited: Set<string>): number => {
+    if (levels[nodeId] !== undefined) return levels[nodeId];
+    if (visited.has(nodeId)) return 0; // Cycle detection
+    
+    visited.add(nodeId);
+    const prereqs = inDegree[nodeId];
+    if (!prereqs || prereqs.size === 0) {
+      levels[nodeId] = 0;
+    } else {
+      const maxPrereqLevel = Math.max(
+        ...Array.from(prereqs).map(p => getLevel(p, visited))
+      );
+      levels[nodeId] = maxPrereqLevel + 1;
+    }
+    return levels[nodeId];
+  };
+  
+  nodes.forEach(node => getLevel(node.id, new Set()));
+  return levels;
+}, [nodes, edges]);
 ```
+
+### 2. Update Node Grouping to Use Computed Levels
+
+Change from using `node.level` to `computedLevels[node.id]`:
+
+```typescript
+const levelGroups = useMemo(() => {
+  const groups: Record<number, GraphNode[]> = {};
+  nodes.forEach((node) => {
+    const level = computedLevels[node.id] ?? 0;
+    if (!groups[level]) groups[level] = [];
+    groups[level].push(node);
+  });
+  return groups;
+}, [nodes, computedLevels]);
+```
+
+### 3. Update Node Colors Based on Graph Position (GraphNode.tsx)
+
+Change coloring to be based on node type (Root/Intermediate/Leaf):
+
+```typescript
+type NodeType = 'root' | 'intermediate' | 'leaf';
+
+const nodeTypeColors = {
+  root: 'hsl(152, 69%, 41%)',        // Green - Foundational
+  intermediate: 'hsl(262, 83%, 58%)', // Purple - Middle
+  leaf: 'hsl(35, 92%, 53%)',          // Orange - Advanced
+};
+```
+
+Pass node type as a prop based on:
+- **Root**: No prerequisites (nothing points to it)
+- **Leaf**: No dependents (nothing depends on it)
+- **Intermediate**: Has both
+
+### 4. Scale Node Size by Learning Effort (LE)
+
+Make node radius proportional to `finalLE`:
+
+```typescript
+const baseRadius = 20;
+const maxRadius = 45;
+const leMin = 10;
+const leMax = 80;
+
+const nodeRadius = baseRadius + 
+  ((node.le.finalLE - leMin) / (leMax - leMin)) * (maxRadius - baseRadius);
+```
+
+### 5. Update Level Labels (LevelBand.tsx)
+
+Change level names to reflect prerequisite depth:
+
+```typescript
+const COMPUTED_LEVEL_LABELS = [
+  'Foundational',
+  'Building Blocks', 
+  'Core Skills',
+  'Applied Skills',
+  'Advanced',
+  'Expert',
+];
+```
+
+### 6. Display CME Value on Nodes
+
+Add a small badge showing CME value (like the 0.5, 0.8 in your reference):
+
+```typescript
+// CME badge near node
+<text fontSize={9} fill="hsl(199, 89%, 48%)">
+  {(node.cme.highestConceptLevel / 7).toFixed(1)}
+</text>
+```
+
+### 7. Update Edge Direction Display
+
+Ensure edges visually flow from bottom (prerequisites) to top (dependents).
 
 ---
 
@@ -99,101 +166,42 @@ Update Badge component usage in NodeDetailPanel to avoid ref warnings:
 
 | File | Changes |
 |------|---------|
-| `src/components/graph/GraphCanvas.tsx` | Add zoom/pan state, level bands, transform handling, keyboard navigation |
-| `src/components/graph/GraphNode.tsx` | Add focus state, improve hover feedback |
-| `src/components/graph/GraphEdge.tsx` | Add connected-nodes highlighting |
-| `src/components/graph/LevelBand.tsx` | **New** - Level row background with label |
-| `src/components/graph/ZoomControls.tsx` | **New** - Zoom/pan control buttons |
-| `src/components/panels/LevelSummary.tsx` | **New** - Sidebar with level statistics |
-| `src/components/KnowledgeGraphApp.tsx` | Add level summary sidebar, handle keyboard events |
-| `src/types/graph.ts` | Add level name constants |
-| `src/index.css` | Add level band styles, zoom control styles |
+| `src/components/graph/GraphCanvas.tsx` | Compute levels from edges, update level grouping |
+| `src/components/graph/GraphNode.tsx` | Add node type prop (root/intermediate/leaf), scale size by LE, add CME badge |
+| `src/components/graph/LevelBand.tsx` | Update labels for computed levels |
+| `src/components/panels/LevelSummary.tsx` | Use computed levels, update labels |
+| `src/types/graph.ts` | Add computed level labels constant |
 
 ---
 
 ## Technical Details
 
-### Transform State Structure
-```typescript
-interface Transform {
-  x: number;      // Pan offset X
-  y: number;      // Pan offset Y
-  scale: number;  // Zoom level (0.5 to 3)
-}
-```
+### Level Computation Algorithm
 
-### Zoom/Pan Event Handlers
-```typescript
-// Mouse wheel zoom
-const handleWheel = (e: WheelEvent) => {
-  const delta = e.deltaY > 0 ? 0.9 : 1.1;
-  setTransform(prev => ({
-    ...prev,
-    scale: Math.min(3, Math.max(0.5, prev.scale * delta))
-  }));
-};
+1. Build prerequisite map from edges
+2. For each node, recursively find max level of prerequisites
+3. Node level = 1 + max(prerequisite levels), or 0 if no prerequisites
+4. Group nodes by computed level for positioning
 
-// Drag to pan
-const handleDrag = (e: MouseEvent) => {
-  setTransform(prev => ({
-    ...prev,
-    x: prev.x + e.movementX,
-    y: prev.y + e.movementY
-  }));
-};
-```
+### Node Type Determination
 
-### Level Band Component
 ```typescript
-interface LevelBandProps {
-  level: number;
-  levelName: string;
-  y: number;
-  height: number;
-  nodeCount: number;
-}
-```
-
-### Dynamic ViewBox Calculation
-```typescript
-// Calculate viewBox based on number of nodes and levels
-const calculateViewBox = (nodes: GraphNode[]) => {
-  const maxLevel = Math.max(...nodes.map(n => n.level));
-  const maxNodesAtLevel = Math.max(
-    ...Object.values(levelGroups).map(g => g.length)
-  );
+const getNodeType = (nodeId: string): NodeType => {
+  const hasPrerequisites = edges.some(e => e.to === nodeId);
+  const hasDependents = edges.some(e => e.from === nodeId);
   
-  const width = Math.max(1000, maxNodesAtLevel * 150 + 200);
-  const height = Math.max(600, (maxLevel + 1) * 150 + 100);
-  
-  return `0 0 ${width} ${height}`;
+  if (!hasPrerequisites) return 'root';
+  if (!hasDependents) return 'leaf';
+  return 'intermediate';
 };
 ```
 
----
+### Node Size Scaling
 
-## Visual Enhancements
-
-### Level Band Colors
-- Level 0: `hsl(173 58% 39% / 0.05)` - Teal tint
-- Level 1: `hsl(199 89% 48% / 0.05)` - Blue tint
-- Level 2: `hsl(221 83% 53% / 0.05)` - Indigo tint
-- Level 3+: `hsl(262 83% 58% / 0.05)` - Purple tint
-
-### Zoom Control Styling
-- Glass-morphism background matching panel style
-- Icons: ZoomIn, ZoomOut, Maximize2 (fit), RotateCcw (reset)
-- Position: Bottom-right corner of graph area
-
----
-
-## Implementation Order
-
-1. Fix Badge forwardRef warning first (quick fix)
-2. Add level bands with labels
-3. Implement zoom/pan controls
-4. Add keyboard navigation
-5. Create level summary sidebar
-6. Add connected-nodes highlighting on hover
-7. Implement double-click to focus
-
+```typescript
+// Normalize LE to radius
+const getNodeRadius = (le: number) => {
+  const normalized = Math.max(0, Math.min(1, (le - 10) / 70));
+  return 20 + normalized * 25; // 20px to 45px
+};
+```
