@@ -1,12 +1,8 @@
 import { useState, useMemo, useCallback } from 'react';
 import { GraphCanvas } from './graph/GraphCanvas';
 import { NodeDetailPanel } from './panels/NodeDetailPanel';
-import { CourseSelector } from './panels/CourseSelector';
 import { QuestionPathSelector } from './panels/QuestionPathSelector';
 import { QuickQuestionInput } from './panels/QuickQuestionInput';
-import { LegendPanel } from './panels/LegendPanel';
-import { QuestionInputPanel } from './panels/QuestionInputPanel';
-import { LevelSummary } from './panels/LevelSummary';
 import { KnowledgeGraph, QuestionPath } from '@/types/graph';
 
 // Helper to get path array from either format (backward compatible)
@@ -16,59 +12,47 @@ const getPathArray = (path: QuestionPath | string[]): string[] => {
   }
   return path.executionOrder || path.requiredNodes || [];
 };
-import { sampleGraph } from '@/data/sampleGraph';
-import { Network, Sparkles, Plus } from 'lucide-react';
+
+import { Network, Sparkles } from 'lucide-react';
 import { Badge } from '@/components/ui/badge';
-import { Button } from '@/components/ui/button';
 import { supabase } from '@/integrations/supabase/client';
 import { toast } from '@/hooks/use-toast';
 
 export function KnowledgeGraphApp() {
-  const [graph, setGraph] = useState<KnowledgeGraph>(sampleGraph);
+  const [graph, setGraph] = useState<KnowledgeGraph | null>(null);
   const [selectedNodeId, setSelectedNodeId] = useState<string | null>(null);
-  const [selectedCourse, setSelectedCourse] = useState<string | null>(null);
   const [selectedQuestion, setSelectedQuestion] = useState<string | null>(null);
-  const [isInputPanelOpen, setIsInputPanelOpen] = useState(false);
-  const [isLevelSummaryOpen, setIsLevelSummaryOpen] = useState(true);
-  const [focusLevel, setFocusLevel] = useState<number | null>(null);
-  const [isQuickGenerating, setIsQuickGenerating] = useState(false);
+  const [isGenerating, setIsGenerating] = useState(false);
 
   const handleGraphGenerated = (newGraph: KnowledgeGraph) => {
     setGraph(newGraph);
     setSelectedNodeId(null);
-    setSelectedCourse(null);
     setSelectedQuestion(null);
   };
 
-  const handleLevelClick = useCallback((level: number) => {
-    setFocusLevel(level);
-    // Reset after animation
-    setTimeout(() => setFocusLevel(null), 500);
-  }, []);
-
-  const handleQuickGenerate = useCallback(async (courseName: string, questions: string[]) => {
-    setIsQuickGenerating(true);
+  const handleGenerate = useCallback(async (questions: string[]) => {
+    setIsGenerating(true);
     
     try {
       const { data, error } = await supabase.functions.invoke('generate-graph', {
-        body: { courseName, questions },
+        body: { questions },
       });
 
       if (error) throw error;
       if (data.error) throw new Error(data.error);
 
-      const graph: KnowledgeGraph = {
+      const newGraph: KnowledgeGraph = {
         globalNodes: data.globalNodes || [],
         edges: data.edges || [],
         courses: data.courses || {},
         questionPaths: data.questionPaths || {},
       };
 
-      handleGraphGenerated(graph);
+      handleGraphGenerated(newGraph);
       
       toast({
         title: "Graph generated!",
-        description: `Created ${graph.globalNodes.length} concept nodes with ${graph.edges.length} relationships.`,
+        description: `Created ${newGraph.globalNodes.length} concept nodes with ${newGraph.edges.length} relationships.`,
       });
     } catch (error) {
       console.error('Graph generation error:', error);
@@ -78,127 +62,107 @@ export function KnowledgeGraphApp() {
         variant: "destructive",
       });
     } finally {
-      setIsQuickGenerating(false);
+      setIsGenerating(false);
     }
   }, []);
 
   const selectedNode = useMemo(
-    () => graph.globalNodes.find((n) => n.id === selectedNodeId) || null,
-    [graph.globalNodes, selectedNodeId]
+    () => graph?.globalNodes.find((n) => n.id === selectedNodeId) || null,
+    [graph?.globalNodes, selectedNodeId]
   );
 
-  const courseNodeIds = useMemo(() => {
-    if (!selectedCourse || !graph.courses[selectedCourse]) {
-      return undefined;
-    }
-    return new Set(
-      graph.courses[selectedCourse].nodes
-        .filter((n) => n.inCourse)
-        .map((n) => n.id)
-    );
-  }, [selectedCourse, graph.courses]);
-
   const highlightedPath = useMemo(() => {
-    if (!selectedQuestion || !graph.questionPaths[selectedQuestion]) {
+    if (!selectedQuestion || !graph?.questionPaths[selectedQuestion]) {
       return undefined;
     }
-    // Convert to array format for backward compatibility
     return getPathArray(graph.questionPaths[selectedQuestion]);
-  }, [selectedQuestion, graph.questionPaths]);
-
-  const courses = Object.keys(graph.courses);
+  }, [selectedQuestion, graph?.questionPaths]);
 
   const stats = useMemo(() => {
+    if (!graph) return null;
     const totalNodes = graph.globalNodes.length;
     const totalEdges = graph.edges.length;
-    const avgLevel =
-      graph.globalNodes.reduce((sum, n) => sum + n.level, 0) / totalNodes;
-    return { totalNodes, totalEdges, avgLevel: avgLevel.toFixed(1) };
+    return { totalNodes, totalEdges };
   }, [graph]);
 
+  // Landing page - no graph yet
+  if (!graph) {
+    return (
+      <div className="flex flex-col min-h-screen bg-background">
+        <header className="shrink-0 border-b border-border bg-card/50 backdrop-blur-sm">
+          <div className="container flex items-center justify-center h-16 px-4">
+            <div className="flex items-center gap-3">
+              <div className="flex items-center justify-center w-10 h-10 rounded-xl bg-accent text-accent-foreground">
+                <Network className="h-5 w-5" />
+              </div>
+              <div>
+                <h1 className="text-lg font-semibold text-foreground flex items-center gap-2">
+                  Knowledge Graph Engine
+                  <Badge variant="secondary" className="text-xs font-normal">
+                    <Sparkles className="h-3 w-3 mr-1" />
+                    IPA Methodology
+                  </Badge>
+                </h1>
+              </div>
+            </div>
+          </div>
+        </header>
+
+        <div className="flex-1 flex items-center justify-center p-8">
+          <QuickQuestionInput
+            onGenerate={handleGenerate}
+            isLoading={isGenerating}
+            isLandingMode={true}
+          />
+        </div>
+      </div>
+    );
+  }
+
+  // Graph view
   return (
     <div className="flex flex-col h-screen bg-background">
       {/* Header */}
       <header className="shrink-0 border-b border-border bg-card/50 backdrop-blur-sm">
-        <div className="container flex items-center justify-between h-16 px-4">
+        <div className="container flex items-center justify-between h-14 px-4">
           <div className="flex items-center gap-3">
-            <div className="flex items-center justify-center w-10 h-10 rounded-xl bg-accent text-accent-foreground">
-              <Network className="h-5 w-5" />
+            <div className="flex items-center justify-center w-8 h-8 rounded-lg bg-accent text-accent-foreground">
+              <Network className="h-4 w-4" />
             </div>
             <div>
-              <h1 className="text-lg font-semibold text-foreground flex items-center gap-2">
-                Knowledge Graph Engine
-                <Badge variant="secondary" className="text-xs font-normal">
-                  <Sparkles className="h-3 w-3 mr-1" />
-                  Math Academy Style
-                </Badge>
+              <h1 className="text-base font-semibold text-foreground">
+                Knowledge Graph
               </h1>
               <p className="text-xs text-muted-foreground">
-                {stats.totalNodes} concepts · {stats.totalEdges} relationships · Avg
-                level {stats.avgLevel}
+                {stats?.totalNodes} concepts · {stats?.totalEdges} relationships
               </p>
             </div>
           </div>
 
-          <div className="flex items-center gap-2">
-            <Button
-              onClick={() => setIsInputPanelOpen(true)}
-              className="gap-2"
-              size="sm"
-            >
-              <Plus className="h-4 w-4" />
-              New Graph
-            </Button>
-            <LegendPanel />
+          <div className="flex items-center gap-3">
+            <QuestionPathSelector
+              questions={graph.questionPaths}
+              selectedQuestion={selectedQuestion}
+              onQuestionSelect={setSelectedQuestion}
+            />
+            <QuickQuestionInput
+              onGenerate={handleGenerate}
+              isLoading={isGenerating}
+            />
           </div>
         </div>
       </header>
 
-      {/* Toolbar */}
-      <div className="shrink-0 border-b border-border bg-card/30 px-4 py-3">
-        <div className="container flex flex-wrap items-center gap-3">
-          <CourseSelector
-            courses={courses}
-            selectedCourse={selectedCourse}
-            onCourseSelect={setSelectedCourse}
-          />
-          <QuestionPathSelector
-            questions={graph.questionPaths}
-            selectedQuestion={selectedQuestion}
-            onQuestionSelect={setSelectedQuestion}
-          />
-          <div className="ml-auto">
-            <QuickQuestionInput
-              onGenerate={handleQuickGenerate}
-              isLoading={isQuickGenerating}
-            />
-          </div>
-        </div>
-      </div>
-
       {/* Main Content */}
       <div className="flex-1 flex overflow-hidden">
-        {/* Left Sidebar - Level Summary */}
-        <div className="shrink-0 w-72 border-r border-border bg-card/20 p-3 overflow-y-auto">
-          <LevelSummary
-            nodes={graph.globalNodes}
-            edges={graph.edges}
-            onLevelClick={handleLevelClick}
-            isOpen={isLevelSummaryOpen}
-            onOpenChange={setIsLevelSummaryOpen}
-          />
-        </div>
-
         {/* Graph Area */}
         <div className="flex-1 relative">
           <GraphCanvas
             nodes={graph.globalNodes}
             edges={graph.edges}
-            courseNodeIds={courseNodeIds}
             selectedNodeId={selectedNodeId}
             onNodeSelect={setSelectedNodeId}
             highlightedPath={highlightedPath}
-            focusLevel={focusLevel}
           />
 
           {/* Floating info when path is selected */}
@@ -242,12 +206,6 @@ export function KnowledgeGraphApp() {
           </div>
         )}
       </div>
-
-      <QuestionInputPanel
-        isOpen={isInputPanelOpen}
-        onClose={() => setIsInputPanelOpen(false)}
-        onGraphGenerated={handleGraphGenerated}
-      />
     </div>
   );
 }
