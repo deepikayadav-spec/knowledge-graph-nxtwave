@@ -170,6 +170,16 @@ targetAssessmentLevel: 1-4 (1=Recognition, 2=Recall simple, 3=Recall complex, 4=
 
 Output ONLY valid JSON, no explanation.`;
 
+function isLikelyTruncatedJson(text: string): boolean {
+  // Heuristic: if braces/brackets are unbalanced, the output was probably cut off.
+  // This avoids treating "repairable" JSON issues as truncation.
+  const openCurly = (text.match(/\{/g) || []).length;
+  const closeCurly = (text.match(/\}/g) || []).length;
+  const openSquare = (text.match(/\[/g) || []).length;
+  const closeSquare = (text.match(/\]/g) || []).length;
+  return openCurly !== closeCurly || openSquare !== closeSquare;
+}
+
 function extractJsonFromResponse(response: string): any {
   // Step 1: Remove markdown code blocks
   let cleaned = response
@@ -194,6 +204,16 @@ function extractJsonFromResponse(response: string): any {
     cleaned = cleaned.substring(jsonStart, jsonEnd + 1);
   }
 
+  // Step 2.5: Normalize whitespace.
+  // Gemini occasionally returns *literal* newlines inside string values, which is invalid JSON.
+  // Replacing line breaks with spaces preserves content while making JSON parseable.
+  cleaned = cleaned
+    .replace(/\r\n/g, "\n")
+    .replace(/\r/g, "\n")
+    .replace(/\n+/g, " ")
+    .replace(/\t+/g, " ")
+    .trim();
+
   // Step 3: Attempt parse with error handling
   try {
     return JSON.parse(cleaned);
@@ -210,6 +230,13 @@ function extractJsonFromResponse(response: string): any {
     } catch (finalError) {
       console.error("Failed to parse JSON even after fixes. First 500 chars:", cleaned.substring(0, 500));
       console.error("Last 500 chars:", cleaned.substring(cleaned.length - 500));
+
+      if (isLikelyTruncatedJson(cleaned)) {
+        throw new Error(
+          "AI response appears truncated (incomplete JSON). Try reducing the number of questions or splitting them into smaller batches."
+        );
+      }
+
       throw new Error(`Failed to parse AI response as JSON: ${(finalError as Error).message}`);
     }
   }
@@ -239,6 +266,7 @@ Remember:
 - IPA first, then normalize, then prerequisites, then validate
 - Target 5-8 nodes per question with high reuse
 - CME.measured = false and LE.estimated = true (no student data yet)
+- Do NOT include literal newlines inside JSON string values (use spaces instead)
 
 Generate the knowledge graph JSON following all steps.`;
 
@@ -260,6 +288,7 @@ Generate the knowledge graph JSON following all steps.`;
           generationConfig: {
             responseMimeType: "application/json",
             maxOutputTokens: 65536,
+            temperature: 0.2,
           },
         }),
       }
@@ -300,6 +329,15 @@ Generate the knowledge graph JSON following all steps.`;
       graphData = extractJsonFromResponse(content);
     } catch (parseError) {
       console.error("JSON extraction error:", parseError);
+
+      const msg = parseError instanceof Error ? parseError.message : String(parseError);
+      if (msg.toLowerCase().includes("truncated")) {
+        return new Response(JSON.stringify({ error: msg }), {
+          status: 413,
+          headers: { ...corsHeaders, "Content-Type": "application/json" },
+        });
+      }
+
       throw parseError;
     }
 
