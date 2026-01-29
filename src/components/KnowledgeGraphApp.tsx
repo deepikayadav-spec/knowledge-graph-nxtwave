@@ -127,6 +127,7 @@ export function KnowledgeGraphApp() {
         <div className="shrink-0 w-72 border-r border-border bg-card/20 p-3 overflow-y-auto">
           <LevelSummary
             nodes={graph.globalNodes}
+            edges={graph.edges}
             onLevelClick={handleLevelClick}
             isOpen={isLevelSummaryOpen}
             onOpenChange={setIsLevelSummaryOpen}

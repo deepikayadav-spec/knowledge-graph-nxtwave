@@ -1,4 +1,4 @@
-import { GraphNode } from '@/types/graph';
+import { GraphNode, NodeType, NODE_TYPE_COLORS } from '@/types/graph';
 import { cn } from '@/lib/utils';
 
 interface GraphNodeComponentProps {
@@ -6,33 +6,36 @@ interface GraphNodeComponentProps {
   x: number;
   y: number;
   state: 'default' | 'selected' | 'highlighted' | 'hovered' | 'dimmed' | 'connected';
+  nodeType: NodeType;
   onClick: () => void;
   onDoubleClick: () => void;
   onMouseEnter: () => void;
   onMouseLeave: () => void;
 }
 
-const levelColors = [
-  'hsl(173, 58%, 39%)',  // Level 0 - Teal
-  'hsl(199, 89%, 48%)',  // Level 1 - Sky blue
-  'hsl(221, 83%, 53%)',  // Level 2 - Blue
-  'hsl(262, 83%, 58%)',  // Level 3 - Purple
-  'hsl(292, 84%, 61%)',  // Level 4 - Magenta
-  'hsl(330, 81%, 60%)',  // Level 5 - Pink
-];
+// Calculate node radius based on Learning Effort (LE)
+const getNodeRadius = (le: number) => {
+  const baseRadius = 22;
+  const maxRadius = 40;
+  const leMin = 10;
+  const leMax = 80;
+  const normalized = Math.max(0, Math.min(1, (le - leMin) / (leMax - leMin)));
+  return baseRadius + normalized * (maxRadius - baseRadius);
+};
 
 export function GraphNodeComponent({
   node,
   x,
   y,
   state,
+  nodeType,
   onClick,
   onDoubleClick,
   onMouseEnter,
   onMouseLeave,
 }: GraphNodeComponentProps) {
-  const nodeRadius = 28;
-  const levelColor = levelColors[node.level] || levelColors[5];
+  const nodeRadius = getNodeRadius(node.le.finalLE);
+  const nodeColor = NODE_TYPE_COLORS[nodeType];
 
   const getOpacity = () => {
     switch (state) {
@@ -65,7 +68,7 @@ export function GraphNodeComponent({
       case 'highlighted':
         return 'hsl(173, 58%, 39%)';
       case 'hovered':
-        return levelColor;
+        return nodeColor;
       case 'connected':
         return 'hsl(199, 89%, 48%)';
       default:
@@ -90,6 +93,9 @@ export function GraphNodeComponent({
   const displayName = node.name.length > 25 
     ? node.name.substring(0, 22) + '...' 
     : node.name;
+
+  // CME normalized value (0-1)
+  const cmeValue = (node.cme.highestConceptLevel / 7).toFixed(1);
 
   return (
     <g
@@ -133,57 +139,55 @@ export function GraphNodeComponent({
         />
       )}
 
-      {/* Main node circle */}
+      {/* Main node circle with gradient based on node type */}
+      <defs>
+        <radialGradient id={`gradient-${node.id}`} cx="30%" cy="30%">
+          <stop offset="0%" stopColor="white" stopOpacity="0.9" />
+          <stop offset="100%" stopColor={nodeColor} stopOpacity="0.15" />
+        </radialGradient>
+      </defs>
+      
       <circle
         cx={0}
         cy={0}
         r={nodeRadius}
-        fill="white"
-        stroke={getStrokeColor()}
+        fill={`url(#gradient-${node.id})`}
+        stroke={state === 'default' ? nodeColor : getStrokeColor()}
         strokeWidth={getStrokeWidth()}
         className="transition-all duration-200"
         filter="drop-shadow(0 2px 4px rgba(0,0,0,0.1))"
       />
 
-      {/* Level indicator */}
+      {/* Node type indicator (colored inner ring) */}
       <circle
         cx={0}
-        cy={-nodeRadius + 6}
-        r={8}
-        fill={levelColor}
-        stroke="white"
+        cy={0}
+        r={nodeRadius - 4}
+        fill="none"
+        stroke={nodeColor}
         strokeWidth={2}
+        opacity={0.3}
       />
-      <text
-        x={0}
-        y={-nodeRadius + 10}
-        textAnchor="middle"
-        fontSize={9}
-        fontWeight="600"
-        fill="white"
-      >
-        {node.level}
-      </text>
 
-      {/* CME indicator (mastery level) */}
-      <g transform={`translate(${nodeRadius - 8}, ${-nodeRadius + 6})`}>
-        <circle r={7} fill="hsl(222, 47%, 20%)" stroke="white" strokeWidth={1.5} />
+      {/* CME badge (top right) */}
+      <g transform={`translate(${nodeRadius - 6}, ${-nodeRadius + 6})`}>
+        <circle r={10} fill="hsl(222, 47%, 20%)" stroke="white" strokeWidth={1.5} />
         <text
-          y={3}
+          y={4}
           textAnchor="middle"
-          fontSize={8}
+          fontSize={9}
           fontWeight="600"
           fill="white"
         >
-          {node.cme.highestConceptLevel}
+          {cmeValue}
         </text>
       </g>
 
       {/* Node label */}
       <foreignObject
-        x={-50}
+        x={-55}
         y={nodeRadius + 4}
-        width={100}
+        width={110}
         height={40}
       >
         <div className="flex items-start justify-center">

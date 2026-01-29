@@ -57,6 +57,25 @@ export const LEVEL_LABELS = [
   'Articulation',
 ];
 
+// Labels for prerequisite-computed levels (used for graph layout)
+export const COMPUTED_LEVEL_LABELS = [
+  'Foundational',
+  'Building Blocks',
+  'Core Skills',
+  'Applied Skills',
+  'Advanced',
+  'Expert',
+  'Mastery',
+];
+
+export type NodeType = 'root' | 'intermediate' | 'leaf';
+
+export const NODE_TYPE_COLORS = {
+  root: 'hsl(152, 69%, 41%)',        // Green - Foundational
+  intermediate: 'hsl(262, 83%, 58%)', // Purple - Middle
+  leaf: 'hsl(35, 92%, 53%)',          // Orange - Advanced
+};
+
 export const INDEPENDENCE_COLORS = {
   'Independent': 'hsl(var(--node-level-0))',
   'Lightly Scaffolded': 'hsl(var(--node-level-2))',

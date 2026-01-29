@@ -1,5 +1,5 @@
 import { useMemo } from 'react';
-import { GraphNode, LEVEL_LABELS } from '@/types/graph';
+import { GraphNode, GraphEdge, COMPUTED_LEVEL_LABELS } from '@/types/graph';
 import { ChevronDown, ChevronRight, Layers } from 'lucide-react';
 import { Progress } from '@/components/ui/progress';
 import {
@@ -11,6 +11,7 @@ import { cn } from '@/lib/utils';
 
 interface LevelSummaryProps {
   nodes: GraphNode[];
+  edges: GraphEdge[];
   onLevelClick: (level: number) => void;
   isOpen: boolean;
   onOpenChange: (open: boolean) => void;
@@ -26,30 +27,64 @@ interface LevelStats {
 
 export function LevelSummary({
   nodes,
+  edges,
   onLevelClick,
   isOpen,
   onOpenChange,
 }: LevelSummaryProps) {
+  // Compute levels based on prerequisites (same logic as GraphCanvas)
+  const computedLevels = useMemo(() => {
+    const inDegree: Record<string, Set<string>> = {};
+    
+    edges.forEach(edge => {
+      if (!inDegree[edge.to]) inDegree[edge.to] = new Set();
+      inDegree[edge.to].add(edge.from);
+    });
+    
+    const levels: Record<string, number> = {};
+    
+    const getLevel = (nodeId: string, visited: Set<string>): number => {
+      if (levels[nodeId] !== undefined) return levels[nodeId];
+      if (visited.has(nodeId)) return 0;
+      
+      visited.add(nodeId);
+      const prereqs = inDegree[nodeId];
+      if (!prereqs || prereqs.size === 0) {
+        levels[nodeId] = 0;
+      } else {
+        const maxPrereqLevel = Math.max(
+          ...Array.from(prereqs).map(p => getLevel(p, new Set(visited)))
+        );
+        levels[nodeId] = maxPrereqLevel + 1;
+      }
+      return levels[nodeId];
+    };
+    
+    nodes.forEach(node => getLevel(node.id, new Set()));
+    return levels;
+  }, [nodes, edges]);
+
   const levelStats = useMemo(() => {
     const stats: Record<number, LevelStats> = {};
 
     nodes.forEach((node) => {
-      if (!stats[node.level]) {
-        stats[node.level] = {
-          level: node.level,
-          name: LEVEL_LABELS[node.level] || `Level ${node.level}`,
+      const level = computedLevels[node.id] ?? 0;
+      if (!stats[level]) {
+        stats[level] = {
+          level,
+          name: COMPUTED_LEVEL_LABELS[level] || `Level ${level}`,
           nodeCount: 0,
           masteredCount: 0,
           masteryPercent: 0,
         };
       }
-      stats[node.level].nodeCount++;
+      stats[level].nodeCount++;
       // Consider "mastered" if highest concept level >= 5 and independence is "Independent"
       if (
         node.cme.highestConceptLevel >= 5 &&
         node.cme.independence === 'Independent'
       ) {
-        stats[node.level].masteredCount++;
+        stats[level].masteredCount++;
       }
     });
 
@@ -60,12 +95,21 @@ export function LevelSummary({
       );
     });
 
-    return Object.values(stats).sort((a, b) => a.level - b.level);
-  }, [nodes]);
+    // Sort by level descending (advanced at top)
+    return Object.values(stats).sort((a, b) => b.level - a.level);
+  }, [nodes, computedLevels]);
 
   const totalMastered = levelStats.reduce((sum, s) => sum + s.masteredCount, 0);
   const totalNodes = nodes.length;
   const overallPercent = Math.round((totalMastered / totalNodes) * 100) || 0;
+
+  // Color based on level position
+  const getLevelColor = (level: number) => {
+    const maxLevel = Math.max(...levelStats.map(s => s.level), 1);
+    if (level === 0) return 'hsl(152, 69%, 41%)'; // Green for foundational
+    if (level === maxLevel) return 'hsl(35, 92%, 53%)'; // Orange for advanced
+    return 'hsl(262, 83%, 58%)'; // Purple for intermediate
+  };
 
   return (
     <Collapsible open={isOpen} onOpenChange={onOpenChange}>
@@ -76,7 +120,7 @@ export function LevelSummary({
           </div>
           <div className="flex-1 text-left">
             <div className="text-sm font-medium text-foreground">
-              Level Summary
+              Prerequisite Levels
             </div>
             <div className="text-xs text-muted-foreground">
               {totalMastered}/{totalNodes} concepts mastered
@@ -107,7 +151,7 @@ export function LevelSummary({
               <div
                 className="w-6 h-6 rounded-full flex items-center justify-center text-xs font-semibold text-white"
                 style={{
-                  backgroundColor: `hsl(${173 + stat.level * 25} 58% 45%)`,
+                  backgroundColor: getLevelColor(stat.level),
                 }}
               >
                 {stat.level}

@@ -1,5 +1,5 @@
 import { useCallback, useMemo, useState, useRef, useEffect } from 'react';
-import { GraphNode, GraphEdge } from '@/types/graph';
+import { GraphNode, GraphEdge, NodeType } from '@/types/graph';
 import { GraphNodeComponent } from './GraphNode';
 import { GraphEdgeComponent } from './GraphEdge';
 import { LevelBand } from './LevelBand';
@@ -47,32 +47,95 @@ export function GraphCanvas({
   const containerRef = useRef<HTMLDivElement>(null);
   const svgRef = useRef<SVGSVGElement>(null);
 
-  // Group nodes by level
+  // Compute levels based on prerequisite relationships
+  const computedLevels = useMemo(() => {
+    const inDegree: Record<string, Set<string>> = {};
+    
+    // Build prerequisite map: edge.from is prerequisite of edge.to
+    edges.forEach(edge => {
+      if (!inDegree[edge.to]) inDegree[edge.to] = new Set();
+      inDegree[edge.to].add(edge.from);
+    });
+    
+    const levels: Record<string, number> = {};
+    
+    // Level = 0 for nodes with no prerequisites
+    // Level = 1 + max(level of all prerequisites)
+    const getLevel = (nodeId: string, visited: Set<string>): number => {
+      if (levels[nodeId] !== undefined) return levels[nodeId];
+      if (visited.has(nodeId)) return 0; // Cycle detection
+      
+      visited.add(nodeId);
+      const prereqs = inDegree[nodeId];
+      if (!prereqs || prereqs.size === 0) {
+        levels[nodeId] = 0;
+      } else {
+        const maxPrereqLevel = Math.max(
+          ...Array.from(prereqs).map(p => getLevel(p, new Set(visited)))
+        );
+        levels[nodeId] = maxPrereqLevel + 1;
+      }
+      return levels[nodeId];
+    };
+    
+    nodes.forEach(node => getLevel(node.id, new Set()));
+    return levels;
+  }, [nodes, edges]);
+
+  // Determine node types based on graph position
+  const nodeTypes = useMemo(() => {
+    const types: Record<string, NodeType> = {};
+    const hasPrerequisites = new Set<string>();
+    const hasDependents = new Set<string>();
+    
+    edges.forEach(edge => {
+      hasPrerequisites.add(edge.to);
+      hasDependents.add(edge.from);
+    });
+    
+    nodes.forEach(node => {
+      const isRoot = !hasPrerequisites.has(node.id);
+      const isLeaf = !hasDependents.has(node.id);
+      
+      if (isRoot) {
+        types[node.id] = 'root';
+      } else if (isLeaf) {
+        types[node.id] = 'leaf';
+      } else {
+        types[node.id] = 'intermediate';
+      }
+    });
+    
+    return types;
+  }, [nodes, edges]);
+
+  // Group nodes by computed level
   const levelGroups = useMemo(() => {
     const groups: Record<number, GraphNode[]> = {};
     nodes.forEach((node) => {
-      if (!groups[node.level]) {
-        groups[node.level] = [];
+      const level = computedLevels[node.id] ?? 0;
+      if (!groups[level]) {
+        groups[level] = [];
       }
-      groups[node.level].push(node);
+      groups[level].push(node);
     });
     return groups;
-  }, [nodes]);
+  }, [nodes, computedLevels]);
 
   // Calculate canvas dimensions based on content
   const { canvasWidth, canvasHeight, levels } = useMemo(() => {
-    const levels = Object.keys(levelGroups)
+    const allLevels = Object.keys(levelGroups)
       .map(Number)
-      .sort((a, b) => a - b);
+      .sort((a, b) => b - a); // Reverse sort: highest level at top
     const maxNodesAtLevel = Math.max(
       ...Object.values(levelGroups).map((g) => g.length),
       1
     );
 
     const width = Math.max(1000, LEFT_MARGIN + maxNodesAtLevel * NODE_SPACING + 100);
-    const height = Math.max(600, TOP_MARGIN + (levels.length) * LEVEL_HEIGHT + 60);
+    const height = Math.max(600, TOP_MARGIN + (allLevels.length) * LEVEL_HEIGHT + 60);
 
-    return { canvasWidth: width, canvasHeight: height, levels };
+    return { canvasWidth: width, canvasHeight: height, levels: allLevels };
   }, [levelGroups]);
 
   // Calculate node positions based on level
@@ -332,6 +395,7 @@ export function GraphCanvas({
                   x={pos.x}
                   y={pos.y}
                   state={getNodeState(node.id)}
+                  nodeType={nodeTypes[node.id] || 'intermediate'}
                   onClick={() => onNodeSelect(node.id)}
                   onDoubleClick={() => handleNodeDoubleClick(node.id)}
                   onMouseEnter={() => setHoveredNodeId(node.id)}
