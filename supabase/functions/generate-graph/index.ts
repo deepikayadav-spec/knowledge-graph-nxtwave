@@ -89,8 +89,8 @@ ${questions.map((q: string, i: number) => `${i + 1}. ${q}`).join('\n')}
 
 Analyze these questions and generate the knowledge graph JSON.`;
 
-    // Use gemini-1.5-flash by default (can switch to gemini-1.5-pro or gemini-2.0-flash)
-    const model = "gemini-1.5-flash";
+    // Use gemini-2.0-flash (fast and capable)
+    const model = "gemini-2.0-flash";
     const response = await fetch(
       `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${GEMINI_API_KEY}`,
       {
