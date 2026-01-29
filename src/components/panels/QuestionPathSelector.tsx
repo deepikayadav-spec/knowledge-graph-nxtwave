@@ -7,12 +7,26 @@ import {
   DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu';
 import { Badge } from '@/components/ui/badge';
+import { QuestionPath } from '@/types/graph';
 
 interface QuestionPathSelectorProps {
-  questions: Record<string, string[]>;
+  questions: Record<string, QuestionPath | string[]>;
   selectedQuestion: string | null;
   onQuestionSelect: (question: string | null) => void;
 }
+
+// Helper to get the path array from either format
+const getPathArray = (path: QuestionPath | string[]): string[] => {
+  if (Array.isArray(path)) {
+    return path;
+  }
+  return path.executionOrder || path.requiredNodes || [];
+};
+
+// Helper to get step count
+const getStepCount = (path: QuestionPath | string[]): number => {
+  return getPathArray(path).length;
+};
 
 export function QuestionPathSelector({
   questions,
@@ -45,8 +59,16 @@ export function QuestionPathSelector({
               <span className="text-sm">{question}</span>
               <div className="flex items-center gap-1">
                 <Badge variant="secondary" className="text-xs">
-                  {questions[question].length} steps
+                  {getStepCount(questions[question])} steps
                 </Badge>
+                {!Array.isArray(questions[question]) && (questions[question] as QuestionPath).validationStatus && (
+                  <Badge 
+                    variant={(questions[question] as QuestionPath).validationStatus === 'valid' ? 'default' : 'destructive'} 
+                    className="text-xs"
+                  >
+                    {(questions[question] as QuestionPath).validationStatus}
+                  </Badge>
+                )}
               </div>
             </DropdownMenuItem>
           ))}

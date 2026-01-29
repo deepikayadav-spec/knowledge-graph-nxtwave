@@ -5,69 +5,170 @@ const corsHeaders = {
   "Access-Control-Allow-Headers": "authorization, x-client-info, apikey, content-type",
 };
 
-const systemPrompt = `You are a Learning Knowledge-Graph Engine that analyzes coding questions to build cognitive capability graphs.
+const systemPrompt = `You are a Knowledge Graph Engineer that analyzes coding questions to build cognitive capability graphs following the Math Academy methodology.
 
-You receive a course name and a list of coding questions. You must output a valid JSON knowledge graph.
+=== CRITICAL PRINCIPLES ===
 
-CRITICAL RULES:
-- Nodes are COGNITIVE CAPABILITIES, not topics (e.g., "Checking whether a key exists" NOT "Dictionaries")
-- Nodes must be teachable, assessable, and reusable
-- Structure comes from IPA (mental steps to solve) + LTA (prerequisites)
+1. ATOMIC KNOWLEDGE POINTS
+   Each node must represent ONE cognitive operation that can be:
+   - Taught in isolation (with prerequisites)
+   - Assessed with a single question
+   - Described in one sentence starting with a verb
+
+   WRONG: "Working with dictionaries" (topic, not skill)
+   WRONG: "Counting word frequencies" (composite operation)
+   RIGHT: "Initializing an empty dictionary"
+   RIGHT: "Checking if a key exists in a dictionary"
+   RIGHT: "Incrementing a numeric value at a key"
+
+2. GRANULARITY TEST
+   For each proposed node, ask: "Can I split this further?"
+   If yes, split it. If you reach operations like "using the + operator",
+   you've gone too fine - those are language primitives, not teachable skills.
+
+   TOO COARSE (BAD):
+   - "Dictionary operations" - Topic, not skill
+   - "Counting frequencies" - Composite of 5+ skills
+   - "Data manipulation" - Vague category
+
+   JUST RIGHT (GOOD):
+   - "Initializing an empty dictionary" - One action
+   - "Checking if key exists in dictionary" - One decision
+   - "Appending to a list value in a dictionary" - One operation
+   - "Retrieving value with default fallback" - One operation
+
+   TOO FINE (BAD):
+   - "Using the [] operator" - Language primitive
+   - "Typing a variable name" - Too mechanical
+   - "Understanding what = means" - Too basic
+
+3. PREREQUISITE PRECISION
+   A prerequisite edge means: "You CANNOT learn B without knowing A"
+   NOT: "A is related to B" or "A is commonly used with B"
+   
+   Prerequisite Criteria:
+   - NECESSARY: Cannot learn B without knowing A
+   - DIRECT: A is immediately used in B, not transitively
+   - MINIMAL: Don't include A if A's prerequisites also cover it
+
+=== PROCESS (Follow these 4 steps) ===
+
+STEP 1: IPA (Information Processing Analysis)
+For each question, list every cognitive step in execution order:
+- What must be RECOGNIZED? (patterns, problem types)
+- What must be RECALLED? (syntax, methods, concepts)
+- What must be APPLIED? (combining knowledge to write code)
+- What DECISIONS are made? (conditionals, edge cases)
+
+STEP 2: NORMALIZE
+- Group identical operations across questions
+- Create ONE knowledge point for each unique operation
+- Verify atomicity: can this be split further? If yes, split it.
+
+STEP 3: BUILD PREREQUISITES
+- For each knowledge point, list what must be known BEFORE
+- Include ONLY direct prerequisites (not transitive)
+- Write specific reasons for each edge
 - Level(node) = 0 if no prerequisites, else 1 + max(level of all prerequisites)
 
-PROCESS:
-1. For each question, identify the mental steps (IPA) needed to solve it
-2. Normalize and merge identical operations across questions
-3. Create concept nodes for each cognitive capability
-4. Define prerequisite edges with reasons
-5. Compute levels based on prerequisites
-6. Assign realistic CME (Concept Mastery Evidence) and LE (Learning Effort) metrics
+STEP 4: VALIDATE
+- Trace each question through its knowledge points
+- Verify prerequisites are satisfied in order
+- Flag any missing nodes or broken paths
 
-OUTPUT FORMAT (strict JSON only, no markdown):
+=== DECOMPOSITION EXAMPLE ===
+
+Original: "Counting word frequencies in text"
+
+Decomposed into atomic nodes:
+1. "Recognizing frequency-counting pattern" (RECOGNIZE)
+2. "Splitting string into word list" (APPLY)
+3. "Initializing empty frequency dictionary" (APPLY)
+4. "Iterating through a list" (APPLY - reused)
+5. "Checking key existence in dictionary" (APPLY - reused)
+6. "Incrementing numeric value at key" (APPLY)
+7. "Inserting new key with initial value" (APPLY)
+
+Nodes 4, 5, 6, 7 are REUSABLE across many questions.
+
+=== OUTPUT FORMAT (strict JSON only, no markdown) ===
+
 {
+  "ipaByQuestion": {
+    "Question text": [
+      {"step": 1, "type": "RECOGNIZE", "operation": "Need to track frequencies"},
+      {"step": 2, "type": "RECALL", "operation": "Dictionary is appropriate for key-value mapping"}
+    ]
+  },
+  
   "globalNodes": [
     {
       "id": "snake_case_id",
-      "name": "Cognitive capability name",
+      "name": "Verb-phrase describing the cognitive operation",
       "level": 0,
-      "description": "Brief explanation of what this capability is",
+      "description": "One sentence explanation",
+      "knowledgePoint": {
+        "atomicityCheck": "Why this cannot be split further",
+        "assessmentExample": "Sample question testing ONLY this skill",
+        "targetAssessmentLevel": 3,
+        "appearsInQuestions": ["Question 1", "Question 3"]
+      },
       "cme": {
-        "highestConceptLevel": 4,
-        "levelLabels": ["Recognition", "Recall (simple)", "Recall (complex)", "Direct application", "Complex application", "Transfer", "Articulation"],
-        "independence": "Independent",
-        "retention": "Current",
-        "evidenceByLevel": { "1": 100, "2": 85, "3": 70, "4": 50 }
+        "measured": false,
+        "highestConceptLevel": 0,
+        "levelLabels": ["Recognition", "Recall (simple)", "Recall (complex)", "Direct application"],
+        "independence": "Unknown",
+        "retention": "Unknown",
+        "evidenceByLevel": {}
       },
       "le": {
-        "passiveTime": 10,
-        "activeTime": 20,
-        "weightedEngagementTime": 25,
-        "persistenceSignals": { "reattemptAfterWrong": true, "returnAfterExit": false },
-        "persistenceFactor": 0.25,
-        "finalLE": 31.25
+        "estimated": true,
+        "estimatedMinutes": 15
       }
     }
   ],
+  
   "edges": [
-    { "from": "prerequisite_node_id", "to": "dependent_node_id", "reason": "Why this prerequisite is needed" }
+    {
+      "from": "prereq_id",
+      "to": "dependent_id",
+      "reason": "Specific reason why from must come before to",
+      "relationshipType": "requires"
+    }
   ],
+  
+  "questionPaths": {
+    "Question text": {
+      "requiredNodes": ["node1", "node2"],
+      "executionOrder": ["node1", "node2"],
+      "validationStatus": "valid"
+    }
+  },
+  
   "courses": {
     "Course Name": {
       "nodes": [
-        { "id": "node_id", "inCourse": true }
+        {"id": "node_id", "inCourse": true}
       ]
     }
-  },
-  "questionPaths": {
-    "Question 1 title": ["node1", "node2", "node3"]
   }
 }
 
-Independence values: "Independent", "Lightly Scaffolded", "Heavily Assisted"
-Retention values: "Current", "Aging", "Expired"
-Concept Levels 1-7: Recognition, Recall (simple), Recall (complex), Direct application, Complex application, Transfer, Articulation
+=== QUALITY CHECKS (Perform before output) ===
 
-Generate 5-15 nodes with meaningful prerequisite relationships. Output ONLY valid JSON, no explanation.`;
+1. Atomicity: For each node, verify it can't be split further
+2. Assessment: Verify the assessment example tests ONLY that skill
+3. Prerequisites: Verify no circular dependencies
+4. Path: Verify each question's path follows valid prerequisite order
+5. Coverage: Verify all IPA steps map to nodes
+6. Reuse: Aim for 60%+ node reuse across questions
+
+Target: 5-8 atomic nodes per question, with high reuse across questions.
+
+relationshipType values: "requires" | "builds_on" | "extends"
+targetAssessmentLevel: 1-4 (1=Recognition, 2=Recall simple, 3=Recall complex, 4=Direct application)
+
+Output ONLY valid JSON, no explanation.`;
 
 serve(async (req) => {
   if (req.method === "OPTIONS") {
@@ -82,14 +183,22 @@ serve(async (req) => {
       throw new Error("GEMINI_API_KEY is not configured");
     }
 
+    console.log(`Generating graph for course: ${courseName} with ${questions.length} questions`);
+
     const userPrompt = `Course: ${courseName}
 
-Questions:
+Questions to analyze:
 ${questions.map((q: string, i: number) => `${i + 1}. ${q}`).join('\n')}
 
-Analyze these questions and generate the knowledge graph JSON.`;
+Remember:
+- Each node = ONE atomic cognitive operation
+- Apply the granularity test: "Can I split this further?"
+- IPA first, then normalize, then prerequisites, then validate
+- Target 5-8 nodes per question with high reuse
+- CME.measured = false and LE.estimated = true (no student data yet)
 
-    // Use gemini-2.0-flash (fast and capable)
+Generate the knowledge graph JSON following all steps.`;
+
     const model = "gemini-2.0-flash";
     const response = await fetch(
       `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${GEMINI_API_KEY}`,
@@ -141,7 +250,7 @@ Analyze these questions and generate the knowledge graph JSON.`;
       throw new Error("No content in AI response");
     }
 
-    // Parse the JSON from the response, handling potential markdown code blocks
+    // Parse the JSON from the response
     let graphData;
     try {
       const jsonMatch = content.match(/```json\n?([\s\S]*?)\n?```/) || content.match(/```\n?([\s\S]*?)\n?```/);
@@ -151,6 +260,12 @@ Analyze these questions and generate the knowledge graph JSON.`;
       console.error("JSON parse error:", parseError, "Content:", content);
       throw new Error("Failed to parse AI response as JSON");
     }
+
+    // Log analysis stats
+    const nodeCount = graphData.globalNodes?.length || 0;
+    const edgeCount = graphData.edges?.length || 0;
+    const questionCount = Object.keys(graphData.questionPaths || {}).length;
+    console.log(`Generated: ${nodeCount} nodes, ${edgeCount} edges, ${questionCount} question paths`);
 
     return new Response(JSON.stringify(graphData), {
       headers: { ...corsHeaders, "Content-Type": "application/json" },

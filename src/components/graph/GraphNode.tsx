@@ -1,4 +1,4 @@
-import { GraphNode, NodeType, NODE_TYPE_COLORS } from '@/types/graph';
+import { GraphNode, NodeType, NODE_TYPE_COLORS, LE } from '@/types/graph';
 import { cn } from '@/lib/utils';
 
 interface GraphNodeComponentProps {
@@ -13,13 +13,22 @@ interface GraphNodeComponentProps {
   onMouseLeave: () => void;
 }
 
+// Get effective LE value from either estimated or measured data
+const getEffectiveLE = (le: LE): number => {
+  if (le.estimated) {
+    return le.estimatedMinutes;
+  }
+  return le.measuredMinutes || le.finalLE || le.estimatedMinutes || 20;
+};
+
 // Calculate node radius based on Learning Effort (LE)
-const getNodeRadius = (le: number) => {
+const getNodeRadius = (le: LE) => {
+  const leValue = getEffectiveLE(le);
   const baseRadius = 22;
   const maxRadius = 40;
-  const leMin = 10;
-  const leMax = 80;
-  const normalized = Math.max(0, Math.min(1, (le - leMin) / (leMax - leMin)));
+  const leMin = 5;
+  const leMax = 60;
+  const normalized = Math.max(0, Math.min(1, (leValue - leMin) / (leMax - leMin)));
   return baseRadius + normalized * (maxRadius - baseRadius);
 };
 
@@ -34,8 +43,9 @@ export function GraphNodeComponent({
   onMouseEnter,
   onMouseLeave,
 }: GraphNodeComponentProps) {
-  const nodeRadius = getNodeRadius(node.le.finalLE);
+  const nodeRadius = getNodeRadius(node.le);
   const nodeColor = NODE_TYPE_COLORS[nodeType];
+  const isUnmeasured = !node.cme.measured;
 
   const getOpacity = () => {
     switch (state) {
@@ -94,8 +104,10 @@ export function GraphNodeComponent({
     ? node.name.substring(0, 22) + '...' 
     : node.name;
 
-  // CME normalized value (0-1)
-  const cmeValue = (node.cme.highestConceptLevel / 7).toFixed(1);
+  // CME badge value - show target level if unmeasured, else measured level
+  const badgeValue = isUnmeasured 
+    ? `T${node.knowledgePoint?.targetAssessmentLevel || '?'}` 
+    : (node.cme.highestConceptLevel / 7).toFixed(1);
 
   return (
     <g
@@ -170,17 +182,23 @@ export function GraphNodeComponent({
         opacity={0.3}
       />
 
-      {/* CME badge (top right) */}
+      {/* CME/Target badge (top right) */}
       <g transform={`translate(${nodeRadius - 6}, ${-nodeRadius + 6})`}>
-        <circle r={10} fill="hsl(222, 47%, 20%)" stroke="white" strokeWidth={1.5} />
+        <circle 
+          r={10} 
+          fill={isUnmeasured ? "hsl(var(--muted))" : "hsl(222, 47%, 20%)"} 
+          stroke={isUnmeasured ? "hsl(var(--border))" : "white"} 
+          strokeWidth={1.5}
+          strokeDasharray={isUnmeasured ? "2 1" : "none"}
+        />
         <text
           y={4}
           textAnchor="middle"
-          fontSize={9}
+          fontSize={isUnmeasured ? 7 : 9}
           fontWeight="600"
-          fill="white"
+          fill={isUnmeasured ? "hsl(var(--muted-foreground))" : "white"}
         >
-          {cmeValue}
+          {badgeValue}
         </text>
       </g>
 
