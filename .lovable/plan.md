@@ -1,113 +1,48 @@
 
-# Fix JSON Parsing Error in Edge Function
 
-## Problem Analysis
+# Fix Truncated AI Response for Large Question Sets
 
-The edge function is failing with "Failed to parse AI response as JSON" because:
+## Root Cause
 
-1. **Large response size**: Processing 65 questions generates massive JSON output
-2. **Response truncation**: The AI response is getting cut off mid-JSON (visible in logs ending with `....[truncated]`)
-3. **Weak JSON extraction**: Current parsing (lines 253-260) only handles markdown stripping, not:
-   - Truncated responses
-   - Trailing commas
-   - Control characters
-   - Malformed JSON boundaries
+The error occurs because processing **65 questions** generates a JSON response that exceeds Gemini's output token limit. The response gets truncated mid-JSON, and no amount of parsing fixes can recover incomplete data.
+
+Evidence from logs:
+- Error: `Expected ',' or '}' after property value in JSON at position 29752`
+- Last 500 chars show response ends mid-node: `"appearsInQuestions": ["Book Rating Aggregator"]      }` (missing outer closing brackets)
 
 ## Solution
 
-Implement a robust JSON extraction function that:
-1. Removes markdown code blocks
-2. Finds proper JSON boundaries (`{` to `}`)
-3. Handles common JSON formatting issues (trailing commas, control characters)
-4. Provides better error logging for debugging
+Add `maxOutputTokens` to the Gemini generation config to request a larger response size. The Gemini 2.0 Flash model supports up to **8192 output tokens** by default but can be increased.
 
-## Code Changes
+## Code Change
 
-### File: `supabase/functions/generate-graph/index.ts`
+**File:** `supabase/functions/generate-graph/index.ts`
 
-Replace the current JSON parsing logic (lines 251-260) with a robust extraction function:
+Update the `generationConfig` in the API call (around line 260-262):
 
 ```typescript
-// Add this function before the serve() call
-function extractJsonFromResponse(response: string): any {
-  // Step 1: Remove markdown code blocks
-  let cleaned = response
-    .replace(/```json\s*/gi, "")
-    .replace(/```\s*/g, "")
-    .trim();
-
-  // Step 2: Find JSON boundaries
-  const jsonStart = cleaned.indexOf("{");
-  const jsonEnd = cleaned.lastIndexOf("}");
-
-  if (jsonStart === -1 || jsonEnd === -1) {
-    // Check for JSON array as fallback
-    const arrayStart = cleaned.indexOf("[");
-    const arrayEnd = cleaned.lastIndexOf("]");
-
-    if (arrayStart === -1 || arrayEnd === -1) {
-      throw new Error("No JSON object or array found in response");
-    }
-    cleaned = cleaned.substring(arrayStart, arrayEnd + 1);
-  } else {
-    cleaned = cleaned.substring(jsonStart, jsonEnd + 1);
-  }
-
-  // Step 3: Attempt parse with error handling
-  try {
-    return JSON.parse(cleaned);
-  } catch (e) {
-    // Step 4: Try to fix common issues
-    cleaned = cleaned
-      .replace(/,\s*}/g, "}") // Remove trailing commas in objects
-      .replace(/,\s*]/g, "]") // Remove trailing commas in arrays
-      .replace(/[\x00-\x1F\x7F]/g, ""); // Remove control characters
-
-    // Attempt to parse again after fixing
-    try {
-      return JSON.parse(cleaned);
-    } catch (finalError) {
-      console.error("Failed to parse JSON even after fixes. First 500 chars:", cleaned.substring(0, 500));
-      console.error("Last 500 chars:", cleaned.substring(cleaned.length - 500));
-      throw new Error(`Failed to parse AI response as JSON: ${finalError.message}`);
-    }
-  }
-}
+generationConfig: {
+  responseMimeType: "application/json",
+  maxOutputTokens: 65536,  // Request larger output buffer
+},
 ```
 
-Then update the parsing section (lines 251-260) to use this function:
+## Why This Works
 
-```typescript
-// Parse the JSON from the response
-let graphData;
-try {
-  graphData = extractJsonFromResponse(content);
-} catch (parseError) {
-  console.error("JSON extraction error:", parseError);
-  throw parseError;
-}
-```
+| Setting | Default | New Value |
+|---------|---------|-----------|
+| `maxOutputTokens` | 8192 | 65536 |
 
-## What This Fixes
+Gemini 2.0 Flash supports up to **1 million tokens** in context, so requesting 65k output tokens is well within limits for complex multi-question graphs.
 
-| Issue | Before | After |
-|-------|--------|-------|
-| Markdown code blocks | Basic regex strip | Multi-pattern removal |
-| Truncated JSON | Parse fails | Finds valid `{...}` boundaries |
-| Trailing commas | Parse fails | Removes them before parsing |
-| Control characters | Parse fails | Strips them out |
-| Error logging | Logs full content (huge) | Logs first/last 500 chars |
+## What Stays Unchanged
 
-## No Changes To
-
-- The master prompt (systemPrompt) - completely preserved
-- The 4-step IPA methodology
+- The master prompt (all 4 IPA steps)
 - Node granularity guidelines
-- Output format specification
-- Quality checks
+- JSON extraction function
+- All other generation logic
 
-## Files to Modify
+## Alternative Backup (if still failing)
 
-| File | Change |
-|------|--------|
-| `supabase/functions/generate-graph/index.ts` | Add `extractJsonFromResponse()` helper and update parsing logic |
+If responses still truncate, we could add batching logic to process questions in smaller groups. But increasing `maxOutputTokens` should handle 65 questions without issue.
+
