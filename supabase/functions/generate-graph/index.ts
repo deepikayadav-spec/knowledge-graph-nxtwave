@@ -170,6 +170,51 @@ targetAssessmentLevel: 1-4 (1=Recognition, 2=Recall simple, 3=Recall complex, 4=
 
 Output ONLY valid JSON, no explanation.`;
 
+function extractJsonFromResponse(response: string): any {
+  // Step 1: Remove markdown code blocks
+  let cleaned = response
+    .replace(/```json\s*/gi, "")
+    .replace(/```\s*/g, "")
+    .trim();
+
+  // Step 2: Find JSON boundaries
+  const jsonStart = cleaned.indexOf("{");
+  const jsonEnd = cleaned.lastIndexOf("}");
+
+  if (jsonStart === -1 || jsonEnd === -1) {
+    // Check for JSON array as fallback
+    const arrayStart = cleaned.indexOf("[");
+    const arrayEnd = cleaned.lastIndexOf("]");
+
+    if (arrayStart === -1 || arrayEnd === -1) {
+      throw new Error("No JSON object or array found in response");
+    }
+    cleaned = cleaned.substring(arrayStart, arrayEnd + 1);
+  } else {
+    cleaned = cleaned.substring(jsonStart, jsonEnd + 1);
+  }
+
+  // Step 3: Attempt parse with error handling
+  try {
+    return JSON.parse(cleaned);
+  } catch (e) {
+    // Step 4: Try to fix common issues
+    cleaned = cleaned
+      .replace(/,\s*}/g, "}") // Remove trailing commas in objects
+      .replace(/,\s*]/g, "]") // Remove trailing commas in arrays
+      .replace(/[\x00-\x1F\x7F]/g, ""); // Remove control characters
+
+    // Attempt to parse again after fixing
+    try {
+      return JSON.parse(cleaned);
+    } catch (finalError) {
+      console.error("Failed to parse JSON even after fixes. First 500 chars:", cleaned.substring(0, 500));
+      console.error("Last 500 chars:", cleaned.substring(cleaned.length - 500));
+      throw new Error(`Failed to parse AI response as JSON: ${(finalError as Error).message}`);
+    }
+  }
+}
+
 serve(async (req) => {
   if (req.method === "OPTIONS") {
     return new Response(null, { headers: corsHeaders });
@@ -251,12 +296,10 @@ Generate the knowledge graph JSON following all steps.`;
     // Parse the JSON from the response
     let graphData;
     try {
-      const jsonMatch = content.match(/```json\n?([\s\S]*?)\n?```/) || content.match(/```\n?([\s\S]*?)\n?```/);
-      const jsonStr = jsonMatch ? jsonMatch[1] : content;
-      graphData = JSON.parse(jsonStr.trim());
+      graphData = extractJsonFromResponse(content);
     } catch (parseError) {
-      console.error("JSON parse error:", parseError, "Content:", content);
-      throw new Error("Failed to parse AI response as JSON");
+      console.error("JSON extraction error:", parseError);
+      throw parseError;
     }
 
     // Log analysis stats
