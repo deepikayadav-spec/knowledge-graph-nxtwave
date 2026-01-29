@@ -4,16 +4,26 @@ import { NodeDetailPanel } from './panels/NodeDetailPanel';
 import { CourseSelector } from './panels/CourseSelector';
 import { QuestionPathSelector } from './panels/QuestionPathSelector';
 import { LegendPanel } from './panels/LegendPanel';
+import { QuestionInputPanel } from './panels/QuestionInputPanel';
 import { KnowledgeGraph } from '@/types/graph';
 import { sampleGraph } from '@/data/sampleGraph';
-import { Network, Sparkles } from 'lucide-react';
+import { Network, Sparkles, Plus } from 'lucide-react';
 import { Badge } from '@/components/ui/badge';
+import { Button } from '@/components/ui/button';
 
 export function KnowledgeGraphApp() {
-  const [graph] = useState<KnowledgeGraph>(sampleGraph);
+  const [graph, setGraph] = useState<KnowledgeGraph>(sampleGraph);
   const [selectedNodeId, setSelectedNodeId] = useState<string | null>(null);
   const [selectedCourse, setSelectedCourse] = useState<string | null>(null);
   const [selectedQuestion, setSelectedQuestion] = useState<string | null>(null);
+  const [isInputPanelOpen, setIsInputPanelOpen] = useState(false);
+
+  const handleGraphGenerated = (newGraph: KnowledgeGraph) => {
+    setGraph(newGraph);
+    setSelectedNodeId(null);
+    setSelectedCourse(null);
+    setSelectedQuestion(null);
+  };
 
   const selectedNode = useMemo(
     () => graph.globalNodes.find((n) => n.id === selectedNodeId) || null,
@@ -73,6 +83,14 @@ export function KnowledgeGraphApp() {
           </div>
 
           <div className="flex items-center gap-2">
+            <Button
+              onClick={() => setIsInputPanelOpen(true)}
+              className="gap-2"
+              size="sm"
+            >
+              <Plus className="h-4 w-4" />
+              New Graph
+            </Button>
             <LegendPanel />
           </div>
         </div>
@@ -148,6 +166,12 @@ export function KnowledgeGraphApp() {
           </div>
         )}
       </div>
+
+      <QuestionInputPanel
+        isOpen={isInputPanelOpen}
+        onClose={() => setIsInputPanelOpen(false)}
+        onGraphGenerated={handleGraphGenerated}
+      />
     </div>
   );
 }
