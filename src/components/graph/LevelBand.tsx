@@ -1,4 +1,4 @@
-import { LEVEL_LABELS } from '@/types/graph';
+import { COMPUTED_LEVEL_LABELS } from '@/types/graph';
 
 interface LevelBandProps {
   level: number;
@@ -9,17 +9,17 @@ interface LevelBandProps {
 }
 
 const levelBandColors = [
-  'hsl(173 58% 39% / 0.05)',
-  'hsl(199 89% 48% / 0.05)',
-  'hsl(221 83% 53% / 0.05)',
-  'hsl(262 83% 58% / 0.05)',
-  'hsl(292 84% 61% / 0.05)',
-  'hsl(330 81% 60% / 0.05)',
+  'hsl(152 69% 41% / 0.08)',  // Green for foundational
+  'hsl(199 89% 48% / 0.06)',  // Blue
+  'hsl(221 83% 53% / 0.06)',  // Indigo
+  'hsl(262 83% 58% / 0.06)',  // Purple
+  'hsl(35 92% 53% / 0.08)',   // Orange for advanced
+  'hsl(330 81% 60% / 0.06)',
 ];
 
 export function LevelBand({ level, y, height, nodeCount, width }: LevelBandProps) {
-  const bandColor = levelBandColors[level % levelBandColors.length];
-  const levelName = LEVEL_LABELS[level] || `Level ${level}`;
+  const bandColor = levelBandColors[Math.min(level, levelBandColors.length - 1)];
+  const levelName = COMPUTED_LEVEL_LABELS[level] || `Level ${level}`;
 
   return (
     <g className="level-band">
@@ -52,7 +52,7 @@ export function LevelBand({ level, y, height, nodeCount, width }: LevelBandProps
           y={-24}
           width={100}
           height={48}
-          fill="hsl(var(--card) / 0.9)"
+          fill="hsl(var(--card) / 0.95)"
           rx={6}
           className="drop-shadow-sm"
         />
