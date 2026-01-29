@@ -38,14 +38,14 @@ export function GraphEdgeComponent({
   const strokeColor = isHighlighted
     ? 'hsl(173, 58%, 39%)'
     : isHovered
-    ? 'hsl(215, 25%, 55%)'
-    : 'hsl(215, 25%, 75%)';
+    ? 'hsl(220, 20%, 45%)'
+    : 'hsl(220, 20%, 35%)';
 
-  const strokeWidth = isHighlighted ? 3 : isHovered ? 2 : 1.5;
-  const opacity = isHighlighted ? 1 : isHovered ? 0.8 : 0.5;
+  const strokeWidth = isHighlighted ? 4 : isHovered ? 3 : 2.5;
+  const opacity = isHighlighted ? 1 : isHovered ? 0.85 : 0.7;
 
   // Arrow marker
-  const arrowSize = 6;
+  const arrowSize = 8;
   const arrowAngle = Math.atan2(endY - controlY, endX - controlX);
 
   return (
