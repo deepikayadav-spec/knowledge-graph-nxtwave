@@ -1,0 +1,5 @@
+project_id = "bnhjwunylcjguqqdwjwr"
+
+[functions.generate-graph]
+enabled = true
+verify_jwt = false
