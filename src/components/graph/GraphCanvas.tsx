@@ -257,9 +257,12 @@ export function GraphCanvas({
     }));
   }, []);
 
-  // Pan handlers
+  // Pan handlers - allow dragging from anywhere except nodes
   const handleMouseDown = useCallback((e: React.MouseEvent) => {
-    if (e.button === 0 && (e.target as SVGElement).tagName === 'svg') {
+    const target = e.target as SVGElement;
+    const isNode = target.closest('[data-node-id]');
+    
+    if (e.button === 0 && !isNode) {
       setIsDragging(true);
       setDragStart({ x: e.clientX - transform.x, y: e.clientY - transform.y });
     }
