@@ -1,10 +1,11 @@
-import { useState, useMemo } from 'react';
+import { useState, useMemo, useCallback } from 'react';
 import { GraphCanvas } from './graph/GraphCanvas';
 import { NodeDetailPanel } from './panels/NodeDetailPanel';
 import { CourseSelector } from './panels/CourseSelector';
 import { QuestionPathSelector } from './panels/QuestionPathSelector';
 import { LegendPanel } from './panels/LegendPanel';
 import { QuestionInputPanel } from './panels/QuestionInputPanel';
+import { LevelSummary } from './panels/LevelSummary';
 import { KnowledgeGraph } from '@/types/graph';
 import { sampleGraph } from '@/data/sampleGraph';
 import { Network, Sparkles, Plus } from 'lucide-react';
@@ -17,6 +18,8 @@ export function KnowledgeGraphApp() {
   const [selectedCourse, setSelectedCourse] = useState<string | null>(null);
   const [selectedQuestion, setSelectedQuestion] = useState<string | null>(null);
   const [isInputPanelOpen, setIsInputPanelOpen] = useState(false);
+  const [isLevelSummaryOpen, setIsLevelSummaryOpen] = useState(true);
+  const [focusLevel, setFocusLevel] = useState<number | null>(null);
 
   const handleGraphGenerated = (newGraph: KnowledgeGraph) => {
     setGraph(newGraph);
@@ -24,6 +27,12 @@ export function KnowledgeGraphApp() {
     setSelectedCourse(null);
     setSelectedQuestion(null);
   };
+
+  const handleLevelClick = useCallback((level: number) => {
+    setFocusLevel(level);
+    // Reset after animation
+    setTimeout(() => setFocusLevel(null), 500);
+  }, []);
 
   const selectedNode = useMemo(
     () => graph.globalNodes.find((n) => n.id === selectedNodeId) || null,
@@ -114,6 +123,16 @@ export function KnowledgeGraphApp() {
 
       {/* Main Content */}
       <div className="flex-1 flex overflow-hidden">
+        {/* Left Sidebar - Level Summary */}
+        <div className="shrink-0 w-72 border-r border-border bg-card/20 p-3 overflow-y-auto">
+          <LevelSummary
+            nodes={graph.globalNodes}
+            onLevelClick={handleLevelClick}
+            isOpen={isLevelSummaryOpen}
+            onOpenChange={setIsLevelSummaryOpen}
+          />
+        </div>
+
         {/* Graph Area */}
         <div className="flex-1 relative">
           <GraphCanvas
@@ -123,6 +142,7 @@ export function KnowledgeGraphApp() {
             selectedNodeId={selectedNodeId}
             onNodeSelect={setSelectedNodeId}
             highlightedPath={highlightedPath}
+            focusLevel={focusLevel}
           />
 
           {/* Floating info when path is selected */}
