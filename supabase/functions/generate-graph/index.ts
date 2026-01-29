@@ -170,32 +170,41 @@ targetAssessmentLevel: 1-4 (1=Recognition, 2=Recall simple, 3=Recall complex, 4=
 
 Output ONLY valid JSON, no explanation.`;
 
+// Maximum questions to process at once to avoid truncated responses
+const MAX_QUESTIONS = 15;
+
 serve(async (req) => {
   if (req.method === "OPTIONS") {
     return new Response(null, { headers: corsHeaders });
   }
 
   try {
-    const { courseName, questions } = await req.json();
+    const { courseName, questions: rawQuestions } = await req.json();
     const GEMINI_API_KEY = Deno.env.get("GEMINI_API_KEY");
     
     if (!GEMINI_API_KEY) {
       throw new Error("GEMINI_API_KEY is not configured");
     }
 
-    console.log(`Generating graph for course: ${courseName} with ${questions.length} questions`);
+    // Limit questions to prevent response truncation
+    const questions = rawQuestions.slice(0, MAX_QUESTIONS);
+    const wasLimited = rawQuestions.length > MAX_QUESTIONS;
+    
+    console.log(`Generating graph for course: ${courseName} with ${questions.length} questions${wasLimited ? ` (limited from ${rawQuestions.length})` : ''}`);
 
     const userPrompt = `Course: ${courseName}
 
 Questions to analyze:
 ${questions.map((q: string, i: number) => `${i + 1}. ${q}`).join('\n')}
 
-Remember:
+IMPORTANT CONSTRAINTS:
+- Keep output concise - aim for 15-25 total nodes maximum
 - Each node = ONE atomic cognitive operation
 - Apply the granularity test: "Can I split this further?"
 - IPA first, then normalize, then prerequisites, then validate
-- Target 5-8 nodes per question with high reuse
+- Target 3-5 nodes per question with HIGH REUSE across questions
 - CME.measured = false and LE.estimated = true (no student data yet)
+- For ipaByQuestion, include only 3-5 key steps per question (not every micro-step)
 
 Generate the knowledge graph JSON following all steps.`;
 
@@ -216,6 +225,7 @@ Generate the knowledge graph JSON following all steps.`;
           ],
           generationConfig: {
             responseMimeType: "application/json",
+            maxOutputTokens: 8192, // Limit output to prevent truncation
           },
         }),
       }
@@ -245,9 +255,16 @@ Generate the knowledge graph JSON following all steps.`;
 
     const data = await response.json();
     const content = data.candidates?.[0]?.content?.parts?.[0]?.text;
+    const finishReason = data.candidates?.[0]?.finishReason;
 
     if (!content) {
+      console.error("No content in AI response. Full response:", JSON.stringify(data));
       throw new Error("No content in AI response");
+    }
+
+    // Check if response was truncated
+    if (finishReason === "MAX_TOKENS") {
+      console.warn("Response was truncated due to max tokens limit");
     }
 
     // Parse the JSON from the response
@@ -257,8 +274,16 @@ Generate the knowledge graph JSON following all steps.`;
       const jsonStr = jsonMatch ? jsonMatch[1] : content;
       graphData = JSON.parse(jsonStr.trim());
     } catch (parseError) {
-      console.error("JSON parse error:", parseError, "Content:", content);
-      throw new Error("Failed to parse AI response as JSON");
+      console.error("JSON parse error:", parseError);
+      console.error("Content length:", content.length);
+      console.error("Content preview (first 500 chars):", content.substring(0, 500));
+      console.error("Content end (last 200 chars):", content.substring(content.length - 200));
+      
+      // Check if it looks like truncated JSON
+      if (content.length > 5000 && !content.trim().endsWith('}')) {
+        throw new Error("AI response was truncated. Please try with fewer questions (max 15 recommended).");
+      }
+      throw new Error("Failed to parse AI response as JSON. The response may be malformed.");
     }
 
     // Log analysis stats
@@ -266,6 +291,11 @@ Generate the knowledge graph JSON following all steps.`;
     const edgeCount = graphData.edges?.length || 0;
     const questionCount = Object.keys(graphData.questionPaths || {}).length;
     console.log(`Generated: ${nodeCount} nodes, ${edgeCount} edges, ${questionCount} question paths`);
+
+    // Add warning if questions were limited
+    if (wasLimited) {
+      graphData._warning = `Only first ${MAX_QUESTIONS} questions were processed. Original count: ${rawQuestions.length}`;
+    }
 
     return new Response(JSON.stringify(graphData), {
       headers: { ...corsHeaders, "Content-Type": "application/json" },
