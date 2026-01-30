@@ -3,8 +3,10 @@ import { GraphCanvas } from './graph/GraphCanvas';
 import { NodeDetailPanel } from './panels/NodeDetailPanel';
 import { QuestionPathSelector } from './panels/QuestionPathSelector';
 import { QuickQuestionInput } from './panels/QuickQuestionInput';
+import { GraphManagerPanel } from './panels/GraphManagerPanel';
 import { KnowledgeGraph, QuestionPath } from '@/types/graph';
 import { mergeGraphs } from '@/lib/graph/mergeGraphs';
+import { useGraphPersistence } from '@/hooks/useGraphPersistence';
 
 // Helper to get path array from either format (backward compatible)
 const getPathArray = (path: QuestionPath | string[]): string[] => {
@@ -48,16 +50,55 @@ export function KnowledgeGraphApp() {
   const [selectedQuestion, setSelectedQuestion] = useState<string | null>(null);
   const [isGenerating, setIsGenerating] = useState(false);
 
+  // Graph persistence
+  const {
+    savedGraphs,
+    currentGraphId,
+    setCurrentGraphId,
+    isLoading: isPersistenceLoading,
+    isSaving,
+    saveGraph,
+    loadGraph,
+    deleteGraph,
+  } = useGraphPersistence();
+
   // Clear graph and start fresh
   const handleClearGraph = useCallback(() => {
     setGraph(null);
     setSelectedNodeId(null);
     setSelectedQuestion(null);
+    setCurrentGraphId(null);
     toast({
       title: "Graph cleared",
       description: "You can start building a new knowledge graph.",
     });
-  }, []);
+  }, [setCurrentGraphId]);
+
+  // Save current graph
+  const handleSaveGraph = useCallback(async (name: string, description?: string) => {
+    if (!graph) return;
+    await saveGraph(graph, name, description, currentGraphId || undefined);
+  }, [graph, currentGraphId, saveGraph]);
+
+  // Load a saved graph
+  const handleLoadGraph = useCallback(async (graphId: string) => {
+    const loadedGraph = await loadGraph(graphId);
+    if (loadedGraph) {
+      setGraph(loadedGraph);
+      setSelectedNodeId(null);
+      setSelectedQuestion(null);
+    }
+  }, [loadGraph]);
+
+  // Delete a graph
+  const handleDeleteGraph = useCallback(async (graphId: string) => {
+    const success = await deleteGraph(graphId);
+    if (success && graphId === currentGraphId) {
+      setGraph(null);
+      setSelectedNodeId(null);
+      setSelectedQuestion(null);
+    }
+  }, [deleteGraph, currentGraphId]);
 
   const handleGenerate = useCallback(async (questions: string[]) => {
     setIsGenerating(true);
@@ -131,8 +172,8 @@ export function KnowledgeGraphApp() {
       toast({
         title: graph ? "Graph updated!" : "Graph generated!",
         description: graph 
-          ? `Added ${addedNodes} new concept${addedNodes !== 1 ? 's' : ''} and ${addedEdges} relationship${addedEdges !== 1 ? 's' : ''}. Total: ${newGraph.globalNodes.length} concepts.`
-          : `Created ${newGraph.globalNodes.length} concept nodes with ${newGraph.edges.length} relationships.`,
+          ? `Added ${addedNodes} new skill${addedNodes !== 1 ? 's' : ''} and ${addedEdges} relationship${addedEdges !== 1 ? 's' : ''}. Total: ${newGraph.globalNodes.length} skills.`
+          : `Created ${newGraph.globalNodes.length} skill nodes with ${newGraph.edges.length} relationships.`,
       });
     } catch (error) {
       console.error('Graph generation error:', error);
@@ -181,7 +222,7 @@ export function KnowledgeGraphApp() {
     return (
       <div className="flex flex-col min-h-screen bg-background">
         <header className="shrink-0 border-b border-border bg-card/50 backdrop-blur-sm">
-          <div className="container flex items-center justify-center h-16 px-4">
+          <div className="container flex items-center justify-between h-16 px-4">
             <div className="flex items-center gap-3">
               <div className="flex items-center justify-center w-10 h-10 rounded-xl bg-accent text-accent-foreground">
                 <Network className="h-5 w-5" />
@@ -191,11 +232,23 @@ export function KnowledgeGraphApp() {
                   Knowledge Graph Engine
                   <Badge variant="secondary" className="text-xs font-normal">
                     <Sparkles className="h-3 w-3 mr-1" />
-                    IPA Methodology
+                    Skill Taxonomy
                   </Badge>
                 </h1>
               </div>
             </div>
+            
+            <GraphManagerPanel
+              savedGraphs={savedGraphs}
+              currentGraphId={currentGraphId}
+              hasGraph={false}
+              isLoading={isPersistenceLoading}
+              isSaving={isSaving}
+              onSave={handleSaveGraph}
+              onLoad={handleLoadGraph}
+              onDelete={handleDeleteGraph}
+              onNew={handleClearGraph}
+            />
           </div>
         </header>
 
@@ -222,10 +275,10 @@ export function KnowledgeGraphApp() {
             </div>
             <div>
               <h1 className="text-base font-semibold text-foreground">
-                Knowledge Graph
+                {savedGraphs.find(g => g.id === currentGraphId)?.name || 'Knowledge Graph'}
               </h1>
               <p className="text-xs text-muted-foreground">
-                {stats?.totalNodes} concepts · {stats?.totalEdges} relationships · {stats?.totalQuestions} questions
+                {stats?.totalNodes} skills · {stats?.totalEdges} relationships · {stats?.totalQuestions} questions
               </p>
             </div>
           </div>
@@ -235,6 +288,17 @@ export function KnowledgeGraphApp() {
               questions={graph.questionPaths}
               selectedQuestion={selectedQuestion}
               onQuestionSelect={setSelectedQuestion}
+            />
+            <GraphManagerPanel
+              savedGraphs={savedGraphs}
+              currentGraphId={currentGraphId}
+              hasGraph={true}
+              isLoading={isPersistenceLoading}
+              isSaving={isSaving}
+              onSave={handleSaveGraph}
+              onLoad={handleLoadGraph}
+              onDelete={handleDeleteGraph}
+              onNew={handleClearGraph}
             />
             <Button
               variant="outline"

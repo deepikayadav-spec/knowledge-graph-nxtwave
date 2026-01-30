@@ -14,7 +14,150 @@ export type Database = {
   }
   public: {
     Tables: {
-      [_ in never]: never
+      knowledge_graphs: {
+        Row: {
+          created_at: string | null
+          description: string | null
+          id: string
+          name: string
+          total_questions: number | null
+          total_skills: number | null
+          updated_at: string | null
+        }
+        Insert: {
+          created_at?: string | null
+          description?: string | null
+          id?: string
+          name: string
+          total_questions?: number | null
+          total_skills?: number | null
+          updated_at?: string | null
+        }
+        Update: {
+          created_at?: string | null
+          description?: string | null
+          id?: string
+          name?: string
+          total_questions?: number | null
+          total_skills?: number | null
+          updated_at?: string | null
+        }
+        Relationships: []
+      }
+      questions: {
+        Row: {
+          created_at: string | null
+          graph_id: string
+          id: string
+          primary_skill: string | null
+          question_text: string
+          skills: string[]
+        }
+        Insert: {
+          created_at?: string | null
+          graph_id: string
+          id?: string
+          primary_skill?: string | null
+          question_text: string
+          skills?: string[]
+        }
+        Update: {
+          created_at?: string | null
+          graph_id?: string
+          id?: string
+          primary_skill?: string | null
+          question_text?: string
+          skills?: string[]
+        }
+        Relationships: [
+          {
+            foreignKeyName: "questions_graph_id_fkey"
+            columns: ["graph_id"]
+            isOneToOne: false
+            referencedRelation: "knowledge_graphs"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      skill_edges: {
+        Row: {
+          from_skill: string
+          graph_id: string
+          id: string
+          reason: string | null
+          relationship_type: string | null
+          to_skill: string
+        }
+        Insert: {
+          from_skill: string
+          graph_id: string
+          id?: string
+          reason?: string | null
+          relationship_type?: string | null
+          to_skill: string
+        }
+        Update: {
+          from_skill?: string
+          graph_id?: string
+          id?: string
+          reason?: string | null
+          relationship_type?: string | null
+          to_skill?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "skill_edges_graph_id_fkey"
+            columns: ["graph_id"]
+            isOneToOne: false
+            referencedRelation: "knowledge_graphs"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      skills: {
+        Row: {
+          created_at: string | null
+          description: string | null
+          graph_id: string
+          id: string
+          level: number
+          name: string
+          skill_id: string
+          tier: string
+          transferable_contexts: Json | null
+        }
+        Insert: {
+          created_at?: string | null
+          description?: string | null
+          graph_id: string
+          id?: string
+          level?: number
+          name: string
+          skill_id: string
+          tier: string
+          transferable_contexts?: Json | null
+        }
+        Update: {
+          created_at?: string | null
+          description?: string | null
+          graph_id?: string
+          id?: string
+          level?: number
+          name?: string
+          skill_id?: string
+          tier?: string
+          transferable_contexts?: Json | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "skills_graph_id_fkey"
+            columns: ["graph_id"]
+            isOneToOne: false
+            referencedRelation: "knowledge_graphs"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
     }
     Views: {
       [_ in never]: never
