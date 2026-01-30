@@ -81,7 +81,7 @@ export function QuestionInputPanel({ onGraphGenerated, isOpen, onClose }: Questi
 
   const handleGenerate = async () => {
     const questions = questionsText
-      .split('\n')
+      .split(/\n\s*\n/)  // Split on blank lines
       .map(q => q.trim())
       .filter(q => q.length > 0);
 
@@ -160,7 +160,7 @@ export function QuestionInputPanel({ onGraphGenerated, isOpen, onClose }: Questi
 
   if (!isOpen) return null;
 
-  const questionCount = questionsText.split('\n').filter(q => q.trim().length > 0).length;
+  const questionCount = questionsText.split(/\n\s*\n/).filter(q => q.trim().length > 0).length;
   const batchCount = Math.ceil(questionCount / BATCH_SIZE);
 
   return (
@@ -183,21 +183,24 @@ export function QuestionInputPanel({ onGraphGenerated, isOpen, onClose }: Questi
           <div className="space-y-2">
             <label htmlFor="questions" className="flex items-center gap-2 text-sm font-medium">
               <Code className="h-4 w-4 text-muted-foreground" />
-              Coding Questions (one per line)
+              Coding Questions (separate with blank lines)
             </label>
             <Textarea
               id="questions"
-              placeholder={`Write a function that checks if a key exists in a dictionary
-Implement a function to count word frequencies in a text
-Create a function that merges two sorted lists
-Write code to find the most common element in a list`}
+              placeholder={`Write a function that checks if a key exists in a dictionary.
+The function should handle nested dictionaries and return True/False.
+
+Implement a function to count word frequencies in a text.
+It should ignore case and punctuation.
+
+Create a function that merges two sorted lists into one sorted list.`}
               value={questionsText}
               onChange={(e) => setQuestionsText(e.target.value)}
               disabled={isLoading}
               className="min-h-[200px] font-mono text-sm"
             />
             <p className="text-xs text-muted-foreground">
-              Enter each coding question on a new line. The AI will analyze mental steps needed to solve each.
+              Separate each question with a blank line. Multi-line descriptions are supported.
               {questionCount > BATCH_SIZE && (
                 <span className="block mt-1 text-primary">
                   {questionCount} questions will be processed in {batchCount} batches.
