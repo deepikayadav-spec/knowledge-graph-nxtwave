@@ -214,25 +214,34 @@ Output ONLY valid JSON, no explanation.`;
 
 const incrementalPromptAddition = `
 
-=== INCREMENTAL MODE ===
+=== INCREMENTAL MODE (STRICT REUSE) ===
 
-You are EXTENDING an existing skill graph. Follow these rules:
+You are EXTENDING an existing skill graph. CRITICAL RULES:
 
-1. REUSE EXISTING SKILLS when the capability matches:
-   - If an existing skill covers the same cognitive capability, use its EXACT ID
-   - Apply IPA/LTA to new questions but map to existing nodes where possible
+1. SEMANTIC MATCHING (not just name matching):
+   - If an existing skill covers the SAME cognitive capability, use its EXACT ID
+   - Match by MEANING, not just keywords
+   - Example: "dict_operations" and "dictionary manipulation" = SAME skill → use existing ID
    
-2. CREATE NEW SKILLS only when:
-   - IPA/LTA analysis reveals a genuinely new cognitive capability
-   - No existing skill covers this knowledge requirement
+2. MATCHING CRITERIA:
+   A skill matches if ANY of these are true:
+   - Tests the same underlying cognitive ability
+   - Would have identical prerequisite edges
+   - A question requiring skill A would also require skill B (and vice versa)
    
-3. OUTPUT:
+3. NEVER CREATE DUPLICATES:
+   Before creating ANY new skill, ask:
+   "Is there an existing skill that tests this SAME capability?"
+   If YES → MUST use existing ID
+   If NO → create new skill
+   
+4. OUTPUT REQUIREMENTS:
    - Include ipaByQuestion for NEW questions only
-   - Return ONLY new skills (not in existing list)
-   - Return ALL edges needed (including edges from existing to new)
-   - Return question paths for NEW questions only
+   - Return ONLY genuinely new skills (not in existing list)
+   - Include edges connecting new skills to existing skills
+   - For question paths, use existing skill IDs when they match
 
-Existing skills in the graph (REUSE these IDs when IPA/LTA maps to them):
+Existing skills (MUST reuse these IDs when capability matches):
 `;
 
 function isLikelyTruncatedJson(text: string): boolean {
@@ -299,6 +308,8 @@ function extractJsonFromResponse(response: string): any {
 interface ExistingNode {
   id: string;
   name: string;
+  tier?: string;
+  description?: string;
 }
 
 serve(async (req) => {
@@ -325,8 +336,9 @@ serve(async (req) => {
     let fullSystemPrompt = systemPrompt;
     
     if (isIncremental) {
+      // Build richer node context with tier and description for better semantic matching
       const nodeList = existingNodes!
-        .map(n => `- ${n.id}: "${n.name}"`)
+        .map(n => `- ${n.id}: "${n.name}"${n.tier ? ` [${n.tier}]` : ''}${n.description ? ` - ${n.description.substring(0, 60)}...` : ''}`)
         .join('\n');
       fullSystemPrompt += incrementalPromptAddition + nodeList;
     }
