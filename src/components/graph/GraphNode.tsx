@@ -45,7 +45,6 @@ export function GraphNodeComponent({
 }: GraphNodeComponentProps) {
   const nodeRadius = getNodeRadius(node.le);
   const nodeColor = NODE_TYPE_COLORS[nodeType];
-  const isUnmeasured = !node.cme.measured;
 
   const getOpacity = () => {
     switch (state) {
@@ -103,12 +102,6 @@ export function GraphNodeComponent({
   const displayName = node.name.length > 25 
     ? node.name.substring(0, 22) + '...' 
     : node.name;
-
-  // CME badge value - show target level if unmeasured, else measured level
-  const targetLevel = node.knowledgePoint?.targetAssessmentLevel || '?';
-  const badgeValue = isUnmeasured 
-    ? `Lv${targetLevel}` 
-    : (node.cme.highestConceptLevel / 7).toFixed(1);
 
   return (
     <g
@@ -182,26 +175,6 @@ export function GraphNodeComponent({
         strokeWidth={2}
         opacity={0.3}
       />
-
-      {/* CME/Target badge (top right) */}
-      <g transform={`translate(${nodeRadius - 6}, ${-nodeRadius + 6})`}>
-        <circle 
-          r={10} 
-          fill={isUnmeasured ? "hsl(var(--muted))" : "hsl(222, 47%, 20%)"} 
-          stroke={isUnmeasured ? "hsl(var(--border))" : "white"} 
-          strokeWidth={1.5}
-          strokeDasharray={isUnmeasured ? "2 1" : "none"}
-        />
-        <text
-          y={4}
-          textAnchor="middle"
-          fontSize={isUnmeasured ? 7 : 9}
-          fontWeight="600"
-          fill={isUnmeasured ? "hsl(var(--muted-foreground))" : "white"}
-        >
-          {badgeValue}
-        </text>
-      </g>
 
       {/* Node label */}
       <foreignObject

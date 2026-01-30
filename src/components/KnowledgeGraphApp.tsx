@@ -379,19 +379,18 @@ export function KnowledgeGraphApp() {
           )}
         </div>
 
-        {/* Detail Panel */}
-        {selectedNode && (
-          <div className="shrink-0 p-4">
-            <NodeDetailPanel
-              node={selectedNode}
-              edges={graph.edges}
-              allNodes={graph.globalNodes}
-              onClose={() => setSelectedNodeId(null)}
-              onNodeSelect={setSelectedNodeId}
-            />
-          </div>
-        )}
       </div>
+
+      {/* Full-screen modal overlay */}
+      {selectedNode && (
+        <NodeDetailPanel
+          node={selectedNode}
+          edges={graph.edges}
+          allNodes={graph.globalNodes}
+          onClose={() => setSelectedNodeId(null)}
+          onNodeSelect={setSelectedNodeId}
+        />
+      )}
     </div>
   );
 }
