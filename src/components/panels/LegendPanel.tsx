@@ -5,13 +5,19 @@ import {
   PopoverTrigger,
 } from '@/components/ui/popover';
 import { Button } from '@/components/ui/button';
+import { NODE_TYPE_COLORS } from '@/types/graph';
 
-const levelColors = [
-  { level: 0, color: 'bg-node-level0', label: 'Foundational' },
-  { level: 1, color: 'bg-node-level1', label: 'Basic' },
-  { level: 2, color: 'bg-node-level2', label: 'Intermediate' },
-  { level: 3, color: 'bg-node-level3', label: 'Advanced' },
-  { level: 4, color: 'bg-node-level4', label: 'Expert' },
+const nodeTypes = [
+  { type: 'root', color: NODE_TYPE_COLORS.root, label: 'Root', description: 'No prerequisites' },
+  { type: 'intermediate', color: NODE_TYPE_COLORS.intermediate, label: 'Intermediate', description: 'Has prerequisites & dependents' },
+  { type: 'leaf', color: NODE_TYPE_COLORS.leaf, label: 'Leaf', description: 'No dependents' },
+];
+
+const cognitiveTargets = [
+  { level: 1, label: 'Lv1 - Recall', description: 'Remember facts' },
+  { level: 2, label: 'Lv2 - Understand', description: 'Explain concepts' },
+  { level: 3, label: 'Lv3 - Apply', description: 'Use in new contexts' },
+  { level: 4, label: 'Lv4 - Analyze', description: 'Break down complexity' },
 ];
 
 export function LegendPanel() {
@@ -22,7 +28,7 @@ export function LegendPanel() {
           <Info className="h-4 w-4" />
         </Button>
       </PopoverTrigger>
-      <PopoverContent align="end" className="w-64">
+      <PopoverContent align="end" className="w-72">
         <div className="space-y-4">
           <div>
             <h4 className="font-semibold text-sm mb-2">Graph Legend</h4>
@@ -30,46 +36,45 @@ export function LegendPanel() {
 
           <div>
             <div className="text-xs text-muted-foreground mb-2">
-              Node Levels
+              Node Types (by position)
             </div>
             <div className="space-y-1.5">
-              {levelColors.map(({ level, color, label }) => (
-                <div key={level} className="flex items-center gap-2">
-                  <div className={`w-3 h-3 rounded-full ${color}`} />
-                  <span className="text-xs font-mono">L{level}</span>
-                  <span className="text-xs text-muted-foreground">{label}</span>
+              {nodeTypes.map(({ type, color, label, description }) => (
+                <div key={type} className="flex items-center gap-2">
+                  <div 
+                    className="w-3 h-3 rounded-full" 
+                    style={{ backgroundColor: color }}
+                  />
+                  <span className="text-xs font-medium">{label}</span>
+                  <span className="text-xs text-muted-foreground">— {description}</span>
                 </div>
               ))}
             </div>
           </div>
 
           <div>
-            <div className="text-xs text-muted-foreground mb-2">Node Info</div>
+            <div className="text-xs text-muted-foreground mb-2">
+              Cognitive Target (badge)
+            </div>
             <div className="space-y-1.5 text-xs">
-              <div className="flex items-center gap-2">
-                <div className="w-5 h-5 rounded-full bg-primary flex items-center justify-center text-primary-foreground text-[9px] font-bold">
-                  4
+              {cognitiveTargets.map(({ level, label, description }) => (
+                <div key={level} className="flex items-center gap-2">
+                  <div className="w-5 h-5 rounded-full bg-muted border border-dashed border-border flex items-center justify-center text-[8px] font-semibold text-muted-foreground">
+                    Lv{level}
+                  </div>
+                  <span className="text-muted-foreground">{description}</span>
                 </div>
-                <span className="text-muted-foreground">
-                  CME Level (1-7)
-                </span>
-              </div>
-              <div className="flex items-center gap-2">
-                <div className="w-5 h-5 rounded-full border-2 border-node-active bg-white" />
-                <span className="text-muted-foreground">Selected Node</span>
-              </div>
-              <div className="flex items-center gap-2">
-                <div className="w-5 h-5 rounded-full border-2 border-border bg-white opacity-30" />
-                <span className="text-muted-foreground">
-                  Outside Course View
-                </span>
-              </div>
+              ))}
             </div>
           </div>
 
           <div>
-            <div className="text-xs text-muted-foreground mb-2">Edges</div>
+            <div className="text-xs text-muted-foreground mb-2">Interactions</div>
             <div className="space-y-1.5 text-xs">
+              <div className="flex items-center gap-2">
+                <div className="w-5 h-5 rounded-full border-2 border-node-active bg-background" />
+                <span className="text-muted-foreground">Selected Node</span>
+              </div>
               <div className="flex items-center gap-2">
                 <div className="w-6 h-0.5 bg-edge-highlight rounded" />
                 <span className="text-muted-foreground">Highlighted Path</span>

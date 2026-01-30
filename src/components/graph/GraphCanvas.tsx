@@ -24,8 +24,8 @@ interface Transform {
   scale: number;
 }
 
-const LEVEL_HEIGHT = 140;
-const NODE_SPACING = 150;
+const LEVEL_HEIGHT = 160;
+const NODE_SPACING = 180;
 const LEFT_MARGIN = 130;
 const TOP_MARGIN = 60;
 
