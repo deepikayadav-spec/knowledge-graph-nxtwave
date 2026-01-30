@@ -1,299 +1,160 @@
 
-# Fix Incremental Feature to Prevent Node Duplication
+# Improve Graph Aesthetics: Color Legend, Badge Clarity, and Edge Decluttering
 
-## Root Causes
+## Overview
 
-1. **Stale context across batches**: Each batch receives the same initial `existingNodes`, ignoring new nodes from previous batches
-2. **Weak semantic matching**: Only ID+name sent to AI, insufficient for accurate matching
-3. **No duplicate detection**: `mergeGraphs` only dedupes by exact ID, not semantic similarity
-4. **No enforcement in prompt**: Incremental instructions are suggestions, not requirements
+Address three visual issues with the knowledge graph:
+1. Make node colors meaningful and discoverable via updated legend
+2. Clarify what T2/T3 badges mean (or simplify them)
+3. Reduce edge clutter for better readability
 
 ---
 
-## Solution Overview
+## Part 1: Update Legend Panel with Color Meaning
+
+**File**: `src/components/panels/LegendPanel.tsx`
+
+Replace the current "Node Levels" section (which shows L0-L4) with "Node Types" that explain the actual color scheme:
 
 ```text
-CURRENT FLOW (causes duplicates):
-Batch 1 → existingNodes (initial)     → creates "dictionary_ops"
-Batch 2 → existingNodes (same initial) → creates "dict_operations" ← DUPLICATE!
-Batch 3 → existingNodes (same initial) → creates "dictionary_usage" ← DUPLICATE!
-        ↓
-mergeGraphs → 3 different IDs → 3 nodes (wrong!)
+CURRENT (confusing):
+- Node Levels: L0 Foundational, L1 Basic, L2 Intermediate...
+  (but these don't match what's displayed!)
 
-FIXED FLOW (prevents duplicates):
-Batch 1 → existingNodes (initial)           → creates "dictionary_ops"
-        → accumulate new nodes
-Batch 2 → existingNodes (initial + batch1)  → reuses "dictionary_ops"
-        → accumulate new nodes  
-Batch 3 → existingNodes (initial + batch2)  → reuses "dictionary_ops"
-        ↓
-mergeGraphs → 1 ID → 1 node (correct!)
+UPDATED (accurate):
+- Node Types by Position:
+  - Green = Root (Foundational skills, no prerequisites)
+  - Purple = Intermediate (has prerequisites AND dependents)
+  - Orange = Leaf (Advanced skills, no dependents)
+  
+- CME Badge (top-right circle):
+  - "T1-T4" = Target level (unmeasured skill)
+  - "0.1-1.0" = Mastery score (measured skill)
 ```
 
 ---
 
-## Implementation Plan
+## Part 2: Simplify or Clarify the CME Badge
 
-### Part 1: Accumulate Context Across Batches
+**File**: `src/components/graph/GraphNode.tsx`
 
-**File**: `src/components/KnowledgeGraphApp.tsx`
+Two options:
 
-Update the batch processing loop to accumulate new nodes after each batch:
+### Option A: Replace "T2" with More Intuitive Text
+Instead of cryptic "T2", show something like:
+- "L2" with tooltip explaining "Target: Recall (simple)"
+- Or a small icon with the level
 
+### Option B: Remove Badge for Unmeasured Nodes
+Since all nodes are currently unmeasured (simulated data), the T1-T4 adds visual noise without meaning. Hide until measured.
+
+**Recommended**: Option A - Change "T" prefix to something clearer like just the number with a subtle indicator that it's a target vs measured level.
+
+---
+
+## Part 3: Reduce Edge Clutter (Major Visual Improvement)
+
+**File**: `src/components/graph/GraphEdge.tsx`
+
+### 3.1: Reduce Default Edge Opacity and Width
 ```typescript
-const handleGenerate = useCallback(async (questions: string[]) => {
-  setIsGenerating(true);
-  
-  // Start with existing graph nodes
-  let accumulatedNodes: {id: string; name: string; tier?: string; description?: string}[] = 
-    graph?.globalNodes.map(n => ({
-      id: n.id,
-      name: n.name,
-      tier: n.tier,
-      description: n.description
-    })) || [];
-  
-  try {
-    const queue: string[][] = [];
-    for (let i = 0; i < questions.length; i += BATCH_SIZE) {
-      queue.push(questions.slice(i, i + BATCH_SIZE));
-    }
+// BEFORE:
+const strokeWidth = isHighlighted ? 4 : isHovered ? 3 : 2.5;
+const opacity = isHighlighted ? 1 : isHovered ? 0.85 : 0.7;
 
-    const deltaGraphs: KnowledgeGraph[] = [];
-
-    while (queue.length) {
-      const batch = queue.shift()!;
-
-      const { data, error } = await supabase.functions.invoke('generate-graph', {
-        body: { 
-          questions: batch,
-          // Send ACCUMULATED nodes including previous batches
-          existingNodes: accumulatedNodes.length > 0 ? accumulatedNodes : undefined
-        },
-      });
-
-      // ... error handling ...
-
-      const deltaGraph = normalizeGraphPayload(data);
-      deltaGraphs.push(deltaGraph);
-      
-      // ACCUMULATE new nodes for next batch
-      for (const node of deltaGraph.globalNodes) {
-        if (!accumulatedNodes.some(n => n.id === node.id)) {
-          accumulatedNodes.push({
-            id: node.id,
-            name: node.name,
-            tier: node.tier,
-            description: node.description
-          });
-        }
-      }
-    }
-    // ... rest of merge logic
-  }
-}, [graph]);
+// AFTER (subtler default edges):
+const strokeWidth = isHighlighted ? 3.5 : isHovered ? 2.5 : 1.5;
+const opacity = isHighlighted ? 1 : isHovered ? 0.7 : 0.35;
 ```
 
-### Part 2: Send Richer Node Context to AI
-
-**File**: `supabase/functions/generate-graph/index.ts`
-
-Update the incremental prompt to include more context:
-
+### 3.2: Use Consistent Light Color for Default Edges
 ```typescript
-const incrementalPromptAddition = `
+// BEFORE (too dark):
+: 'hsl(220, 20%, 35%)';
 
-=== INCREMENTAL MODE (STRICT REUSE) ===
-
-You are EXTENDING an existing skill graph. CRITICAL RULES:
-
-1. SEMANTIC MATCHING (not just name matching):
-   - If an existing skill covers the SAME cognitive capability, use its EXACT ID
-   - Match by MEANING, not just keywords
-   - Example: "dict_operations" and "dictionary manipulation" = SAME skill → use existing ID
-   
-2. MATCHING CRITERIA:
-   A skill matches if ANY of these are true:
-   - Tests the same underlying cognitive ability
-   - Would have identical prerequisite edges
-   - A question requiring skill A would also require skill B (and vice versa)
-   
-3. NEVER CREATE DUPLICATES:
-   Before creating ANY new skill, ask:
-   "Is there an existing skill that tests this SAME capability?"
-   If YES → MUST use existing ID
-   If NO → create new skill
-   
-4. OUTPUT REQUIREMENTS:
-   - Return ONLY genuinely new skills (not in existing list)
-   - Include edges connecting new skills to existing skills
-   - For question paths, use existing skill IDs when they match
-
-Existing skills (MUST reuse these IDs when capability matches):
-`;
-
-// Build richer node context
-if (isIncremental) {
-  const nodeList = existingNodes!
-    .map(n => `- ${n.id}: "${n.name}"${n.tier ? ` [${n.tier}]` : ''}${n.description ? ` - ${n.description.substring(0, 50)}...` : ''}`)
-    .join('\n');
-  fullSystemPrompt += incrementalPromptAddition + nodeList;
-}
+// AFTER (lighter, less intrusive):
+: 'hsl(220, 15%, 70%)';
 ```
 
-### Part 3: Add Semantic Deduplication in mergeGraphs
-
-**File**: `src/lib/graph/mergeGraphs.ts`
-
-Add a post-merge semantic deduplication pass:
-
+### 3.3: Hide Arrow Heads on Default Edges (Optional)
+Arrows add visual weight. Show them only on hover/highlight:
 ```typescript
-import type { GraphEdge, GraphNode, KnowledgeGraph, QuestionPath } from "@/types/graph";
-
-// Semantic similarity heuristic - checks if two skills are likely duplicates
-function areSemanticallyEquivalent(a: GraphNode, b: GraphNode): boolean {
-  // Normalize names for comparison
-  const normalize = (s: string) => s.toLowerCase()
-    .replace(/[_-]/g, ' ')
-    .replace(/\s+/g, ' ')
-    .trim();
-  
-  const nameA = normalize(a.name);
-  const nameB = normalize(b.name);
-  
-  // Exact match after normalization
-  if (nameA === nameB) return true;
-  
-  // Check if one contains the other (e.g., "dictionary operations" vs "dict operations")
-  const wordsA = new Set(nameA.split(' '));
-  const wordsB = new Set(nameB.split(' '));
-  
-  // If 80%+ word overlap and same tier, likely duplicate
-  const intersection = [...wordsA].filter(w => wordsB.has(w));
-  const overlapRatio = intersection.length / Math.max(wordsA.size, wordsB.size);
-  
-  if (overlapRatio >= 0.6 && a.tier === b.tier) return true;
-  
-  return false;
-}
-
-// Deduplicate semantically similar nodes
-function deduplicateSemanticDuplicates(
-  nodes: GraphNode[], 
-  edges: GraphEdge[], 
-  questionPaths: Record<string, QuestionPath | string[]>
-): { nodes: GraphNode[]; edges: GraphEdge[]; questionPaths: Record<string, QuestionPath | string[]> } {
-  const idMapping = new Map<string, string>(); // old ID → canonical ID
-  const canonicalNodes: GraphNode[] = [];
-  
-  for (const node of nodes) {
-    // Check if this node is a semantic duplicate of an existing canonical node
-    const existingCanonical = canonicalNodes.find(c => areSemanticallyEquivalent(c, node));
-    
-    if (existingCanonical) {
-      // Map this node's ID to the canonical ID
-      idMapping.set(node.id, existingCanonical.id);
-      
-      // Merge appearsInQuestions
-      const existingQuestions = existingCanonical.knowledgePoint?.appearsInQuestions || [];
-      const newQuestions = node.knowledgePoint?.appearsInQuestions || [];
-      existingCanonical.knowledgePoint = { 
-        ...existingCanonical.knowledgePoint, 
-        appearsInQuestions: [...new Set([...existingQuestions, ...newQuestions])]
-      };
-    } else {
-      canonicalNodes.push(node);
-      idMapping.set(node.id, node.id);
-    }
-  }
-  
-  // Remap edge IDs
-  const remappedEdges: GraphEdge[] = [];
-  const edgeSet = new Set<string>();
-  
-  for (const edge of edges) {
-    const from = idMapping.get(edge.from) || edge.from;
-    const to = idMapping.get(edge.to) || edge.to;
-    const key = `${from}:${to}`;
-    
-    if (!edgeSet.has(key) && from !== to) { // Avoid self-loops
-      edgeSet.add(key);
-      remappedEdges.push({ ...edge, from, to });
-    }
-  }
-  
-  // Remap question paths
-  const remappedPaths: Record<string, QuestionPath | string[]> = {};
-  for (const [question, path] of Object.entries(questionPaths)) {
-    if (Array.isArray(path)) {
-      remappedPaths[question] = path.map(id => idMapping.get(id) || id);
-    } else {
-      remappedPaths[question] = {
-        ...path,
-        requiredNodes: path.requiredNodes?.map(id => idMapping.get(id) || id),
-        executionOrder: path.executionOrder?.map(id => idMapping.get(id) || id),
-        primarySkill: path.primarySkill ? (idMapping.get(path.primarySkill) || path.primarySkill) : undefined
-      };
-    }
-  }
-  
-  return { nodes: canonicalNodes, edges: remappedEdges, questionPaths: remappedPaths };
-}
-
-export function mergeGraphs(graphs: KnowledgeGraph[]): KnowledgeGraph {
-  // ... existing merge logic ...
-  
-  // After initial merge, apply semantic deduplication
-  const dedupResult = deduplicateSemanticDuplicates(
-    Array.from(nodeMap.values()),
-    edges,
-    questionPaths
-  );
-  
-  return {
-    globalNodes: dedupResult.nodes,
-    edges: dedupResult.edges,
-    courses,
-    questionPaths: dedupResult.questionPaths,
-    ipaByQuestion: Object.keys(ipaByQuestion).length ? ipaByQuestion : undefined,
-  };
-}
+// Only render arrow if highlighted or hovered
+{(isHighlighted || isHovered) && (
+  <polygon ... />
+)}
 ```
 
-### Part 4: Add Duplicate Detection Logging
+### 3.4: Add Edge Hover-to-Reveal Pattern
+By default, show edges as very subtle lines. On node hover, emphasize only connected edges:
+- Non-connected edges become even more transparent (0.15 opacity)
+- Connected edges pop to full visibility
 
-**File**: `src/lib/graph/mergeGraphs.ts`
+**File**: `src/components/graph/GraphCanvas.tsx`
 
-Add console warnings when duplicates are detected:
-
+Pass a "dimmed" state to edges that aren't connected to hovered node:
 ```typescript
-if (existingCanonical) {
-  console.warn(
-    `[mergeGraphs] Semantic duplicate detected: "${node.name}" (${node.id}) ` +
-    `merged into "${existingCanonical.name}" (${existingCanonical.id})`
-  );
-  // ... rest of merge logic
-}
+const isEdgeDimmed = hoveredNodeId && 
+  edge.from !== hoveredNodeId && 
+  edge.to !== hoveredNodeId;
+```
+
+---
+
+## Part 4: Better Node Spacing (Optional)
+
+**File**: `src/components/graph/GraphCanvas.tsx`
+
+Increase spacing to reduce visual congestion:
+```typescript
+// BEFORE:
+const LEVEL_HEIGHT = 140;
+const NODE_SPACING = 150;
+
+// AFTER (more breathing room):
+const LEVEL_HEIGHT = 160;
+const NODE_SPACING = 180;
 ```
 
 ---
 
 ## Summary of Changes
 
-| File | Change |
-|------|--------|
-| `src/components/KnowledgeGraphApp.tsx` | Accumulate nodes across batches, send richer context |
-| `supabase/functions/generate-graph/index.ts` | Strengthen incremental prompt with strict reuse rules |
-| `src/lib/graph/mergeGraphs.ts` | Add semantic deduplication pass after merge |
+| File | Changes |
+|------|---------|
+| `src/components/panels/LegendPanel.tsx` | Update legend to explain node colors (root/intermediate/leaf) and CME badge meaning |
+| `src/components/graph/GraphNode.tsx` | Clarify T1-T4 badge display (consider "Lv2" or icon instead of "T2") |
+| `src/components/graph/GraphEdge.tsx` | Reduce stroke width (2.5→1.5), lower opacity (0.7→0.35), lighter color, optional arrow hiding |
+| `src/components/graph/GraphCanvas.tsx` | Add edge dimming when node is hovered, increase spacing |
+
+---
+
+## Visual Before/After
+
+```text
+BEFORE:
+┌─────────────────────────────────────────┐
+│  Thick dark edges everywhere (2.5px)    │
+│  70% opacity = visually heavy           │
+│  All arrows visible = cluttered         │
+│  Unclear T2/T3 badges                   │
+└─────────────────────────────────────────┘
+
+AFTER:
+┌─────────────────────────────────────────┐
+│  Subtle light edges (1.5px, 35% opacity)│
+│  Edges pop only on hover                │
+│  Arrows only when highlighted           │
+│  Clear "Level 2" indicators             │
+│  Legend explains all colors             │
+└─────────────────────────────────────────┘
+```
 
 ---
 
 ## Expected Outcome
 
-| Before | After |
-|--------|-------|
-| Each batch gets same stale context | Each batch gets accumulated context |
-| Only ID+name sent to AI | ID+name+tier+description sent |
-| "Reuse if matches" (suggestion) | "NEVER create duplicates" (requirement) |
-| Merge by exact ID only | Merge by ID + semantic similarity |
-| Silent duplicates | Logged warnings when duplicates detected |
+- **Cleaner visualization**: Edges fade into background until needed
+- **Discoverable meaning**: Legend explains what colors and badges mean
+- **Better focus**: Hovering a node highlights only its connections
+- **Reduced cognitive load**: Less visual noise on first view
