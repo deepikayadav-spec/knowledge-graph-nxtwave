@@ -1,324 +1,299 @@
 
-# Rewrite Edge Function: IPA → LTA → Normalize → DAG Pipeline
+# Fix Incremental Feature to Prevent Node Duplication
 
-## Overview
+## Root Causes
 
-Completely rewrite the `generate-graph` edge function to follow the exact methodology from the IPA/LTA document, replacing the current "Transferable Skills" approach with a structured 4-phase cognitive decomposition pipeline.
+1. **Stale context across batches**: Each batch receives the same initial `existingNodes`, ignoring new nodes from previous batches
+2. **Weak semantic matching**: Only ID+name sent to AI, insufficient for accurate matching
+3. **No duplicate detection**: `mergeGraphs` only dedupes by exact ID, not semantic similarity
+4. **No enforcement in prompt**: Incremental instructions are suggestions, not requirements
 
 ---
 
-## Current vs. Proposed Pipeline
+## Solution Overview
 
 ```text
-CURRENT APPROACH:
-┌─────────────┐
-│  Questions  │ ──▶ AI identifies "transferable skills" ──▶ Graph
-└─────────────┘     (single-pass, intuitive grouping)
+CURRENT FLOW (causes duplicates):
+Batch 1 → existingNodes (initial)     → creates "dictionary_ops"
+Batch 2 → existingNodes (same initial) → creates "dict_operations" ← DUPLICATE!
+Batch 3 → existingNodes (same initial) → creates "dictionary_usage" ← DUPLICATE!
+        ↓
+mergeGraphs → 3 different IDs → 3 nodes (wrong!)
 
-PROPOSED IPA/LTA PIPELINE:
-┌─────────────┐     ┌─────────────┐     ┌─────────────┐     ┌─────────────┐     ┌─────────────┐
-│  Questions  │ ──▶ │  Phase 1:   │ ──▶ │  Phase 2:   │ ──▶ │  Phase 3:   │ ──▶ │  Phase 4:   │
-│             │     │  IPA        │     │  LTA        │     │  Normalize  │     │  Build DAG  │
-└─────────────┘     │  (Trace     │     │  (Extract   │     │  (Dedupe,   │     │  (Prereq    │
-                    │  cognitive  │     │  knowledge  │     │  unify,     │     │  edges,     │
-                    │  algorithm) │     │  & skills)  │     │  atomize)   │     │  levels)    │
-                    └─────────────┘     └─────────────┘     └─────────────┘     └─────────────┘
+FIXED FLOW (prevents duplicates):
+Batch 1 → existingNodes (initial)           → creates "dictionary_ops"
+        → accumulate new nodes
+Batch 2 → existingNodes (initial + batch1)  → reuses "dictionary_ops"
+        → accumulate new nodes  
+Batch 3 → existingNodes (initial + batch2)  → reuses "dictionary_ops"
+        ↓
+mergeGraphs → 1 ID → 1 node (correct!)
 ```
 
 ---
 
-## Phase 1: Information Processing Analysis (IPA)
+## Implementation Plan
 
-### Purpose
-Trace the **cognitive algorithm** a competent student uses to solve each question.
+### Part 1: Accumulate Context Across Batches
 
-### IPA Step Types (from document)
-| Step Type | Description | Example |
-|-----------|-------------|---------|
-| PERCEIVE | Notice relevant features in input | "See that input has multiple lines" |
-| ENCODE | Transform input into mental representation | "Parse as list of integers" |
-| RETRIEVE | Recall knowledge from long-term memory | "Recall dictionary syntax" |
-| DECIDE/PLAN | Choose strategy or branch | "If count needed, use accumulator" |
-| EXECUTE | Perform computational action | "Initialize empty dict" |
-| MONITOR | Check correctness, handle edge cases | "Verify no KeyError" |
+**File**: `src/components/KnowledgeGraphApp.tsx`
 
-### Example IPA Output
-```json
-{
-  "question": "Count frequency of each word in a sentence",
-  "ipaSteps": [
-    {"step": 1, "type": "PERCEIVE", "operation": "Identify input as string with spaces"},
-    {"step": 2, "type": "ENCODE", "operation": "Split string into word list"},
-    {"step": 3, "type": "RETRIEVE", "operation": "Recall dictionary for counting"},
-    {"step": 4, "type": "DECIDE", "operation": "Choose iteration with accumulation"},
-    {"step": 5, "type": "EXECUTE", "operation": "For each word: check/update dict"},
-    {"step": 6, "type": "MONITOR", "operation": "Handle case-sensitivity, punctuation"}
-  ]
-}
-```
+Update the batch processing loop to accumulate new nodes after each batch:
 
----
-
-## Phase 2: Learning Task Analysis (LTA)
-
-### Purpose
-For each IPA step, identify the **specific knowledge, procedures, and judgments** required.
-
-### LTA Categories (from document)
-| Category | Description | Example |
-|----------|-------------|---------|
-| **Declarative** | Facts, definitions, syntax | "dict[key] = value syntax" |
-| **Procedural** | How-to sequences | "Steps to iterate with enumerate" |
-| **Conditional** | When to apply what | "Use .get() when key might not exist" |
-| **Strategic** | High-level planning | "Accumulator pattern for counting" |
-
-### The "Without X?" Test
-For each candidate skill, ask: **"Can a student reliably perform this step WITHOUT having mastered X?"**
-- If NO → X is a prerequisite
-- If YES → X is not required (don't add edge)
-
-### Example LTA Output
-```json
-{
-  "ipaStep": "Split string into word list",
-  "requiredKnowledge": [
-    {"id": "string_methods", "type": "declarative", "content": "str.split() method exists"},
-    {"id": "list_creation", "type": "procedural", "content": "How to store result in variable"},
-    {"id": "whitespace_handling", "type": "conditional", "content": "split() handles multiple spaces"}
-  ]
-}
-```
-
----
-
-## Phase 3: Normalization (Skill Taxonomy)
-
-### Purpose
-Convert raw LTA outputs into a **unified skill vocabulary** that prevents node explosion.
-
-### Normalization Rules (from document)
-
-1. **Synonym Unification**: Merge nodes with identical observable behavior
-   - "Initialize empty dict" + "Create new dictionary" → `dict_initialization`
-   
-2. **Atomicity Split**: Break compound skills until single-testable
-   - "Use dictionary for counting" → `dict_initialization` + `dict_key_access` + `dict_value_update`
-
-3. **Tier Assignment**: Classify by complexity level
-   - Foundational: Language primitives (variables, operators)
-   - Core: Control structures (loops, conditionals)
-   - Applied: Patterns (accumulator, search)
-   - Advanced: Complex algorithms (recursion, DP)
-
-4. **Transferability Check**: Ensure skill applies across contexts
-   - If skill is context-specific, generalize or merge with similar
-
-### Skill Node Schema
-```json
-{
-  "id": "snake_case_unique_id",
-  "name": "Human-Readable Skill Name",
-  "tier": "foundational|core|applied|advanced",
-  "type": "declarative|procedural|conditional|strategic",
-  "description": "What mastery of this skill looks like",
-  "atomicityCheck": "Can be tested with: [single question type]",
-  "appearsInQuestions": ["Q1", "Q5", "Q12"]
-}
-```
-
----
-
-## Phase 4: Build DAG (Directed Acyclic Graph)
-
-### Purpose
-Construct prerequisite edges using strict necessity criteria.
-
-### Edge Rules (from document)
-
-1. **Necessity Test**: Only add edge A → B if:
-   - Performance on B is **unreliable** without A
-   - A provides **essential** knowledge for B (not just helpful)
-
-2. **Direction Flow**: Edges follow learning hierarchy:
-   ```
-   Concept → Procedure → Strategy → Performance
-   Declarative → Procedural → Conditional → Strategic
-   ```
-
-3. **Transitivity Reduction**: Remove redundant edges
-   - If A → B and B → C, don't add direct A → C
-
-4. **Level Computation**:
-   ```
-   level(node) = 0 if no prerequisites
-   level(node) = 1 + max(level(prereq) for prereq in prerequisites)
-   ```
-
-### Edge Schema
-```json
-{
-  "from": "prerequisite_skill_id",
-  "to": "dependent_skill_id",
-  "reason": "Why B cannot be performed without A",
-  "necessityScore": 0.9,
-  "relationshipType": "requires|builds_on|extends"
-}
-```
-
----
-
-## New System Prompt Structure
-
-```text
-You are a Knowledge Graph Engineer using the IPA/LTA methodology.
-
-=== PHASE 1: INFORMATION PROCESSING ANALYSIS (IPA) ===
-
-For each question, trace the cognitive algorithm:
-1. PERCEIVE: What features does the solver notice?
-2. ENCODE: How is input represented mentally?
-3. RETRIEVE: What knowledge is recalled?
-4. DECIDE/PLAN: What strategy is chosen?
-5. EXECUTE: What actions are performed?
-6. MONITOR: How is correctness verified?
-
-=== PHASE 2: LEARNING TASK ANALYSIS (LTA) ===
-
-For each IPA step, identify required skills:
-- Declarative: Facts and syntax knowledge
-- Procedural: Step-by-step how-to
-- Conditional: When to apply what
-- Strategic: High-level planning
-
-Apply the "WITHOUT X?" test:
-"Can this step be performed reliably WITHOUT skill X?"
-- If NO → X is prerequisite
-- If YES → X is not required
-
-=== PHASE 3: NORMALIZATION ===
-
-1. UNIFY synonyms (same observable behavior → same node)
-2. SPLIT compounds (until single-testable)
-3. ASSIGN tier (foundational/core/applied/advanced)
-4. CHECK transferability (must apply to 5+ contexts)
-
-=== PHASE 4: BUILD DAG ===
-
-1. Add edge A→B only if B is UNRELIABLE without A
-2. Flow: Declarative → Procedural → Conditional → Strategic
-3. Remove transitive edges (if A→B→C, don't add A→C)
-4. Compute levels from prerequisites
-
-=== TARGET METRICS ===
-
-- Skill count: 1 per 5-15 questions
-- Edge density: 1.5-2.5 edges per node
-- Reuse rate: Each skill in 10%+ of questions
-- Max depth: 5-7 levels for typical curriculum
-
-=== OUTPUT FORMAT ===
-
-{
-  "ipaByQuestion": { /* Raw IPA traces for transparency */ },
-  "globalNodes": [ /* Normalized skill nodes */ ],
-  "edges": [ /* Prerequisite relationships */ ],
-  "questionPaths": { /* Question → skill mappings */ }
-}
-```
-
----
-
-## Implementation Details
-
-### File Changes
-
-**`supabase/functions/generate-graph/index.ts`**
-- Replace entire `systemPrompt` with IPA/LTA methodology
-- Update output parsing to handle new `ipaByQuestion` field
-- Add validation for edge necessity scores
-- Keep incremental mode but update for new schema
-
-### Updated Type Definitions
-
-**`src/types/graph.ts`** - Add IPA step types:
 ```typescript
-export interface IPAStep {
-  step: number;
-  type: 'PERCEIVE' | 'ENCODE' | 'RETRIEVE' | 'DECIDE' | 'EXECUTE' | 'MONITOR';
-  operation: string;
+const handleGenerate = useCallback(async (questions: string[]) => {
+  setIsGenerating(true);
+  
+  // Start with existing graph nodes
+  let accumulatedNodes: {id: string; name: string; tier?: string; description?: string}[] = 
+    graph?.globalNodes.map(n => ({
+      id: n.id,
+      name: n.name,
+      tier: n.tier,
+      description: n.description
+    })) || [];
+  
+  try {
+    const queue: string[][] = [];
+    for (let i = 0; i < questions.length; i += BATCH_SIZE) {
+      queue.push(questions.slice(i, i + BATCH_SIZE));
+    }
+
+    const deltaGraphs: KnowledgeGraph[] = [];
+
+    while (queue.length) {
+      const batch = queue.shift()!;
+
+      const { data, error } = await supabase.functions.invoke('generate-graph', {
+        body: { 
+          questions: batch,
+          // Send ACCUMULATED nodes including previous batches
+          existingNodes: accumulatedNodes.length > 0 ? accumulatedNodes : undefined
+        },
+      });
+
+      // ... error handling ...
+
+      const deltaGraph = normalizeGraphPayload(data);
+      deltaGraphs.push(deltaGraph);
+      
+      // ACCUMULATE new nodes for next batch
+      for (const node of deltaGraph.globalNodes) {
+        if (!accumulatedNodes.some(n => n.id === node.id)) {
+          accumulatedNodes.push({
+            id: node.id,
+            name: node.name,
+            tier: node.tier,
+            description: node.description
+          });
+        }
+      }
+    }
+    // ... rest of merge logic
+  }
+}, [graph]);
+```
+
+### Part 2: Send Richer Node Context to AI
+
+**File**: `supabase/functions/generate-graph/index.ts`
+
+Update the incremental prompt to include more context:
+
+```typescript
+const incrementalPromptAddition = `
+
+=== INCREMENTAL MODE (STRICT REUSE) ===
+
+You are EXTENDING an existing skill graph. CRITICAL RULES:
+
+1. SEMANTIC MATCHING (not just name matching):
+   - If an existing skill covers the SAME cognitive capability, use its EXACT ID
+   - Match by MEANING, not just keywords
+   - Example: "dict_operations" and "dictionary manipulation" = SAME skill → use existing ID
+   
+2. MATCHING CRITERIA:
+   A skill matches if ANY of these are true:
+   - Tests the same underlying cognitive ability
+   - Would have identical prerequisite edges
+   - A question requiring skill A would also require skill B (and vice versa)
+   
+3. NEVER CREATE DUPLICATES:
+   Before creating ANY new skill, ask:
+   "Is there an existing skill that tests this SAME capability?"
+   If YES → MUST use existing ID
+   If NO → create new skill
+   
+4. OUTPUT REQUIREMENTS:
+   - Return ONLY genuinely new skills (not in existing list)
+   - Include edges connecting new skills to existing skills
+   - For question paths, use existing skill IDs when they match
+
+Existing skills (MUST reuse these IDs when capability matches):
+`;
+
+// Build richer node context
+if (isIncremental) {
+  const nodeList = existingNodes!
+    .map(n => `- ${n.id}: "${n.name}"${n.tier ? ` [${n.tier}]` : ''}${n.description ? ` - ${n.description.substring(0, 50)}...` : ''}`)
+    .join('\n');
+  fullSystemPrompt += incrementalPromptAddition + nodeList;
+}
+```
+
+### Part 3: Add Semantic Deduplication in mergeGraphs
+
+**File**: `src/lib/graph/mergeGraphs.ts`
+
+Add a post-merge semantic deduplication pass:
+
+```typescript
+import type { GraphEdge, GraphNode, KnowledgeGraph, QuestionPath } from "@/types/graph";
+
+// Semantic similarity heuristic - checks if two skills are likely duplicates
+function areSemanticallyEquivalent(a: GraphNode, b: GraphNode): boolean {
+  // Normalize names for comparison
+  const normalize = (s: string) => s.toLowerCase()
+    .replace(/[_-]/g, ' ')
+    .replace(/\s+/g, ' ')
+    .trim();
+  
+  const nameA = normalize(a.name);
+  const nameB = normalize(b.name);
+  
+  // Exact match after normalization
+  if (nameA === nameB) return true;
+  
+  // Check if one contains the other (e.g., "dictionary operations" vs "dict operations")
+  const wordsA = new Set(nameA.split(' '));
+  const wordsB = new Set(nameB.split(' '));
+  
+  // If 80%+ word overlap and same tier, likely duplicate
+  const intersection = [...wordsA].filter(w => wordsB.has(w));
+  const overlapRatio = intersection.length / Math.max(wordsA.size, wordsB.size);
+  
+  if (overlapRatio >= 0.6 && a.tier === b.tier) return true;
+  
+  return false;
 }
 
-export interface SkillNode {
-  id: string;
-  name: string;
-  tier: 'foundational' | 'core' | 'applied' | 'advanced';
-  type: 'declarative' | 'procedural' | 'conditional' | 'strategic';
-  description: string;
-  atomicityCheck: string;
-  appearsInQuestions: string[];
+// Deduplicate semantically similar nodes
+function deduplicateSemanticDuplicates(
+  nodes: GraphNode[], 
+  edges: GraphEdge[], 
+  questionPaths: Record<string, QuestionPath | string[]>
+): { nodes: GraphNode[]; edges: GraphEdge[]; questionPaths: Record<string, QuestionPath | string[]> } {
+  const idMapping = new Map<string, string>(); // old ID → canonical ID
+  const canonicalNodes: GraphNode[] = [];
+  
+  for (const node of nodes) {
+    // Check if this node is a semantic duplicate of an existing canonical node
+    const existingCanonical = canonicalNodes.find(c => areSemanticallyEquivalent(c, node));
+    
+    if (existingCanonical) {
+      // Map this node's ID to the canonical ID
+      idMapping.set(node.id, existingCanonical.id);
+      
+      // Merge appearsInQuestions
+      const existingQuestions = existingCanonical.knowledgePoint?.appearsInQuestions || [];
+      const newQuestions = node.knowledgePoint?.appearsInQuestions || [];
+      existingCanonical.knowledgePoint = { 
+        ...existingCanonical.knowledgePoint, 
+        appearsInQuestions: [...new Set([...existingQuestions, ...newQuestions])]
+      };
+    } else {
+      canonicalNodes.push(node);
+      idMapping.set(node.id, node.id);
+    }
+  }
+  
+  // Remap edge IDs
+  const remappedEdges: GraphEdge[] = [];
+  const edgeSet = new Set<string>();
+  
+  for (const edge of edges) {
+    const from = idMapping.get(edge.from) || edge.from;
+    const to = idMapping.get(edge.to) || edge.to;
+    const key = `${from}:${to}`;
+    
+    if (!edgeSet.has(key) && from !== to) { // Avoid self-loops
+      edgeSet.add(key);
+      remappedEdges.push({ ...edge, from, to });
+    }
+  }
+  
+  // Remap question paths
+  const remappedPaths: Record<string, QuestionPath | string[]> = {};
+  for (const [question, path] of Object.entries(questionPaths)) {
+    if (Array.isArray(path)) {
+      remappedPaths[question] = path.map(id => idMapping.get(id) || id);
+    } else {
+      remappedPaths[question] = {
+        ...path,
+        requiredNodes: path.requiredNodes?.map(id => idMapping.get(id) || id),
+        executionOrder: path.executionOrder?.map(id => idMapping.get(id) || id),
+        primarySkill: path.primarySkill ? (idMapping.get(path.primarySkill) || path.primarySkill) : undefined
+      };
+    }
+  }
+  
+  return { nodes: canonicalNodes, edges: remappedEdges, questionPaths: remappedPaths };
+}
+
+export function mergeGraphs(graphs: KnowledgeGraph[]): KnowledgeGraph {
+  // ... existing merge logic ...
+  
+  // After initial merge, apply semantic deduplication
+  const dedupResult = deduplicateSemanticDuplicates(
+    Array.from(nodeMap.values()),
+    edges,
+    questionPaths
+  );
+  
+  return {
+    globalNodes: dedupResult.nodes,
+    edges: dedupResult.edges,
+    courses,
+    questionPaths: dedupResult.questionPaths,
+    ipaByQuestion: Object.keys(ipaByQuestion).length ? ipaByQuestion : undefined,
+  };
+}
+```
+
+### Part 4: Add Duplicate Detection Logging
+
+**File**: `src/lib/graph/mergeGraphs.ts`
+
+Add console warnings when duplicates are detected:
+
+```typescript
+if (existingCanonical) {
+  console.warn(
+    `[mergeGraphs] Semantic duplicate detected: "${node.name}" (${node.id}) ` +
+    `merged into "${existingCanonical.name}" (${existingCanonical.id})`
+  );
+  // ... rest of merge logic
 }
 ```
 
 ---
 
-## Consolidation Strategy (Preventing Node Explosion)
+## Summary of Changes
 
-The key insight from combining IPA/LTA with your scalability needs:
-
-### Two-Pass Approach
-
-**Pass 1: IPA/LTA (Detailed)**
-- Extract all cognitive steps and skills per question
-- This may initially produce many nodes
-
-**Pass 2: Normalize (Consolidate)**
-- Merge nodes with same observable behavior
-- Generalize context-specific nodes
-- Apply transferability test (5+ contexts)
-- Target: N/5 to N/3 final nodes for N questions
-
-### Example Consolidation
-
-```text
-RAW LTA OUTPUT (before normalization):
-- "Initialize empty dict for word counting"
-- "Initialize empty dict for character frequency"
-- "Create dictionary for storing grades"
-
-AFTER NORMALIZATION:
-- "Dictionary Initialization" (single node, appears in 3+ questions)
-```
+| File | Change |
+|------|--------|
+| `src/components/KnowledgeGraphApp.tsx` | Accumulate nodes across batches, send richer context |
+| `supabase/functions/generate-graph/index.ts` | Strengthen incremental prompt with strict reuse rules |
+| `src/lib/graph/mergeGraphs.ts` | Add semantic deduplication pass after merge |
 
 ---
 
-## Quality Validation Rules
+## Expected Outcome
 
-After generation, validate:
-
-1. **Node Count**: Should be questions/5 to questions/3
-2. **Edge Density**: 1.5-2.5 edges per node average
-3. **Reuse Rate**: 60%+ nodes appear in 2+ questions
-4. **DAG Property**: No cycles in edge graph
-5. **Level Distribution**: Nodes spread across 4-6 levels
-
----
-
-## Files to Modify
-
-| File | Changes |
-|------|---------|
-| `supabase/functions/generate-graph/index.ts` | Complete rewrite of system prompt to IPA/LTA pipeline |
-| `src/types/graph.ts` | Add IPAStep interface, update skill types |
-| `src/lib/graph/mergeGraphs.ts` | Handle ipaByQuestion merging |
-
----
-
-## Expected Outcomes
-
-| Metric | Current | With IPA/LTA |
-|--------|---------|--------------|
-| Methodology | Intuitive grouping | Structured cognitive analysis |
-| Transparency | Black box | IPA traces show reasoning |
-| Node count (72 Qs) | 74 | 15-25 |
-| Prerequisites | Ad-hoc | Necessity-tested |
-| Scalability (1000 Qs) | ~1000 nodes | 80-150 nodes |
+| Before | After |
+|--------|-------|
+| Each batch gets same stale context | Each batch gets accumulated context |
+| Only ID+name sent to AI | ID+name+tier+description sent |
+| "Reuse if matches" (suggestion) | "NEVER create duplicates" (requirement) |
+| Merge by exact ID only | Merge by ID + semantic similarity |
+| Silent duplicates | Logged warnings when duplicates detected |
