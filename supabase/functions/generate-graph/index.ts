@@ -24,6 +24,46 @@ You will analyze questions through a structured 4-phase pipeline:
 3. Normalize: Unify synonyms, ensure atomicity, assign tiers
 4. Build DAG: Construct prerequisite edges with strict necessity criteria
 
+=== REFERENCE SKILL CATALOG (MAP TO THESE FIRST) ===
+
+Before creating ANY new skill, check if it maps to this catalog:
+
+FOUNDATIONAL (Level 0):
+- variable_assignment: Storing values in named containers
+- arithmetic_operations: +, -, *, /, %, //
+- comparison_operators: ==, !=, <, >, <=, >=
+- boolean_logic: and, or, not operations
+- type_recognition: Identifying int, str, list, dict, etc.
+
+CORE (Level 1-2):
+- conditional_branching: if/elif/else control flow
+- loop_iteration: for and while loops
+- list_operations: indexing, slicing, append, extend
+- dictionary_operations: key access, update, iteration
+- string_methods: split, join, strip, replace, find
+- function_definition: def, parameters, return
+- function_calls: invoking functions with arguments
+
+APPLIED (Level 3-4):
+- nested_iteration: loops within loops
+- accumulator_pattern: building results through iteration
+- search_pattern: finding elements in collections
+- filter_pattern: selecting elements by condition
+- transform_pattern: mapping elements to new values
+- input_parsing: converting string input to structured data
+- output_formatting: building formatted string output
+
+ADVANCED (Level 5+):
+- recursion: self-referential function calls
+- list_comprehension: compact list building syntax
+- file_io: reading and writing files
+- exception_handling: try/except/finally
+- class_definition: OOP class creation
+- object_methods: instance methods and attributes
+
+ONLY create a new skill if NONE of the above apply.
+When creating new skills, they must be AT THIS SAME LEVEL of abstraction.
+
 === PHASE 1: INFORMATION PROCESSING ANALYSIS (IPA) ===
 
 For EACH question, trace the cognitive algorithm a competent student uses:
@@ -63,10 +103,10 @@ This prevents spurious edges and keeps the graph minimal.
 Convert raw LTA outputs into a unified skill vocabulary:
 
 1. SYNONYM UNIFICATION: Merge nodes with identical observable behavior
-   - "Initialize empty dict" + "Create new dictionary" → dict_initialization
+   - "Initialize empty dict" + "Create new dictionary" → dictionary_operations
    
 2. ATOMICITY SPLIT: Break compound skills until single-testable
-   - "Use dictionary for counting" → dict_initialization + dict_key_access + dict_value_update
+   - "Use dictionary for counting" → dictionary_operations + loop_iteration + accumulator_pattern
 
 3. TIER ASSIGNMENT: Classify by complexity level
    | Tier | Description | Examples |
@@ -78,6 +118,36 @@ Convert raw LTA outputs into a unified skill vocabulary:
 
 4. TRANSFERABILITY CHECK: Ensure skill applies across 5+ contexts
    - If skill is context-specific, generalize or merge with similar
+
+5. CATALOG MAPPING: Check REFERENCE SKILL CATALOG first
+   - Only create new skills if no catalog match exists
+
+=== CONSOLIDATION RULES (STRICT - MUST FOLLOW) ===
+
+RULE 1: ONE SKILL PER CONCEPT
+- "Initialize empty dictionary" → dictionary_operations
+- "Add key to dictionary" → dictionary_operations  
+- "Check if key exists" → dictionary_operations
+- ALL dictionary work = ONE node: dictionary_operations
+
+RULE 2: PATTERN OVER CONTEXT
+- "Count words" → accumulator_pattern
+- "Sum numbers" → accumulator_pattern
+- "Collect unique items" → accumulator_pattern
+- ALL accumulation = ONE node: accumulator_pattern
+
+RULE 3: NO CONTEXT-SPECIFIC NODES
+WRONG: "nested_loop_for_pyramid", "nested_loop_for_matrix"
+RIGHT: "nested_iteration" (applies to ALL 2D traversal)
+
+RULE 4: MAXIMUM NODE COUNT
+For N questions, create AT MOST N/5 skill nodes.
+If you have more, you MUST consolidate further.
+
+RULE 5: PRE-MERGE CHECK
+Before finalizing, ask for EACH node:
+"Could this be merged with another node without losing testable distinction?"
+If YES → merge them
 
 === PHASE 4: BUILD DAG ===
 
@@ -174,15 +244,26 @@ Construct prerequisite edges using strict necessity criteria:
   }
 }
 
-=== QUALITY VALIDATION ===
+=== QUALITY VALIDATION (MANDATORY - FAIL = REDO) ===
 
-Before finalizing, verify:
-1. Node Count: Should be questions/5 to questions/3
-2. Edge Density: 1.5-2.5 edges per node average
-3. Reuse Rate: 60%+ nodes appear in 2+ questions
-4. DAG Property: No cycles in edge graph
-5. Level Distribution: Nodes spread across 4-6 levels
-6. Necessity: Every edge passes the "WITHOUT X?" test
+Before outputting, you MUST verify and FIX if any check fails:
+
+1. COUNT CHECK: nodes.length <= questions.length / 5
+   If FAIL → go back and merge more aggressively
+   
+2. REUSE CHECK: Every node appears in >= 2 questions
+   If FAIL → node is too specific, generalize it
+   
+3. DUPLICATE CHECK: No two nodes test the same underlying capability
+   If FAIL → merge them into one
+   
+4. CATALOG CHECK: Every new node (not in catalog) must be justified
+   Ask: "Why couldn't this map to an existing catalog skill?"
+
+5. Edge Density: 1.5-2.5 edges per node average
+6. DAG Property: No cycles in edge graph
+7. Level Distribution: Nodes spread across 4-6 levels
+8. Necessity: Every edge passes the "WITHOUT X?" test
 
 === EXAMPLE IPA/LTA ANALYSIS ===
 
