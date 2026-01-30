@@ -5,113 +5,86 @@ const corsHeaders = {
   "Access-Control-Allow-Headers": "authorization, x-client-info, apikey, content-type",
 };
 
-const systemPrompt = `You are a Knowledge Graph Engineer that analyzes coding questions to build cognitive capability graphs following the Math Academy methodology.
+const systemPrompt = `You are a Knowledge Graph Engineer building SKILL TAXONOMIES for educational curricula, following the Math Academy methodology.
 
-=== CRITICAL PRINCIPLES ===
+=== CORE PHILOSOPHY: TRANSFERABLE SKILLS ===
 
-1. ATOMIC KNOWLEDGE POINTS
-   Each node must represent ONE cognitive operation that can be:
-   - Taught in isolation (with prerequisites)
-   - Assessed with a single question
-   - Described in one sentence starting with a verb
+You are NOT decomposing questions into atomic operations.
+You ARE identifying reusable SKILLS that apply across many problem contexts.
 
-   WRONG: "Working with dictionaries" (topic, not skill)
-   WRONG: "Counting word frequencies" (composite operation)
-   RIGHT: "Initializing an empty dictionary"
-   RIGHT: "Checking if a key exists in a dictionary"
-   RIGHT: "Incrementing a numeric value at a key"
+WRONG APPROACH (too granular):
+- "Initializing empty dictionary for frequency counting"
+- "Incrementing dictionary value for word count"  
+- "Using nested loops for pyramid pattern"
+- "Using nested loops for matrix traversal"
 
-2. GRANULARITY TEST
-   For each proposed node, ask: "Can I split this further?"
-   If yes, split it. If you reach operations like "using the + operator",
-   you've gone too fine - those are language primitives, not teachable skills.
+RIGHT APPROACH (transferable skills):
+- "Dictionary Operations" (covers init, access, update, delete across ALL contexts)
+- "Nested Loop Iteration" (covers pyramids, matrices, grids, combinations)
+- "Accumulator Pattern" (covers counting, summing, collecting in ANY problem)
+- "String Manipulation" (covers building, parsing, formatting everywhere)
 
-   TOO COARSE (BAD):
-   - "Dictionary operations" - Topic, not skill
-   - "Counting frequencies" - Composite of 5+ skills
-   - "Data manipulation" - Vague category
+=== SKILL IDENTIFICATION TEST ===
 
-   JUST RIGHT (GOOD):
-   - "Initializing an empty dictionary" - One action
-   - "Checking if key exists in dictionary" - One decision
-   - "Appending to a list value in a dictionary" - One operation
-   - "Retrieving value with default fallback" - One operation
+For each potential skill, ask: "Does this skill apply to 5+ different problem types?"
+- If NO → Too specific, GENERALIZE it
+- If YES → Good skill level
 
-   TOO FINE (BAD):
-   - "Using the [] operator" - Language primitive
-   - "Typing a variable name" - Too mechanical
-   - "Understanding what = means" - Too basic
+MERGE similar operations:
+- "Nested loops for pyramids" + "Nested loops for matrices" → "Nested Loop Iteration"
+- "Counting words" + "Counting chars" + "Summing values" → "Accumulator Pattern"
 
-3. PREREQUISITE PRECISION
-   A prerequisite edge means: "You CANNOT learn B without knowing A"
-   NOT: "A is related to B" or "A is commonly used with B"
-   
-   Prerequisite Criteria:
-   - NECESSARY: Cannot learn B without knowing A
-   - DIRECT: A is immediately used in B, not transitively
-   - MINIMAL: Don't include A if A's prerequisites also cover it
+=== SKILL TIERS ===
 
-=== PROCESS (Follow these 4 steps) ===
+| Tier | Description | Examples | Target Count |
+|------|-------------|----------|--------------|
+| foundational | Language primitives | Variables, Operators, Basic Types | 10-15 |
+| core | Building-block patterns | Loops, Conditionals, Functions, Data Structures | 20-40 |
+| applied | Combining patterns | Sorting, Searching, Accumulation, String Processing | 30-50 |
+| advanced | Complex problem-solving | Recursion, Dynamic Programming, Graph Algorithms | 20-40 |
 
-STEP 1: IPA (Information Processing Analysis)
-For each question, list every cognitive step in execution order:
-- What must be RECOGNIZED? (patterns, problem types)
-- What must be RECALLED? (syntax, methods, concepts)
-- What must be APPLIED? (combining knowledge to write code)
-- What DECISIONS are made? (conditionals, edge cases)
+=== TARGET METRICS ===
 
-STEP 2: NORMALIZE
-- Group identical operations across questions
-- Create ONE knowledge point for each unique operation
-- Verify atomicity: can this be split further? If yes, split it.
+- 1 skill per 5-15 questions on average
+- Each skill should appear in 10%+ of questions
+- Total skills for full curriculum: 100-200
+- For 72 questions: expect 15-25 skills, NOT 70+
 
-STEP 3: BUILD PREREQUISITES
-- For each knowledge point, list what must be known BEFORE
-- Include ONLY direct prerequisites (not transitive)
-- Write specific reasons for each edge
-- Level(node) = 0 if no prerequisites, else 1 + max(level of all prerequisites)
+=== PROCESS ===
 
-STEP 4: VALIDATE
-- Trace each question through its knowledge points
-- Verify prerequisites are satisfied in order
-- Flag any missing nodes or broken paths
+STEP 1: THEME IDENTIFICATION
+- Read all questions and identify common themes/patterns
+- Group questions by the transferable skills they require
+- Look for skills that appear across multiple questions
 
-=== DECOMPOSITION EXAMPLE ===
+STEP 2: SKILL EXTRACTION
+- Create ONE skill node for each identified transferable capability
+- Name skills generically (no problem-specific context)
+- Assign appropriate tier based on complexity
 
-Original: "Counting word frequencies in text"
+STEP 3: PREREQUISITE MAPPING
+- Build prerequisite edges between skills
+- Level = 0 if no prerequisites, else 1 + max(level of prerequisites)
+- Keep edges minimal and direct
 
-Decomposed into atomic nodes:
-1. "Recognizing frequency-counting pattern" (RECOGNIZE)
-2. "Splitting string into word list" (APPLY)
-3. "Initializing empty frequency dictionary" (APPLY)
-4. "Iterating through a list" (APPLY - reused)
-5. "Checking key existence in dictionary" (APPLY - reused)
-6. "Incrementing numeric value at key" (APPLY)
-7. "Inserting new key with initial value" (APPLY)
+STEP 4: QUESTION MAPPING
+- Map each question to the 2-4 skills it requires
+- Identify the primary skill being tested
 
-Nodes 4, 5, 6, 7 are REUSABLE across many questions.
-
-=== OUTPUT FORMAT (strict JSON only, no markdown) ===
+=== OUTPUT FORMAT (strict JSON) ===
 
 {
-  "ipaByQuestion": {
-    "Question text": [
-      {"step": 1, "type": "RECOGNIZE", "operation": "Need to track frequencies"},
-      {"step": 2, "type": "RECALL", "operation": "Dictionary is appropriate for key-value mapping"}
-    ]
-  },
-  
   "globalNodes": [
     {
-      "id": "snake_case_id",
-      "name": "Verb-phrase describing the cognitive operation",
+      "id": "snake_case_skill_id",
+      "name": "Skill Name (Generic, Transferable)",
       "level": 0,
-      "description": "One sentence explanation",
+      "description": "What this skill enables the learner to do",
       "knowledgePoint": {
-        "atomicityCheck": "Why this cannot be split further",
-        "assessmentExample": "Sample question testing ONLY this skill",
+        "atomicityCheck": "This is a transferable skill applying to: [list contexts]",
+        "assessmentExample": "Sample question testing this skill",
         "targetAssessmentLevel": 3,
-        "appearsInQuestions": ["Question 1", "Question 3"]
+        "appearsInQuestions": ["Q1", "Q5", "Q12"]
       },
       "cme": {
         "measured": false,
@@ -124,84 +97,78 @@ Nodes 4, 5, 6, 7 are REUSABLE across many questions.
       "le": {
         "estimated": true,
         "estimatedMinutes": 15
-      }
+      },
+      "tier": "core",
+      "transferableContexts": ["Context 1", "Context 2", "Context 3"]
     }
   ],
   
   "edges": [
     {
-      "from": "prereq_id",
-      "to": "dependent_id",
-      "reason": "Specific reason why from must come before to",
+      "from": "prereq_skill_id",
+      "to": "dependent_skill_id", 
+      "reason": "Why this prerequisite relationship exists",
       "relationshipType": "requires"
     }
   ],
   
   "questionPaths": {
     "Question text": {
-      "requiredNodes": ["node1", "node2"],
-      "executionOrder": ["node1", "node2"],
-      "validationStatus": "valid"
+      "requiredNodes": ["skill1", "skill2"],
+      "executionOrder": ["skill1", "skill2"],
+      "validationStatus": "valid",
+      "primarySkill": "skill1"
     }
   },
   
   "courses": {
-    "Course Name": {
-      "nodes": [
-        {"id": "node_id", "inCourse": true}
-      ]
+    "Default": {
+      "nodes": [{"id": "skill_id", "inCourse": true}]
     }
   }
 }
 
-=== QUALITY CHECKS (Perform before output) ===
+=== QUALITY CHECKS ===
 
-1. Atomicity: For each node, verify it can't be split further
-2. Assessment: Verify the assessment example tests ONLY that skill
-3. Prerequisites: Verify no circular dependencies
-4. Path: Verify each question's path follows valid prerequisite order
-5. Coverage: Verify all IPA steps map to nodes
-6. Reuse: Aim for 60%+ node reuse across questions
+1. Transferability: Each skill applies to 5+ different problem types
+2. Consolidation: Similar operations merged into single skills
+3. Naming: Generic names, no problem-specific context
+4. Reuse: 60%+ of skills appear in multiple questions
+5. Count: For N questions, expect N/5 to N/3 skills (not 1:1!)
 
-Target: 5-8 atomic nodes per question, with high reuse across questions.
+=== EXAMPLES OF GOOD SKILL EXTRACTION ===
 
-relationshipType values: "requires" | "builds_on" | "extends"
-targetAssessmentLevel: 1-4 (1=Recognition, 2=Recall simple, 3=Recall complex, 4=Direct application)
+Questions about: printing pyramids, traversing matrices, generating combinations
+→ Single skill: "Nested Loop Iteration"
+
+Questions about: word frequency, character counting, summing lists
+→ Single skill: "Accumulator Pattern"  
+
+Questions about: reading input, parsing strings, extracting values
+→ Single skill: "Input Processing"
 
 Output ONLY valid JSON, no explanation.`;
 
 const incrementalPromptAddition = `
 
-=== INCREMENTAL ANALYSIS MODE ===
+=== INCREMENTAL MODE ===
 
-You are EXTENDING an existing knowledge graph. Follow these critical rules:
+You are EXTENDING an existing skill graph. Follow these rules:
 
-1. REUSE EXISTING NODES when the cognitive operation matches:
-   - If an existing node covers the same atomic skill, use its EXACT ID
-   - Don't create duplicates like "check_key_exists_2" if "check_key_exists" exists
-   - Semantic equivalence matters: "Checking if key exists" = "Verifying key presence"
+1. REUSE EXISTING SKILLS when the capability matches:
+   - If an existing skill covers the same transferable capability, use its EXACT ID
+   - Semantic equivalence matters: "Nested Loop Iteration" covers ALL nested loop uses
+   
+2. CREATE NEW SKILLS only when:
+   - No existing skill covers this capability
+   - The skill is genuinely new to the curriculum
 
-2. CREATE NEW NODES only when:
-   - No existing node covers this specific cognitive operation
-   - The operation is genuinely new to the graph
+3. OUTPUT:
+   - Return ONLY new skills (not in existing list)
+   - Return ALL edges needed (including edges from existing to new)
+   - Return question paths for NEW questions only
 
-3. EDGES:
-   - Create edges FROM existing nodes TO new nodes when prerequisites apply
-   - Create edges between new nodes as needed
-   - Reference existing node IDs in edge definitions
-   - Don't duplicate edges that would already exist
-
-4. QUESTION PATHS:
-   - Map new questions to BOTH existing and new nodes
-   - Existing nodes remain valid prerequisites
-   - Use existing node IDs in executionOrder and requiredNodes
-
-5. OUTPUT:
-   - Return ONLY new nodes (nodes not in the existing list)
-   - Return ALL edges needed (including edges from existing to new nodes)
-   - Return question paths for the NEW questions only
-
-Existing nodes in the graph (REUSE these IDs when applicable):
+Existing skills in the graph (REUSE these IDs):
 `;
 
 function isLikelyTruncatedJson(text: string): boolean {
@@ -288,7 +255,7 @@ serve(async (req) => {
     }
 
     const isIncremental = existingNodes && existingNodes.length > 0;
-    console.log(`Generating graph for ${questions.length} questions (incremental: ${isIncremental}, existing nodes: ${existingNodes?.length || 0})`);
+    console.log(`Generating skill taxonomy for ${questions.length} questions (incremental: ${isIncremental}, existing skills: ${existingNodes?.length || 0})`);
 
     // Build the prompt based on mode
     let fullSystemPrompt = systemPrompt;
@@ -303,16 +270,16 @@ serve(async (req) => {
     const userPrompt = `Questions to analyze:
 ${questions.map((q: string, i: number) => `${i + 1}. ${q}`).join('\n')}
 
-Remember:
-- Each node = ONE atomic cognitive operation
-- Apply the granularity test: "Can I split this further?"
-- IPA first, then normalize, then prerequisites, then validate
-- Target 5-8 nodes per question with high reuse
-- CME.measured = false and LE.estimated = true (no student data yet)
-- Do NOT include literal newlines inside JSON string values (use spaces instead)
-${isIncremental ? '- REUSE existing node IDs when the cognitive operation matches\n- Return ONLY new nodes, but include all necessary edges' : ''}
+CRITICAL REMINDERS:
+- Extract TRANSFERABLE SKILLS, not atomic operations
+- Each skill should apply to 5+ different problem types
+- MERGE similar operations into single skills
+- Name skills generically (no problem-specific context)
+- Target: ${Math.ceil(questions.length / 5)} to ${Math.ceil(questions.length / 3)} skills for ${questions.length} questions
+- Include "tier" and "transferableContexts" for each skill
+${isIncremental ? '- REUSE existing skill IDs when the capability matches\n- Return ONLY new skills, but include all necessary edges' : ''}
 
-Generate the knowledge graph JSON following all steps.`;
+Generate the skill taxonomy JSON.`;
 
     const model = "gemini-2.0-flash";
     const response = await fetch(
@@ -394,7 +361,7 @@ Generate the knowledge graph JSON following all steps.`;
     const nodeCount = graphData.globalNodes?.length || 0;
     const edgeCount = graphData.edges?.length || 0;
     const questionCount = Object.keys(graphData.questionPaths || {}).length;
-    console.log(`Generated: ${nodeCount} nodes, ${edgeCount} edges, ${questionCount} question paths`);
+    console.log(`Generated skill taxonomy: ${nodeCount} skills, ${edgeCount} edges, ${questionCount} question mappings`);
 
     return new Response(JSON.stringify(graphData), {
       headers: { ...corsHeaders, "Content-Type": "application/json" },

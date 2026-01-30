@@ -33,6 +33,8 @@ export interface LE {
   finalLE?: number;
 }
 
+export type SkillTier = 'foundational' | 'core' | 'applied' | 'advanced';
+
 export interface GraphNode {
   id: string;
   name: string;
@@ -41,6 +43,9 @@ export interface GraphNode {
   knowledgePoint: KnowledgePoint;
   cme: CME;
   le: LE;
+  // New skill taxonomy fields
+  tier?: SkillTier;
+  transferableContexts?: string[];
 }
 
 export interface GraphEdge {
