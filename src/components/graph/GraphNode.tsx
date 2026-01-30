@@ -60,7 +60,7 @@ export function GraphNodeComponent({
       case 'selected':
         return 4;
       case 'highlighted':
-        return 3;
+        return 5;
       case 'hovered':
         return 3;
       case 'connected':
@@ -75,7 +75,7 @@ export function GraphNodeComponent({
       case 'selected':
         return 'hsl(45, 93%, 47%)';
       case 'highlighted':
-        return 'hsl(173, 58%, 39%)';
+        return 'hsl(280, 87%, 60%)';
       case 'hovered':
         return nodeColor;
       case 'connected':
@@ -89,6 +89,8 @@ export function GraphNodeComponent({
     switch (state) {
       case 'selected':
         return 1.1;
+      case 'highlighted':
+        return 1.12;
       case 'hovered':
         return 1.05;
       case 'connected':
@@ -118,8 +120,8 @@ export function GraphNodeComponent({
       onMouseEnter={onMouseEnter}
       onMouseLeave={onMouseLeave}
     >
-      {/* Glow effect for selected/highlighted */}
-      {(state === 'selected' || state === 'highlighted') && (
+      {/* Glow effect for selected */}
+      {state === 'selected' && (
         <circle
           cx={0}
           cy={0}
@@ -130,6 +132,34 @@ export function GraphNodeComponent({
           opacity={0.3}
           className="animate-pulse-soft"
         />
+      )}
+
+      {/* Enhanced glow effect for highlighted path nodes */}
+      {state === 'highlighted' && (
+        <>
+          {/* Outer glow ring */}
+          <circle
+            cx={0}
+            cy={0}
+            r={nodeRadius + 14}
+            fill="none"
+            stroke="hsl(280, 87%, 60%)"
+            strokeWidth={2}
+            opacity={0.2}
+            className="animate-pulse-soft"
+          />
+          {/* Inner glow ring */}
+          <circle
+            cx={0}
+            cy={0}
+            r={nodeRadius + 8}
+            fill="none"
+            stroke="hsl(280, 87%, 60%)"
+            strokeWidth={3}
+            opacity={0.5}
+            className="animate-pulse-soft"
+          />
+        </>
       )}
 
       {/* Connected indicator ring */}
