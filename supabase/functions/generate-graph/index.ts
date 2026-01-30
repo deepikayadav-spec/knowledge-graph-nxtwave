@@ -5,84 +5,129 @@ const corsHeaders = {
   "Access-Control-Allow-Headers": "authorization, x-client-info, apikey, content-type",
 };
 
-const systemPrompt = `You are a Knowledge Graph Engineer building SKILL TAXONOMIES for educational curricula, following the Math Academy methodology.
+/**
+ * IPA/LTA Knowledge Graph Generation System Prompt
+ * 
+ * Implements the 4-phase pipeline:
+ * Phase 1: IPA (Information Processing Analysis) - Trace cognitive algorithm
+ * Phase 2: LTA (Learning Task Analysis) - Extract knowledge requirements
+ * Phase 3: Normalization - Unify, atomize, assign tiers
+ * Phase 4: Build DAG - Construct prerequisite edges
+ */
+const systemPrompt = `You are a Knowledge Graph Engineer using the IPA/LTA methodology to build cognitive skill maps.
 
-=== CORE PHILOSOPHY: TRANSFERABLE SKILLS ===
+=== OVERVIEW ===
 
-You are NOT decomposing questions into atomic operations.
-You ARE identifying reusable SKILLS that apply across many problem contexts.
+You will analyze questions through a structured 4-phase pipeline:
+1. IPA: Trace the cognitive algorithm for each question
+2. LTA: Extract knowledge requirements from each cognitive step
+3. Normalize: Unify synonyms, ensure atomicity, assign tiers
+4. Build DAG: Construct prerequisite edges with strict necessity criteria
 
-WRONG APPROACH (too granular):
-- "Initializing empty dictionary for frequency counting"
-- "Incrementing dictionary value for word count"  
-- "Using nested loops for pyramid pattern"
-- "Using nested loops for matrix traversal"
+=== PHASE 1: INFORMATION PROCESSING ANALYSIS (IPA) ===
 
-RIGHT APPROACH (transferable skills):
-- "Dictionary Operations" (covers init, access, update, delete across ALL contexts)
-- "Nested Loop Iteration" (covers pyramids, matrices, grids, combinations)
-- "Accumulator Pattern" (covers counting, summing, collecting in ANY problem)
-- "String Manipulation" (covers building, parsing, formatting everywhere)
+For EACH question, trace the cognitive algorithm a competent student uses:
 
-=== SKILL IDENTIFICATION TEST ===
+| Step Type | Description | Example |
+|-----------|-------------|---------|
+| PERCEIVE | Notice relevant features in input | "See that input has multiple lines" |
+| ENCODE | Transform input into mental representation | "Parse as list of integers" |
+| RETRIEVE | Recall knowledge from long-term memory | "Recall dictionary syntax" |
+| DECIDE | Choose strategy or branch | "If count needed, use accumulator pattern" |
+| EXECUTE | Perform computational action | "Initialize empty dict, iterate, update" |
+| MONITOR | Check correctness, handle edge cases | "Verify no KeyError, handle empty input" |
 
-For each potential skill, ask: "Does this skill apply to 5+ different problem types?"
-- If NO → Too specific, GENERALIZE it
-- If YES → Good skill level
+Output IPA traces for each question to show your reasoning.
 
-MERGE similar operations:
-- "Nested loops for pyramids" + "Nested loops for matrices" → "Nested Loop Iteration"
-- "Counting words" + "Counting chars" + "Summing values" → "Accumulator Pattern"
+=== PHASE 2: LEARNING TASK ANALYSIS (LTA) ===
 
-=== SKILL TIERS ===
+For each IPA step, identify the specific knowledge required:
 
-| Tier | Description | Examples | Target Count |
-|------|-------------|----------|--------------|
-| foundational | Language primitives | Variables, Operators, Basic Types | 10-15 |
-| core | Building-block patterns | Loops, Conditionals, Functions, Data Structures | 20-40 |
-| applied | Combining patterns | Sorting, Searching, Accumulation, String Processing | 30-50 |
-| advanced | Complex problem-solving | Recursion, Dynamic Programming, Graph Algorithms | 20-40 |
+| Category | Description | Example |
+|----------|-------------|---------|
+| declarative | Facts, definitions, syntax knowledge | "dict[key] = value syntax" |
+| procedural | How-to sequences, step-by-step methods | "Steps to iterate with enumerate" |
+| conditional | When to apply what (decision rules) | "Use .get() when key might not exist" |
+| strategic | High-level planning and patterns | "Accumulator pattern for counting" |
+
+=== THE "WITHOUT X?" TEST ===
+
+For each candidate skill, ask: "Can a student RELIABLY perform this step WITHOUT having mastered X?"
+- If NO → X is a prerequisite (add edge)
+- If YES → X is NOT required (don't add edge)
+
+This prevents spurious edges and keeps the graph minimal.
+
+=== PHASE 3: NORMALIZATION ===
+
+Convert raw LTA outputs into a unified skill vocabulary:
+
+1. SYNONYM UNIFICATION: Merge nodes with identical observable behavior
+   - "Initialize empty dict" + "Create new dictionary" → dict_initialization
+   
+2. ATOMICITY SPLIT: Break compound skills until single-testable
+   - "Use dictionary for counting" → dict_initialization + dict_key_access + dict_value_update
+
+3. TIER ASSIGNMENT: Classify by complexity level
+   | Tier | Description | Examples |
+   |------|-------------|----------|
+   | foundational | Language primitives | Variables, Operators, Basic Types |
+   | core | Control structures | Loops, Conditionals, Functions |
+   | applied | Patterns & combinations | Accumulator, Search, String Processing |
+   | advanced | Complex algorithms | Recursion, Dynamic Programming |
+
+4. TRANSFERABILITY CHECK: Ensure skill applies across 5+ contexts
+   - If skill is context-specific, generalize or merge with similar
+
+=== PHASE 4: BUILD DAG ===
+
+Construct prerequisite edges using strict necessity criteria:
+
+1. NECESSITY TEST: Only add edge A → B if:
+   - Performance on B is UNRELIABLE without A
+   - A provides ESSENTIAL knowledge for B (not just helpful)
+
+2. DIRECTION FLOW: Edges follow learning hierarchy:
+   Declarative → Procedural → Conditional → Strategic
+   Concept → Procedure → Strategy → Performance
+
+3. TRANSITIVITY REDUCTION: Remove redundant edges
+   - If A → B and B → C, do NOT add direct A → C
+
+4. LEVEL COMPUTATION:
+   level(node) = 0 if no prerequisites
+   level(node) = 1 + max(level(prereq) for prereq in prerequisites)
 
 === TARGET METRICS ===
 
-- 1 skill per 5-15 questions on average
-- Each skill should appear in 10%+ of questions
-- Total skills for full curriculum: 100-200
-- For 72 questions: expect 15-25 skills, NOT 70+
-
-=== PROCESS ===
-
-STEP 1: THEME IDENTIFICATION
-- Read all questions and identify common themes/patterns
-- Group questions by the transferable skills they require
-- Look for skills that appear across multiple questions
-
-STEP 2: SKILL EXTRACTION
-- Create ONE skill node for each identified transferable capability
-- Name skills generically (no problem-specific context)
-- Assign appropriate tier based on complexity
-
-STEP 3: PREREQUISITE MAPPING
-- Build prerequisite edges between skills
-- Level = 0 if no prerequisites, else 1 + max(level of prerequisites)
-- Keep edges minimal and direct
-
-STEP 4: QUESTION MAPPING
-- Map each question to the 2-4 skills it requires
-- Identify the primary skill being tested
+- Skill count: 1 per 5-15 questions
+- Edge density: 1.5-2.5 edges per node average
+- Reuse rate: Each skill in 10%+ of questions
+- Max depth: 5-7 levels for typical curriculum
 
 === OUTPUT FORMAT (strict JSON) ===
 
 {
+  "ipaByQuestion": {
+    "Question text here": [
+      {"step": 1, "type": "PERCEIVE", "operation": "Description of what is perceived"},
+      {"step": 2, "type": "ENCODE", "operation": "Description of encoding"},
+      {"step": 3, "type": "RETRIEVE", "operation": "Description of retrieval"},
+      {"step": 4, "type": "DECIDE", "operation": "Description of decision"},
+      {"step": 5, "type": "EXECUTE", "operation": "Description of execution"},
+      {"step": 6, "type": "MONITOR", "operation": "Description of monitoring"}
+    ]
+  },
+  
   "globalNodes": [
     {
       "id": "snake_case_skill_id",
-      "name": "Skill Name (Generic, Transferable)",
+      "name": "Human-Readable Skill Name",
       "level": 0,
-      "description": "What this skill enables the learner to do",
+      "description": "What mastery of this skill looks like",
       "knowledgePoint": {
-        "atomicityCheck": "This is a transferable skill applying to: [list contexts]",
-        "assessmentExample": "Sample question testing this skill",
+        "atomicityCheck": "Can be tested with: [single question type]",
+        "assessmentExample": "Sample question testing ONLY this skill",
         "targetAssessmentLevel": 3,
         "appearsInQuestions": ["Q1", "Q5", "Q12"]
       },
@@ -99,15 +144,16 @@ STEP 4: QUESTION MAPPING
         "estimatedMinutes": 15
       },
       "tier": "core",
-      "transferableContexts": ["Context 1", "Context 2", "Context 3"]
+      "knowledgeType": "procedural",
+      "transferableContexts": ["Context 1", "Context 2", "Context 3", "Context 4", "Context 5"]
     }
   ],
   
   "edges": [
     {
-      "from": "prereq_skill_id",
-      "to": "dependent_skill_id", 
-      "reason": "Why this prerequisite relationship exists",
+      "from": "prerequisite_skill_id",
+      "to": "dependent_skill_id",
+      "reason": "Why B cannot be performed reliably without A",
       "relationshipType": "requires"
     }
   ],
@@ -117,7 +163,7 @@ STEP 4: QUESTION MAPPING
       "requiredNodes": ["skill1", "skill2"],
       "executionOrder": ["skill1", "skill2"],
       "validationStatus": "valid",
-      "primarySkill": "skill1"
+      "primarySkill": "skill2"
     }
   },
   
@@ -128,24 +174,41 @@ STEP 4: QUESTION MAPPING
   }
 }
 
-=== QUALITY CHECKS ===
+=== QUALITY VALIDATION ===
 
-1. Transferability: Each skill applies to 5+ different problem types
-2. Consolidation: Similar operations merged into single skills
-3. Naming: Generic names, no problem-specific context
-4. Reuse: 60%+ of skills appear in multiple questions
-5. Count: For N questions, expect N/5 to N/3 skills (not 1:1!)
+Before finalizing, verify:
+1. Node Count: Should be questions/5 to questions/3
+2. Edge Density: 1.5-2.5 edges per node average
+3. Reuse Rate: 60%+ nodes appear in 2+ questions
+4. DAG Property: No cycles in edge graph
+5. Level Distribution: Nodes spread across 4-6 levels
+6. Necessity: Every edge passes the "WITHOUT X?" test
 
-=== EXAMPLES OF GOOD SKILL EXTRACTION ===
+=== EXAMPLE IPA/LTA ANALYSIS ===
 
-Questions about: printing pyramids, traversing matrices, generating combinations
-→ Single skill: "Nested Loop Iteration"
+Question: "Count frequency of each word in a sentence"
 
-Questions about: word frequency, character counting, summing lists
-→ Single skill: "Accumulator Pattern"  
+IPA Trace:
+1. PERCEIVE: Input is a string with spaces separating words
+2. ENCODE: Split string into list of words
+3. RETRIEVE: Dictionary can map word → count
+4. DECIDE: Use accumulator pattern with dictionary
+5. EXECUTE: For each word, check if in dict, then increment or initialize
+6. MONITOR: Handle case sensitivity, punctuation, empty string
 
-Questions about: reading input, parsing strings, extracting values
-→ Single skill: "Input Processing"
+LTA Extraction:
+- PERCEIVE step requires: string_recognition (declarative)
+- ENCODE step requires: string_split_method (procedural)
+- RETRIEVE step requires: dictionary_concept (declarative)
+- DECIDE step requires: accumulator_pattern_selection (strategic)
+- EXECUTE step requires: dictionary_operations (procedural), loop_iteration (procedural)
+- MONITOR step requires: edge_case_handling (conditional)
+
+After normalization, this maps to skills like:
+- string_methods (core, procedural)
+- dictionary_operations (core, procedural)
+- loop_iteration (core, procedural)
+- accumulator_pattern (applied, strategic)
 
 Output ONLY valid JSON, no explanation.`;
 
@@ -156,19 +219,20 @@ const incrementalPromptAddition = `
 You are EXTENDING an existing skill graph. Follow these rules:
 
 1. REUSE EXISTING SKILLS when the capability matches:
-   - If an existing skill covers the same transferable capability, use its EXACT ID
-   - Semantic equivalence matters: "Nested Loop Iteration" covers ALL nested loop uses
+   - If an existing skill covers the same cognitive capability, use its EXACT ID
+   - Apply IPA/LTA to new questions but map to existing nodes where possible
    
 2. CREATE NEW SKILLS only when:
-   - No existing skill covers this capability
-   - The skill is genuinely new to the curriculum
-
+   - IPA/LTA analysis reveals a genuinely new cognitive capability
+   - No existing skill covers this knowledge requirement
+   
 3. OUTPUT:
+   - Include ipaByQuestion for NEW questions only
    - Return ONLY new skills (not in existing list)
    - Return ALL edges needed (including edges from existing to new)
    - Return question paths for NEW questions only
 
-Existing skills in the graph (REUSE these IDs):
+Existing skills in the graph (REUSE these IDs when IPA/LTA maps to them):
 `;
 
 function isLikelyTruncatedJson(text: string): boolean {
@@ -255,7 +319,7 @@ serve(async (req) => {
     }
 
     const isIncremental = existingNodes && existingNodes.length > 0;
-    console.log(`Generating skill taxonomy for ${questions.length} questions (incremental: ${isIncremental}, existing skills: ${existingNodes?.length || 0})`);
+    console.log(`[IPA/LTA] Generating knowledge graph for ${questions.length} questions (incremental: ${isIncremental}, existing skills: ${existingNodes?.length || 0})`);
 
     // Build the prompt based on mode
     let fullSystemPrompt = systemPrompt;
@@ -267,19 +331,28 @@ serve(async (req) => {
       fullSystemPrompt += incrementalPromptAddition + nodeList;
     }
 
-    const userPrompt = `Questions to analyze:
+    const targetMinSkills = Math.ceil(questions.length / 15);
+    const targetMaxSkills = Math.ceil(questions.length / 5);
+
+    const userPrompt = `Questions to analyze using IPA/LTA methodology:
 ${questions.map((q: string, i: number) => `${i + 1}. ${q}`).join('\n')}
 
-CRITICAL REMINDERS:
-- Extract TRANSFERABLE SKILLS, not atomic operations
-- Each skill should apply to 5+ different problem types
-- MERGE similar operations into single skills
-- Name skills generically (no problem-specific context)
-- Target: ${Math.ceil(questions.length / 5)} to ${Math.ceil(questions.length / 3)} skills for ${questions.length} questions
-- Include "tier" and "transferableContexts" for each skill
-${isIncremental ? '- REUSE existing skill IDs when the capability matches\n- Return ONLY new skills, but include all necessary edges' : ''}
+=== ANALYSIS INSTRUCTIONS ===
 
-Generate the skill taxonomy JSON.`;
+1. For EACH question, perform IPA (trace cognitive algorithm with PERCEIVE/ENCODE/RETRIEVE/DECIDE/EXECUTE/MONITOR)
+2. For EACH IPA step, perform LTA (identify declarative/procedural/conditional/strategic knowledge)
+3. NORMALIZE the extracted knowledge into unified skill nodes
+4. BUILD the DAG with necessity-tested prerequisite edges
+
+=== TARGET METRICS ===
+
+- Expected skill count: ${targetMinSkills} to ${targetMaxSkills} skills for ${questions.length} questions
+- Apply the "WITHOUT X?" test for EVERY edge
+- Ensure 60%+ skill reuse across questions
+- Include "ipaByQuestion" showing your cognitive analysis
+${isIncremental ? '- REUSE existing skill IDs when IPA/LTA maps to same capability\n- Return ONLY new skills, but include all necessary edges' : ''}
+
+Generate the IPA/LTA knowledge graph JSON.`;
 
     const model = "gemini-2.0-flash";
     const response = await fetch(
@@ -330,9 +403,9 @@ Generate the skill taxonomy JSON.`;
     const data = await response.json();
     
     const finishReason = data.candidates?.[0]?.finishReason;
-    console.log(`Gemini finish reason: ${finishReason}`);
+    console.log(`[IPA/LTA] Gemini finish reason: ${finishReason}`);
     if (finishReason === 'MAX_TOKENS') {
-      console.warn('Response was truncated due to max tokens limit');
+      console.warn('[IPA/LTA] Response was truncated due to max tokens limit');
     }
     
     const content = data.candidates?.[0]?.content?.parts?.[0]?.text;
@@ -345,7 +418,7 @@ Generate the skill taxonomy JSON.`;
     try {
       graphData = extractJsonFromResponse(content);
     } catch (parseError) {
-      console.error("JSON extraction error:", parseError);
+      console.error("[IPA/LTA] JSON extraction error:", parseError);
 
       const msg = parseError instanceof Error ? parseError.message : String(parseError);
       if (msg.toLowerCase().includes("truncated")) {
@@ -358,16 +431,24 @@ Generate the skill taxonomy JSON.`;
       throw parseError;
     }
 
+    // Log IPA/LTA specific metrics
     const nodeCount = graphData.globalNodes?.length || 0;
     const edgeCount = graphData.edges?.length || 0;
     const questionCount = Object.keys(graphData.questionPaths || {}).length;
-    console.log(`Generated skill taxonomy: ${nodeCount} skills, ${edgeCount} edges, ${questionCount} question mappings`);
+    const ipaCount = Object.keys(graphData.ipaByQuestion || {}).length;
+    const edgeDensity = nodeCount > 0 ? (edgeCount / nodeCount).toFixed(2) : 0;
+    
+    console.log(`[IPA/LTA] Generated knowledge graph:`);
+    console.log(`  - Skills: ${nodeCount} (target: ${targetMinSkills}-${targetMaxSkills})`);
+    console.log(`  - Edges: ${edgeCount} (density: ${edgeDensity} per node)`);
+    console.log(`  - Question mappings: ${questionCount}`);
+    console.log(`  - IPA traces: ${ipaCount}`);
 
     return new Response(JSON.stringify(graphData), {
       headers: { ...corsHeaders, "Content-Type": "application/json" },
     });
   } catch (error) {
-    console.error("generate-graph error:", error);
+    console.error("[IPA/LTA] generate-graph error:", error);
     return new Response(
       JSON.stringify({ error: error instanceof Error ? error.message : "Unknown error" }),
       {
