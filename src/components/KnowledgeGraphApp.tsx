@@ -4,6 +4,7 @@ import { NodeDetailPanel } from './panels/NodeDetailPanel';
 import { QuestionPathSelector } from './panels/QuestionPathSelector';
 import { QuickQuestionInput } from './panels/QuickQuestionInput';
 import { KnowledgeGraph, QuestionPath } from '@/types/graph';
+import { mergeGraphs } from '@/lib/graph/mergeGraphs';
 
 // Helper to get path array from either format (backward compatible)
 const getPathArray = (path: QuestionPath | string[]): string[] => {
@@ -17,6 +18,8 @@ import { Network, Sparkles } from 'lucide-react';
 import { Badge } from '@/components/ui/badge';
 import { supabase } from '@/integrations/supabase/client';
 import { toast } from '@/hooks/use-toast';
+
+const BATCH_SIZE = 5;
 
 export function KnowledgeGraphApp() {
   const [graph, setGraph] = useState<KnowledgeGraph | null>(null);
@@ -34,19 +37,33 @@ export function KnowledgeGraphApp() {
     setIsGenerating(true);
     
     try {
-      const { data, error } = await supabase.functions.invoke('generate-graph', {
-        body: { questions },
-      });
+      // Split into smaller batches to prevent MAX_TOKENS truncation
+      const batches: string[][] = [];
+      for (let i = 0; i < questions.length; i += BATCH_SIZE) {
+        batches.push(questions.slice(i, i + BATCH_SIZE));
+      }
 
-      if (error) throw error;
-      if (data.error) throw new Error(data.error);
+      const graphs: KnowledgeGraph[] = [];
 
-      const newGraph: KnowledgeGraph = {
-        globalNodes: data.globalNodes || [],
-        edges: data.edges || [],
-        courses: data.courses || {},
-        questionPaths: data.questionPaths || {},
-      };
+      for (let i = 0; i < batches.length; i++) {
+        const batch = batches[i];
+        const { data, error } = await supabase.functions.invoke('generate-graph', {
+          body: { questions: batch },
+        });
+
+        if (error) throw error;
+        if (data?.error) throw new Error(data.error);
+
+        graphs.push({
+          globalNodes: data?.globalNodes || [],
+          edges: data?.edges || [],
+          courses: data?.courses || {},
+          questionPaths: data?.questionPaths || {},
+          ipaByQuestion: data?.ipaByQuestion || undefined,
+        });
+      }
+
+      const newGraph = graphs.length === 1 ? graphs[0] : mergeGraphs(graphs);
 
       handleGraphGenerated(newGraph);
       
