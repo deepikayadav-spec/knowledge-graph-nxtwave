@@ -170,9 +170,41 @@ targetAssessmentLevel: 1-4 (1=Recognition, 2=Recall simple, 3=Recall complex, 4=
 
 Output ONLY valid JSON, no explanation.`;
 
+const incrementalPromptAddition = `
+
+=== INCREMENTAL ANALYSIS MODE ===
+
+You are EXTENDING an existing knowledge graph. Follow these critical rules:
+
+1. REUSE EXISTING NODES when the cognitive operation matches:
+   - If an existing node covers the same atomic skill, use its EXACT ID
+   - Don't create duplicates like "check_key_exists_2" if "check_key_exists" exists
+   - Semantic equivalence matters: "Checking if key exists" = "Verifying key presence"
+
+2. CREATE NEW NODES only when:
+   - No existing node covers this specific cognitive operation
+   - The operation is genuinely new to the graph
+
+3. EDGES:
+   - Create edges FROM existing nodes TO new nodes when prerequisites apply
+   - Create edges between new nodes as needed
+   - Reference existing node IDs in edge definitions
+   - Don't duplicate edges that would already exist
+
+4. QUESTION PATHS:
+   - Map new questions to BOTH existing and new nodes
+   - Existing nodes remain valid prerequisites
+   - Use existing node IDs in executionOrder and requiredNodes
+
+5. OUTPUT:
+   - Return ONLY new nodes (nodes not in the existing list)
+   - Return ALL edges needed (including edges from existing to new nodes)
+   - Return question paths for the NEW questions only
+
+Existing nodes in the graph (REUSE these IDs when applicable):
+`;
+
 function isLikelyTruncatedJson(text: string): boolean {
-  // Heuristic: if braces/brackets are unbalanced, the output was probably cut off.
-  // This avoids treating "repairable" JSON issues as truncation.
   const openCurly = (text.match(/\{/g) || []).length;
   const closeCurly = (text.match(/\}/g) || []).length;
   const openSquare = (text.match(/\[/g) || []).length;
@@ -181,18 +213,15 @@ function isLikelyTruncatedJson(text: string): boolean {
 }
 
 function extractJsonFromResponse(response: string): any {
-  // Step 1: Remove markdown code blocks
   let cleaned = response
     .replace(/```json\s*/gi, "")
     .replace(/```\s*/g, "")
     .trim();
 
-  // Step 2: Find JSON boundaries
   const jsonStart = cleaned.indexOf("{");
   const jsonEnd = cleaned.lastIndexOf("}");
 
   if (jsonStart === -1 || jsonEnd === -1) {
-    // Check for JSON array as fallback
     const arrayStart = cleaned.indexOf("[");
     const arrayEnd = cleaned.lastIndexOf("]");
 
@@ -204,9 +233,6 @@ function extractJsonFromResponse(response: string): any {
     cleaned = cleaned.substring(jsonStart, jsonEnd + 1);
   }
 
-  // Step 2.5: Normalize whitespace.
-  // Gemini occasionally returns *literal* newlines inside string values, which is invalid JSON.
-  // Replacing line breaks with spaces preserves content while making JSON parseable.
   cleaned = cleaned
     .replace(/\r\n/g, "\n")
     .replace(/\r/g, "\n")
@@ -214,17 +240,14 @@ function extractJsonFromResponse(response: string): any {
     .replace(/\t+/g, " ")
     .trim();
 
-  // Step 3: Attempt parse with error handling
   try {
     return JSON.parse(cleaned);
   } catch (e) {
-    // Step 4: Try to fix common issues
     cleaned = cleaned
-      .replace(/,\s*}/g, "}") // Remove trailing commas in objects
-      .replace(/,\s*]/g, "]") // Remove trailing commas in arrays
-      .replace(/[\x00-\x1F\x7F]/g, ""); // Remove control characters
+      .replace(/,\s*}/g, "}")
+      .replace(/,\s*]/g, "]")
+      .replace(/[\x00-\x1F\x7F]/g, "");
 
-    // Attempt to parse again after fixing
     try {
       return JSON.parse(cleaned);
     } catch (finalError) {
@@ -242,20 +265,40 @@ function extractJsonFromResponse(response: string): any {
   }
 }
 
+interface ExistingNode {
+  id: string;
+  name: string;
+}
+
 serve(async (req) => {
   if (req.method === "OPTIONS") {
     return new Response(null, { headers: corsHeaders });
   }
 
   try {
-    const { questions } = await req.json();
+    const { questions, existingNodes } = await req.json() as {
+      questions: string[];
+      existingNodes?: ExistingNode[];
+    };
+    
     const GEMINI_API_KEY = Deno.env.get("GEMINI_API_KEY");
     
     if (!GEMINI_API_KEY) {
       throw new Error("GEMINI_API_KEY is not configured");
     }
 
-    console.log(`Generating graph for ${questions.length} questions`);
+    const isIncremental = existingNodes && existingNodes.length > 0;
+    console.log(`Generating graph for ${questions.length} questions (incremental: ${isIncremental}, existing nodes: ${existingNodes?.length || 0})`);
+
+    // Build the prompt based on mode
+    let fullSystemPrompt = systemPrompt;
+    
+    if (isIncremental) {
+      const nodeList = existingNodes!
+        .map(n => `- ${n.id}: "${n.name}"`)
+        .join('\n');
+      fullSystemPrompt += incrementalPromptAddition + nodeList;
+    }
 
     const userPrompt = `Questions to analyze:
 ${questions.map((q: string, i: number) => `${i + 1}. ${q}`).join('\n')}
@@ -267,6 +310,7 @@ Remember:
 - Target 5-8 nodes per question with high reuse
 - CME.measured = false and LE.estimated = true (no student data yet)
 - Do NOT include literal newlines inside JSON string values (use spaces instead)
+${isIncremental ? '- REUSE existing node IDs when the cognitive operation matches\n- Return ONLY new nodes, but include all necessary edges' : ''}
 
 Generate the knowledge graph JSON following all steps.`;
 
@@ -282,7 +326,7 @@ Generate the knowledge graph JSON following all steps.`;
           contents: [
             {
               role: "user",
-              parts: [{ text: systemPrompt + "\n\n" + userPrompt }],
+              parts: [{ text: fullSystemPrompt + "\n\n" + userPrompt }],
             },
           ],
           generationConfig: {
@@ -318,7 +362,6 @@ Generate the knowledge graph JSON following all steps.`;
 
     const data = await response.json();
     
-    // Log finish reason for diagnostics
     const finishReason = data.candidates?.[0]?.finishReason;
     console.log(`Gemini finish reason: ${finishReason}`);
     if (finishReason === 'MAX_TOKENS') {
@@ -331,7 +374,6 @@ Generate the knowledge graph JSON following all steps.`;
       throw new Error("No content in AI response");
     }
 
-    // Parse the JSON from the response
     let graphData;
     try {
       graphData = extractJsonFromResponse(content);
@@ -349,7 +391,6 @@ Generate the knowledge graph JSON following all steps.`;
       throw parseError;
     }
 
-    // Log analysis stats
     const nodeCount = graphData.globalNodes?.length || 0;
     const edgeCount = graphData.edges?.length || 0;
     const questionCount = Object.keys(graphData.questionPaths || {}).length;

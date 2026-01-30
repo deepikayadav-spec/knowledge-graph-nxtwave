@@ -14,8 +14,9 @@ const getPathArray = (path: QuestionPath | string[]): string[] => {
   return path.executionOrder || path.requiredNodes || [];
 };
 
-import { Network, Sparkles } from 'lucide-react';
+import { Network, Sparkles, Trash2 } from 'lucide-react';
 import { Badge } from '@/components/ui/badge';
+import { Button } from '@/components/ui/button';
 import { supabase } from '@/integrations/supabase/client';
 import { toast } from '@/hooks/use-toast';
 
@@ -47,30 +48,42 @@ export function KnowledgeGraphApp() {
   const [selectedQuestion, setSelectedQuestion] = useState<string | null>(null);
   const [isGenerating, setIsGenerating] = useState(false);
 
-  const handleGraphGenerated = (newGraph: KnowledgeGraph) => {
-    setGraph(newGraph);
+  // Clear graph and start fresh
+  const handleClearGraph = useCallback(() => {
+    setGraph(null);
     setSelectedNodeId(null);
     setSelectedQuestion(null);
-  };
+    toast({
+      title: "Graph cleared",
+      description: "You can start building a new knowledge graph.",
+    });
+  }, []);
 
   const handleGenerate = useCallback(async (questions: string[]) => {
     setIsGenerating(true);
     
+    // Collect existing nodes for incremental mode
+    const existingNodes = graph?.globalNodes.map(n => ({
+      id: n.id,
+      name: n.name
+    })) || [];
+    
     try {
-      // Split into smaller batches to prevent MAX_TOKENS truncation.
-      // If a batch still triggers 413, automatically split it further (down to 1 question).
       const queue: string[][] = [];
       for (let i = 0; i < questions.length; i += BATCH_SIZE) {
         queue.push(questions.slice(i, i + BATCH_SIZE));
       }
 
-      const graphs: KnowledgeGraph[] = [];
+      const deltaGraphs: KnowledgeGraph[] = [];
 
       while (queue.length) {
         const batch = queue.shift()!;
 
         const { data, error } = await supabase.functions.invoke('generate-graph', {
-          body: { questions: batch },
+          body: { 
+            questions: batch,
+            existingNodes: existingNodes.length > 0 ? existingNodes : undefined
+          },
         });
 
         if (error) {
@@ -78,18 +91,13 @@ export function KnowledgeGraphApp() {
           if (status === 413) {
             if (batch.length <= 1) {
               throw new Error(
-                "One question is too large to process (the model response gets truncated). Shorten that question or split it into smaller questions."
+                "One question is too large to process. Shorten that question or split it into smaller questions."
               );
             }
 
             const mid = Math.ceil(batch.length / 2);
-            const left = batch.slice(0, mid);
-            const right = batch.slice(mid);
-
-            // Put the split batches back at the front so we keep making progress.
-            // (unshift right first so left is processed next)
-            queue.unshift(right);
-            queue.unshift(left);
+            queue.unshift(batch.slice(mid));
+            queue.unshift(batch.slice(0, mid));
             continue;
           }
 
@@ -97,20 +105,34 @@ export function KnowledgeGraphApp() {
         }
 
         if (data?.error) {
-          // Edge function sometimes returns { error: "..." } in a 200 response.
           throw new Error(data.error);
         }
 
-        graphs.push(normalizeGraphPayload(data));
+        deltaGraphs.push(normalizeGraphPayload(data));
       }
 
-      const newGraph = graphs.length === 1 ? graphs[0] : mergeGraphs(graphs);
+      // Merge all delta graphs from this batch
+      const combinedDelta = deltaGraphs.length === 1 
+        ? deltaGraphs[0] 
+        : mergeGraphs(deltaGraphs);
 
-      handleGraphGenerated(newGraph);
+      // Merge with existing graph (incremental) or use as new graph
+      const newGraph = graph 
+        ? mergeGraphs([graph, combinedDelta])
+        : combinedDelta;
+
+      setGraph(newGraph);
+      setSelectedNodeId(null);
+      setSelectedQuestion(null);
+      
+      const addedNodes = combinedDelta.globalNodes.length;
+      const addedEdges = combinedDelta.edges.length;
       
       toast({
-        title: "Graph generated!",
-        description: `Created ${newGraph.globalNodes.length} concept nodes with ${newGraph.edges.length} relationships.`,
+        title: graph ? "Graph updated!" : "Graph generated!",
+        description: graph 
+          ? `Added ${addedNodes} new concept${addedNodes !== 1 ? 's' : ''} and ${addedEdges} relationship${addedEdges !== 1 ? 's' : ''}. Total: ${newGraph.globalNodes.length} concepts.`
+          : `Created ${newGraph.globalNodes.length} concept nodes with ${newGraph.edges.length} relationships.`,
       });
     } catch (error) {
       console.error('Graph generation error:', error);
@@ -123,7 +145,7 @@ export function KnowledgeGraphApp() {
       toast({
         title: "Generation failed",
         description: isTruncation
-          ? "The AI response was too large and got truncated. I’ll automatically split into smaller batches, but if a single question is huge you may need to shorten it."
+          ? "The AI response was too large. Try adding fewer questions at a time."
           : error instanceof Error
             ? error.message
             : "Failed to generate knowledge graph.",
@@ -132,7 +154,7 @@ export function KnowledgeGraphApp() {
     } finally {
       setIsGenerating(false);
     }
-  }, []);
+  }, [graph]);
 
   const selectedNode = useMemo(
     () => graph?.globalNodes.find((n) => n.id === selectedNodeId) || null,
@@ -150,7 +172,8 @@ export function KnowledgeGraphApp() {
     if (!graph) return null;
     const totalNodes = graph.globalNodes.length;
     const totalEdges = graph.edges.length;
-    return { totalNodes, totalEdges };
+    const totalQuestions = Object.keys(graph.questionPaths).length;
+    return { totalNodes, totalEdges, totalQuestions };
   }, [graph]);
 
   // Landing page - no graph yet
@@ -202,16 +225,27 @@ export function KnowledgeGraphApp() {
                 Knowledge Graph
               </h1>
               <p className="text-xs text-muted-foreground">
-                {stats?.totalNodes} concepts · {stats?.totalEdges} relationships
+                {stats?.totalNodes} concepts · {stats?.totalEdges} relationships · {stats?.totalQuestions} questions
               </p>
             </div>
           </div>
 
-          <QuestionPathSelector
-            questions={graph.questionPaths}
-            selectedQuestion={selectedQuestion}
-            onQuestionSelect={setSelectedQuestion}
-          />
+          <div className="flex items-center gap-2">
+            <QuestionPathSelector
+              questions={graph.questionPaths}
+              selectedQuestion={selectedQuestion}
+              onQuestionSelect={setSelectedQuestion}
+            />
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={handleClearGraph}
+              className="gap-1.5 text-muted-foreground hover:text-destructive"
+            >
+              <Trash2 className="h-3.5 w-3.5" />
+              Clear
+            </Button>
+          </div>
         </div>
       </header>
 
@@ -226,6 +260,15 @@ export function KnowledgeGraphApp() {
             onNodeSelect={setSelectedNodeId}
             highlightedPath={highlightedPath}
           />
+
+          {/* Floating question input */}
+          <div className="absolute top-4 left-4 w-80">
+            <QuickQuestionInput
+              onGenerate={handleGenerate}
+              isLoading={isGenerating}
+              isLandingMode={false}
+            />
+          </div>
 
           {/* Floating info when path is selected */}
           {highlightedPath && (

@@ -39,9 +39,9 @@ export function QuickQuestionInput({ onGenerate, isLoading, isLandingMode = fals
       <div className="w-full max-w-2xl mx-auto">
         <div className="space-y-4">
           <div className="text-center space-y-2">
-            <h2 className="text-2xl font-semibold text-foreground">Add Your Questions</h2>
+            <h2 className="text-2xl font-semibold text-foreground">Build Your Knowledge Graph</h2>
             <p className="text-muted-foreground">
-              Enter coding questions below (separate with blank lines) to generate a knowledge graph
+              Enter coding questions below (separate with blank lines). Add more questions anytime to expand the graph.
             </p>
           </div>
           
@@ -116,7 +116,7 @@ export function QuickQuestionInput({ onGenerate, isLoading, isLandingMode = fals
           ) : (
             <>
               <Send className="h-4 w-4" />
-              Generate
+              Add to Graph
             </>
           )}
         </Button>
