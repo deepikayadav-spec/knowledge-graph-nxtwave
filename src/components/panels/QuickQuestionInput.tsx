@@ -18,7 +18,7 @@ export function QuickQuestionInput({ onGenerate, isLoading, isLandingMode = fals
     if (!questionsText.trim()) return;
     
     const questions = questionsText
-      .split('\n')
+      .split(/\n\s*\n/)  // Split on blank lines
       .map(q => q.trim())
       .filter(q => q.length > 0);
     
@@ -41,12 +41,12 @@ export function QuickQuestionInput({ onGenerate, isLoading, isLandingMode = fals
           <div className="text-center space-y-2">
             <h2 className="text-2xl font-semibold text-foreground">Add Your Questions</h2>
             <p className="text-muted-foreground">
-              Enter coding questions below (one per line) to generate a knowledge graph
+              Enter coding questions below (separate with blank lines) to generate a knowledge graph
             </p>
           </div>
           
           <Textarea
-            placeholder="Enter questions (one per line)&#10;e.g.:&#10;Write a function to check if a key exists in a dictionary&#10;Implement a function to count word frequencies&#10;Create a function that merges two sorted lists"
+            placeholder="Write a function to check if a key exists in a dictionary.&#10;The function should handle nested dictionaries.&#10;&#10;Implement a function to count word frequencies.&#10;It should ignore case and punctuation."
             value={questionsText}
             onChange={(e) => setQuestionsText(e.target.value)}
             className="min-h-[200px] text-sm resize-none"
@@ -55,7 +55,7 @@ export function QuickQuestionInput({ onGenerate, isLoading, isLandingMode = fals
           
           <div className="flex items-center justify-between">
             <span className="text-sm text-muted-foreground">
-              {questionsText.split('\n').filter(q => q.trim()).length} question(s)
+              {questionsText.split(/\n\s*\n/).filter(q => q.trim()).length} question(s)
             </span>
             <Button
               onClick={handleSubmit}
@@ -91,7 +91,7 @@ export function QuickQuestionInput({ onGenerate, isLoading, isLandingMode = fals
       <span className="text-sm font-medium text-foreground">Add More Questions</span>
       
       <Textarea
-        placeholder="Enter questions (one per line)"
+        placeholder="Enter questions (separate with blank lines)"
         value={questionsText}
         onChange={(e) => setQuestionsText(e.target.value)}
         className="min-h-[80px] text-sm resize-none"
@@ -100,7 +100,7 @@ export function QuickQuestionInput({ onGenerate, isLoading, isLandingMode = fals
       
       <div className="flex items-center justify-between">
         <span className="text-xs text-muted-foreground">
-          {questionsText.split('\n').filter(q => q.trim()).length} question(s) · ⌘+Enter to submit
+          {questionsText.split(/\n\s*\n/).filter(q => q.trim()).length} question(s) · ⌘+Enter to submit
         </span>
         <Button
           size="sm"
