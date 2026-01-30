@@ -70,11 +70,24 @@ export interface CourseView {
   }>;
 }
 
-// IPA step for transparent analysis
+// IPA step types from IPA/LTA methodology
+export type IPAStepType = 'PERCEIVE' | 'ENCODE' | 'RETRIEVE' | 'DECIDE' | 'EXECUTE' | 'MONITOR';
+
+// IPA step for transparent cognitive analysis
 export interface IPAStep {
   step: number;
-  type: 'RECOGNIZE' | 'RECALL' | 'APPLY' | 'CHECK' | 'BRANCH';
+  type: IPAStepType;
   operation: string;
+}
+
+// LTA knowledge types
+export type LTAKnowledgeType = 'declarative' | 'procedural' | 'conditional' | 'strategic';
+
+// LTA knowledge item extracted from IPA steps
+export interface LTAKnowledgeItem {
+  id: string;
+  type: LTAKnowledgeType;
+  content: string;
 }
 
 export interface KnowledgeGraph {
