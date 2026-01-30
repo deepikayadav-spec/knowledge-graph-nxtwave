@@ -317,6 +317,14 @@ Generate the knowledge graph JSON following all steps.`;
     }
 
     const data = await response.json();
+    
+    // Log finish reason for diagnostics
+    const finishReason = data.candidates?.[0]?.finishReason;
+    console.log(`Gemini finish reason: ${finishReason}`);
+    if (finishReason === 'MAX_TOKENS') {
+      console.warn('Response was truncated due to max tokens limit');
+    }
+    
     const content = data.candidates?.[0]?.content?.parts?.[0]?.text;
 
     if (!content) {
