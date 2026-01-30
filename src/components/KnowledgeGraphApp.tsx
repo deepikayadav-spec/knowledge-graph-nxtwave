@@ -103,11 +103,14 @@ export function KnowledgeGraphApp() {
   const handleGenerate = useCallback(async (questions: string[]) => {
     setIsGenerating(true);
     
-    // Collect existing nodes for incremental mode
-    const existingNodes = graph?.globalNodes.map(n => ({
-      id: n.id,
-      name: n.name
-    })) || [];
+    // Start with existing graph nodes - will ACCUMULATE across batches
+    let accumulatedNodes: {id: string; name: string; tier?: string; description?: string}[] = 
+      graph?.globalNodes.map(n => ({
+        id: n.id,
+        name: n.name,
+        tier: n.tier,
+        description: n.description
+      })) || [];
     
     try {
       const queue: string[][] = [];
@@ -123,7 +126,8 @@ export function KnowledgeGraphApp() {
         const { data, error } = await supabase.functions.invoke('generate-graph', {
           body: { 
             questions: batch,
-            existingNodes: existingNodes.length > 0 ? existingNodes : undefined
+            // Send ACCUMULATED nodes including previous batches
+            existingNodes: accumulatedNodes.length > 0 ? accumulatedNodes : undefined
           },
         });
 
@@ -149,7 +153,20 @@ export function KnowledgeGraphApp() {
           throw new Error(data.error);
         }
 
-        deltaGraphs.push(normalizeGraphPayload(data));
+        const deltaGraph = normalizeGraphPayload(data);
+        deltaGraphs.push(deltaGraph);
+        
+        // ACCUMULATE new nodes for next batch to prevent duplicates
+        for (const node of deltaGraph.globalNodes) {
+          if (!accumulatedNodes.some(n => n.id === node.id)) {
+            accumulatedNodes.push({
+              id: node.id,
+              name: node.name,
+              tier: node.tier,
+              description: node.description
+            });
+          }
+        }
       }
 
       // Merge all delta graphs from this batch
