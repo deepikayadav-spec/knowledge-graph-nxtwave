@@ -1,222 +1,305 @@
 
-# Pivot: Skill Taxonomy + Graph Persistence
+# Rewrite Edge Function: IPA → LTA → Normalize → DAG Pipeline
 
-## The Problem with Current Approach
+## Overview
 
-The current system encourages **decomposition** ("Can I split this further?"), creating:
-- 74 nodes for 72 questions (1:1 ratio = wrong)
-- Context-specific nodes like "Using nested loops for pyramid printing"
-- Minimal node reuse across questions
+Completely rewrite the `generate-graph` edge function to follow the exact methodology from the IPA/LTA document, replacing the current "Transferable Skills" approach with a structured 4-phase cognitive decomposition pipeline.
 
-## Target Architecture
+---
+
+## Current vs. Proposed Pipeline
 
 ```text
-CURRENT (Atomic Decomposition):
-Question: "Print a pyramid pattern"
-  └── Nested loop for pyramid printing  ← Context-specific
-  └── Printing spaces before stars      ← Too granular
-  └── Calculating row width             ← Too granular
+CURRENT APPROACH:
+┌─────────────┐
+│  Questions  │ ──▶ AI identifies "transferable skills" ──▶ Graph
+└─────────────┘     (single-pass, intuitive grouping)
 
-PROPOSED (Skill Taxonomy):
-Question: "Print a pyramid pattern"
-  └── Nested Loop Iteration    ← Transferable skill (reused 50+ times)
-  └── String Building          ← Transferable skill (reused 30+ times)
-  └── Pattern Recognition      ← Transferable skill (reused 20+ times)
+PROPOSED IPA/LTA PIPELINE:
+┌─────────────┐     ┌─────────────┐     ┌─────────────┐     ┌─────────────┐     ┌─────────────┐
+│  Questions  │ ──▶ │  Phase 1:   │ ──▶ │  Phase 2:   │ ──▶ │  Phase 3:   │ ──▶ │  Phase 4:   │
+│             │     │  IPA        │     │  LTA        │     │  Normalize  │     │  Build DAG  │
+└─────────────┘     │  (Trace     │     │  (Extract   │     │  (Dedupe,   │     │  (Prereq    │
+                    │  cognitive  │     │  knowledge  │     │  unify,     │     │  edges,     │
+                    │  algorithm) │     │  & skills)  │     │  atomize)   │     │  levels)    │
+                    └─────────────┘     └─────────────┘     └─────────────┘     └─────────────┘
 ```
 
 ---
 
-## Part 1: New Skill Taxonomy Model
+## Phase 1: Information Processing Analysis (IPA)
 
-### Skill Tiers (Not Atomic Operations)
+### Purpose
+Trace the **cognitive algorithm** a competent student uses to solve each question.
 
-| Tier | Description | Example | Target Count |
-|------|-------------|---------|--------------|
-| **Foundational** | Language primitives everyone knows | Variables, Operators | 10-15 skills |
-| **Core** | Building-block patterns | Iteration, Conditionals, Data Structures | 20-40 skills |
-| **Applied** | Combining patterns for tasks | Sorting, Searching, Accumulation | 30-50 skills |
-| **Advanced** | Complex problem-solving patterns | Dynamic Programming, Graph Traversal | 20-40 skills |
+### IPA Step Types (from document)
+| Step Type | Description | Example |
+|-----------|-------------|---------|
+| PERCEIVE | Notice relevant features in input | "See that input has multiple lines" |
+| ENCODE | Transform input into mental representation | "Parse as list of integers" |
+| RETRIEVE | Recall knowledge from long-term memory | "Recall dictionary syntax" |
+| DECIDE/PLAN | Choose strategy or branch | "If count needed, use accumulator" |
+| EXECUTE | Perform computational action | "Initialize empty dict" |
+| MONITOR | Check correctness, handle edge cases | "Verify no KeyError" |
 
-**Target**: ~100-150 total skills for a comprehensive programming curriculum
-
-### Skill Definition Criteria (NEW)
-
-A skill should be:
-1. **Transferable**: Applies across 5+ different problem contexts
-2. **Teachable**: Can be explained and practiced as a unit
-3. **Assessable**: Can be tested (but multiple questions can test same skill)
-4. **Named generically**: "Nested Loop Iteration" NOT "Nested loops for printing pyramids"
-
-### Examples of Proper Skill Granularity
-
-**TOO GRANULAR (Current System Creates)**:
-- "Initializing empty dictionary for frequency counting"
-- "Incrementing dictionary value for word count"
-- "Using nested loop for pyramid pattern"
-- "Using nested loop for matrix traversal"
-
-**CORRECT LEVEL (Proposed)**:
-- "Dictionary Operations" (covers init, access, update, delete)
-- "Nested Loop Iteration" (covers all 2D iteration patterns)
-- "Accumulator Pattern" (covers counting, summing, collecting)
-- "String Manipulation" (covers building, parsing, formatting)
-
----
-
-## Part 2: Revised AI Prompt Strategy
-
-### New System Prompt Philosophy
-
-Replace the "atomicity test" with a "transferability test":
-
-```text
-=== SKILL IDENTIFICATION PRINCIPLES ===
-
-1. TRANSFERABLE SKILLS (Not Atomic Operations)
-   Each node represents a SKILL that applies across many problem types.
-   
-   TEST: "Does this skill apply to 5+ different problems?"
-   If NO → Too specific, generalize it
-   If YES → Good skill level
-   
-   WRONG: "Using nested loops for pyramid printing" (context-specific)
-   WRONG: "Incrementing a counter in a loop" (too fine)
-   RIGHT: "Nested Loop Iteration" (applies to pyramids, matrices, grids, etc.)
-   RIGHT: "Accumulator Pattern" (applies to counting, summing, collecting)
-
-2. SKILL CONSOLIDATION (Not Decomposition)
-   When you see similar operations, MERGE them into one skill.
-   
-   MERGE THESE INTO ONE:
-   - "Nested loops for pyramids" + "Nested loops for matrices" → "Nested Loop Iteration"
-   - "Counting words" + "Counting characters" + "Summing values" → "Accumulator Pattern"
-
-3. SKILL HIERARCHY
-   Level 0: Fundamentals (variables, operators, basic types)
-   Level 1: Control Flow (conditionals, loops, functions)
-   Level 2: Data Structures (lists, dicts, sets)
-   Level 3: Patterns (accumulator, search, sort)
-   Level 4: Advanced (recursion, DP, graphs)
-
-4. TARGET METRICS
-   - 1 skill per 5-15 questions on average
-   - High reuse: each skill should appear in 10%+ of questions
-   - Total skills: aim for 100-200 for a full curriculum
-```
-
-### Updated Output Format
-
+### Example IPA Output
 ```json
 {
-  "skills": [
-    {
-      "id": "nested_loop_iteration",
-      "name": "Nested Loop Iteration",
-      "tier": "core",
-      "level": 2,
-      "description": "Using loops within loops to traverse 2D structures or generate patterns",
-      "transferableContexts": [
-        "Matrix traversal",
-        "Pattern printing",
-        "Grid operations",
-        "Combination generation"
-      ],
-      "prerequisites": ["basic_loop", "variable_scope"],
-      "appearsInQuestions": ["Q1", "Q5", "Q12", "Q34", ...]
-    }
-  ],
-  "edges": [...],
-  "questionMappings": {
-    "Print a pyramid pattern": {
-      "skills": ["nested_loop_iteration", "string_building", "pattern_recognition"],
-      "primarySkill": "nested_loop_iteration"
-    }
-  }
+  "question": "Count frequency of each word in a sentence",
+  "ipaSteps": [
+    {"step": 1, "type": "PERCEIVE", "operation": "Identify input as string with spaces"},
+    {"step": 2, "type": "ENCODE", "operation": "Split string into word list"},
+    {"step": 3, "type": "RETRIEVE", "operation": "Recall dictionary for counting"},
+    {"step": 4, "type": "DECIDE", "operation": "Choose iteration with accumulation"},
+    {"step": 5, "type": "EXECUTE", "operation": "For each word: check/update dict"},
+    {"step": 6, "type": "MONITOR", "operation": "Handle case-sensitivity, punctuation"}
+  ]
 }
 ```
 
 ---
 
-## Part 3: Database Persistence
+## Phase 2: Learning Task Analysis (LTA)
 
-### New Tables
+### Purpose
+For each IPA step, identify the **specific knowledge, procedures, and judgments** required.
 
-**Table: `knowledge_graphs`**
-```sql
-CREATE TABLE knowledge_graphs (
-  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-  name TEXT NOT NULL,
-  description TEXT,
-  created_at TIMESTAMPTZ DEFAULT now(),
-  updated_at TIMESTAMPTZ DEFAULT now(),
-  total_skills INTEGER DEFAULT 0,
-  total_questions INTEGER DEFAULT 0
-);
+### LTA Categories (from document)
+| Category | Description | Example |
+|----------|-------------|---------|
+| **Declarative** | Facts, definitions, syntax | "dict[key] = value syntax" |
+| **Procedural** | How-to sequences | "Steps to iterate with enumerate" |
+| **Conditional** | When to apply what | "Use .get() when key might not exist" |
+| **Strategic** | High-level planning | "Accumulator pattern for counting" |
+
+### The "Without X?" Test
+For each candidate skill, ask: **"Can a student reliably perform this step WITHOUT having mastered X?"**
+- If NO → X is a prerequisite
+- If YES → X is not required (don't add edge)
+
+### Example LTA Output
+```json
+{
+  "ipaStep": "Split string into word list",
+  "requiredKnowledge": [
+    {"id": "string_methods", "type": "declarative", "content": "str.split() method exists"},
+    {"id": "list_creation", "type": "procedural", "content": "How to store result in variable"},
+    {"id": "whitespace_handling", "type": "conditional", "content": "split() handles multiple spaces"}
+  ]
+}
 ```
-
-**Table: `skills`**
-```sql
-CREATE TABLE skills (
-  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-  graph_id UUID REFERENCES knowledge_graphs(id) ON DELETE CASCADE,
-  skill_id TEXT NOT NULL, -- e.g., "nested_loop_iteration"
-  name TEXT NOT NULL,
-  tier TEXT NOT NULL, -- foundational, core, applied, advanced
-  level INTEGER NOT NULL,
-  description TEXT,
-  transferable_contexts JSONB DEFAULT '[]',
-  created_at TIMESTAMPTZ DEFAULT now(),
-  UNIQUE(graph_id, skill_id)
-);
-```
-
-**Table: `skill_edges`**
-```sql
-CREATE TABLE skill_edges (
-  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-  graph_id UUID REFERENCES knowledge_graphs(id) ON DELETE CASCADE,
-  from_skill TEXT NOT NULL,
-  to_skill TEXT NOT NULL,
-  relationship_type TEXT DEFAULT 'requires',
-  reason TEXT,
-  UNIQUE(graph_id, from_skill, to_skill)
-);
-```
-
-**Table: `questions`**
-```sql
-CREATE TABLE questions (
-  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-  graph_id UUID REFERENCES knowledge_graphs(id) ON DELETE CASCADE,
-  question_text TEXT NOT NULL,
-  skills TEXT[] NOT NULL, -- Array of skill_ids
-  primary_skill TEXT,
-  created_at TIMESTAMPTZ DEFAULT now()
-);
-```
-
-### API Changes
-
-- `POST /generate-graph` → Returns skill taxonomy (not atomic nodes)
-- `POST /save-graph` → Persists graph to database
-- `GET /graphs` → List saved graphs
-- `GET /graphs/:id` → Load specific graph
-- `DELETE /graphs/:id` → Delete graph
 
 ---
 
-## Part 4: UI Updates
+## Phase 3: Normalization (Skill Taxonomy)
 
-### Graph Management
-- Add "Save Graph" button in header
-- Add "My Graphs" sidebar/dropdown to load saved graphs
-- Add "New Graph" option to start fresh
-- Show graph name in header when loaded
+### Purpose
+Convert raw LTA outputs into a **unified skill vocabulary** that prevents node explosion.
 
-### Skill Display Changes
-- Show tier badges (Foundational, Core, Applied, Advanced)
-- Show "appears in X questions" count prominently
-- Group skills by tier in legend
+### Normalization Rules (from document)
+
+1. **Synonym Unification**: Merge nodes with identical observable behavior
+   - "Initialize empty dict" + "Create new dictionary" → `dict_initialization`
+   
+2. **Atomicity Split**: Break compound skills until single-testable
+   - "Use dictionary for counting" → `dict_initialization` + `dict_key_access` + `dict_value_update`
+
+3. **Tier Assignment**: Classify by complexity level
+   - Foundational: Language primitives (variables, operators)
+   - Core: Control structures (loops, conditionals)
+   - Applied: Patterns (accumulator, search)
+   - Advanced: Complex algorithms (recursion, DP)
+
+4. **Transferability Check**: Ensure skill applies across contexts
+   - If skill is context-specific, generalize or merge with similar
+
+### Skill Node Schema
+```json
+{
+  "id": "snake_case_unique_id",
+  "name": "Human-Readable Skill Name",
+  "tier": "foundational|core|applied|advanced",
+  "type": "declarative|procedural|conditional|strategic",
+  "description": "What mastery of this skill looks like",
+  "atomicityCheck": "Can be tested with: [single question type]",
+  "appearsInQuestions": ["Q1", "Q5", "Q12"]
+}
+```
+
+---
+
+## Phase 4: Build DAG (Directed Acyclic Graph)
+
+### Purpose
+Construct prerequisite edges using strict necessity criteria.
+
+### Edge Rules (from document)
+
+1. **Necessity Test**: Only add edge A → B if:
+   - Performance on B is **unreliable** without A
+   - A provides **essential** knowledge for B (not just helpful)
+
+2. **Direction Flow**: Edges follow learning hierarchy:
+   ```
+   Concept → Procedure → Strategy → Performance
+   Declarative → Procedural → Conditional → Strategic
+   ```
+
+3. **Transitivity Reduction**: Remove redundant edges
+   - If A → B and B → C, don't add direct A → C
+
+4. **Level Computation**:
+   ```
+   level(node) = 0 if no prerequisites
+   level(node) = 1 + max(level(prereq) for prereq in prerequisites)
+   ```
+
+### Edge Schema
+```json
+{
+  "from": "prerequisite_skill_id",
+  "to": "dependent_skill_id",
+  "reason": "Why B cannot be performed without A",
+  "necessityScore": 0.9,
+  "relationshipType": "requires|builds_on|extends"
+}
+```
+
+---
+
+## New System Prompt Structure
+
+```text
+You are a Knowledge Graph Engineer using the IPA/LTA methodology.
+
+=== PHASE 1: INFORMATION PROCESSING ANALYSIS (IPA) ===
+
+For each question, trace the cognitive algorithm:
+1. PERCEIVE: What features does the solver notice?
+2. ENCODE: How is input represented mentally?
+3. RETRIEVE: What knowledge is recalled?
+4. DECIDE/PLAN: What strategy is chosen?
+5. EXECUTE: What actions are performed?
+6. MONITOR: How is correctness verified?
+
+=== PHASE 2: LEARNING TASK ANALYSIS (LTA) ===
+
+For each IPA step, identify required skills:
+- Declarative: Facts and syntax knowledge
+- Procedural: Step-by-step how-to
+- Conditional: When to apply what
+- Strategic: High-level planning
+
+Apply the "WITHOUT X?" test:
+"Can this step be performed reliably WITHOUT skill X?"
+- If NO → X is prerequisite
+- If YES → X is not required
+
+=== PHASE 3: NORMALIZATION ===
+
+1. UNIFY synonyms (same observable behavior → same node)
+2. SPLIT compounds (until single-testable)
+3. ASSIGN tier (foundational/core/applied/advanced)
+4. CHECK transferability (must apply to 5+ contexts)
+
+=== PHASE 4: BUILD DAG ===
+
+1. Add edge A→B only if B is UNRELIABLE without A
+2. Flow: Declarative → Procedural → Conditional → Strategic
+3. Remove transitive edges (if A→B→C, don't add A→C)
+4. Compute levels from prerequisites
+
+=== TARGET METRICS ===
+
+- Skill count: 1 per 5-15 questions
+- Edge density: 1.5-2.5 edges per node
+- Reuse rate: Each skill in 10%+ of questions
+- Max depth: 5-7 levels for typical curriculum
+
+=== OUTPUT FORMAT ===
+
+{
+  "ipaByQuestion": { /* Raw IPA traces for transparency */ },
+  "globalNodes": [ /* Normalized skill nodes */ ],
+  "edges": [ /* Prerequisite relationships */ ],
+  "questionPaths": { /* Question → skill mappings */ }
+}
+```
+
+---
+
+## Implementation Details
+
+### File Changes
+
+**`supabase/functions/generate-graph/index.ts`**
+- Replace entire `systemPrompt` with IPA/LTA methodology
+- Update output parsing to handle new `ipaByQuestion` field
+- Add validation for edge necessity scores
+- Keep incremental mode but update for new schema
+
+### Updated Type Definitions
+
+**`src/types/graph.ts`** - Add IPA step types:
+```typescript
+export interface IPAStep {
+  step: number;
+  type: 'PERCEIVE' | 'ENCODE' | 'RETRIEVE' | 'DECIDE' | 'EXECUTE' | 'MONITOR';
+  operation: string;
+}
+
+export interface SkillNode {
+  id: string;
+  name: string;
+  tier: 'foundational' | 'core' | 'applied' | 'advanced';
+  type: 'declarative' | 'procedural' | 'conditional' | 'strategic';
+  description: string;
+  atomicityCheck: string;
+  appearsInQuestions: string[];
+}
+```
+
+---
+
+## Consolidation Strategy (Preventing Node Explosion)
+
+The key insight from combining IPA/LTA with your scalability needs:
+
+### Two-Pass Approach
+
+**Pass 1: IPA/LTA (Detailed)**
+- Extract all cognitive steps and skills per question
+- This may initially produce many nodes
+
+**Pass 2: Normalize (Consolidate)**
+- Merge nodes with same observable behavior
+- Generalize context-specific nodes
+- Apply transferability test (5+ contexts)
+- Target: N/5 to N/3 final nodes for N questions
+
+### Example Consolidation
+
+```text
+RAW LTA OUTPUT (before normalization):
+- "Initialize empty dict for word counting"
+- "Initialize empty dict for character frequency"
+- "Create dictionary for storing grades"
+
+AFTER NORMALIZATION:
+- "Dictionary Initialization" (single node, appears in 3+ questions)
+```
+
+---
+
+## Quality Validation Rules
+
+After generation, validate:
+
+1. **Node Count**: Should be questions/5 to questions/3
+2. **Edge Density**: 1.5-2.5 edges per node average
+3. **Reuse Rate**: 60%+ nodes appear in 2+ questions
+4. **DAG Property**: No cycles in edge graph
+5. **Level Distribution**: Nodes spread across 4-6 levels
 
 ---
 
@@ -224,45 +307,18 @@ CREATE TABLE questions (
 
 | File | Changes |
 |------|---------|
-| `supabase/functions/generate-graph/index.ts` | Complete prompt rewrite for skill taxonomy |
-| `src/types/graph.ts` | Add Skill type, update interfaces for new model |
-| `src/components/KnowledgeGraphApp.tsx` | Add save/load functionality, graph management |
-| `src/lib/graph/mergeGraphs.ts` | Update for skill-based merging |
-| Database | Create new tables for persistence |
-
----
-
-## Implementation Order
-
-1. **Database setup**: Create tables for graph persistence
-2. **Prompt rewrite**: Change AI from atomic decomposition to skill taxonomy
-3. **Type updates**: Align TypeScript types with new model
-4. **Save/Load UI**: Add graph management features
-5. **Test with your 72 questions**: Verify ~15-25 skills instead of 74 nodes
+| `supabase/functions/generate-graph/index.ts` | Complete rewrite of system prompt to IPA/LTA pipeline |
+| `src/types/graph.ts` | Add IPAStep interface, update skill types |
+| `src/lib/graph/mergeGraphs.ts` | Handle ipaByQuestion merging |
 
 ---
 
 ## Expected Outcomes
 
-| Metric | Current | Target |
-|--------|---------|--------|
-| Nodes per 72 questions | 74 | 15-25 |
-| Node reuse rate | ~1 question/node | 3-5 questions/node |
-| Nodes for 1000 questions | ~1000 | 80-150 |
-| Graph readability | Dense, overwhelming | Clear skill hierarchy |
-
----
-
-## Key Prompt Changes (Summary)
-
-**Remove**:
-- "Can I split this further?" test
-- "Atomic knowledge points" concept
-- "5-8 nodes per question" target
-
-**Add**:
-- "Does this skill apply to 5+ problems?" test
-- "Transferable skill" concept
-- "1 skill per 5-15 questions" target
-- Skill consolidation instructions
-- Tier-based hierarchy (Foundational → Advanced)
+| Metric | Current | With IPA/LTA |
+|--------|---------|--------------|
+| Methodology | Intuitive grouping | Structured cognitive analysis |
+| Transparency | Black box | IPA traces show reasoning |
+| Node count (72 Qs) | 74 | 15-25 |
+| Prerequisites | Ad-hoc | Necessity-tested |
+| Scalability (1000 Qs) | ~1000 nodes | 80-150 nodes |
