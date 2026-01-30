@@ -101,202 +101,214 @@ export function NodeDetailPanel({
     }
   };
 
+  const handleBackdropClick = (e: React.MouseEvent) => {
+    if (e.target === e.currentTarget) {
+      onClose();
+    }
+  };
+
   return (
-    <div className="panel-glass w-80 max-h-[calc(100vh-2rem)] overflow-y-auto animate-slide-in-right">
-      {/* Header */}
-      <div className="sticky top-0 bg-card/95 backdrop-blur-sm p-4 border-b border-border z-10">
-        <div className="flex items-start justify-between gap-2">
-          <div className="flex-1">
-            <h2 className="text-lg font-semibold text-foreground leading-tight">
-              {node.name}
-            </h2>
+    <div 
+      className="fixed inset-0 z-50 bg-black/50 backdrop-blur-sm flex items-center justify-center p-4 md:p-8"
+      onClick={handleBackdropClick}
+    >
+      <div className="bg-card rounded-2xl shadow-2xl w-full max-w-2xl max-h-[90vh] flex flex-col animate-scale-in border border-border">
+        {/* Sticky Header */}
+        <div className="shrink-0 border-b border-border p-6 rounded-t-2xl">
+          <div className="flex items-start justify-between gap-4">
+            <div className="flex-1">
+              <h2 className="text-2xl font-bold text-foreground leading-tight">
+                {node.name}
+              </h2>
+              {node.description && (
+                <p className="text-muted-foreground mt-2">
+                  {node.description}
+                </p>
+              )}
+            </div>
+            <Button
+              variant="ghost"
+              size="icon"
+              className="shrink-0"
+              onClick={onClose}
+            >
+              <X className="h-5 w-5" />
+            </Button>
           </div>
-          <Button
-            variant="ghost"
-            size="icon"
-            className="shrink-0"
-            onClick={onClose}
-          >
-            <X className="h-4 w-4" />
-          </Button>
         </div>
-        {node.description && (
-          <p className="text-sm text-muted-foreground mt-2">
-            {node.description}
-          </p>
-        )}
-      </div>
 
-      <div className="p-4 space-y-5">
-        {/* Learning Effort (LE) Section */}
-        <section className="space-y-3">
-          <div className="flex items-center gap-2 text-sm font-semibold text-foreground">
-            <Timer className="h-4 w-4 text-accent" />
-            Learning Effort (LE)
-          </div>
+        {/* Scrollable Content */}
+        <div className="flex-1 overflow-y-auto p-6 space-y-6">
+          {/* Learning Effort (LE) Section */}
+          <section className="space-y-3">
+            <div className="flex items-center gap-2 text-base font-semibold text-foreground">
+              <Timer className="h-5 w-5 text-accent" />
+              Learning Effort (LE)
+            </div>
 
-          <div className="bg-muted/30 rounded-lg p-3 space-y-2">
-            <div className="grid grid-cols-2 gap-2 text-xs">
-              <div className="flex justify-between">
-                <span className="text-muted-foreground">Passive Time:</span>
-                <span className="font-medium">{leData.passiveTime} min</span>
+            <div className="bg-muted/30 rounded-lg p-4 space-y-3">
+              <div className="grid grid-cols-2 gap-4 text-sm">
+                <div className="flex justify-between">
+                  <span className="text-muted-foreground">Passive Time:</span>
+                  <span className="font-medium">{leData.passiveTime} min</span>
+                </div>
+                <div className="flex justify-between">
+                  <span className="text-muted-foreground">Active Time:</span>
+                  <span className="font-medium">{leData.activeTime} min</span>
+                </div>
               </div>
-              <div className="flex justify-between">
-                <span className="text-muted-foreground">Active Time:</span>
-                <span className="font-medium">{leData.activeTime} min</span>
+              
+              <Separator />
+              
+              <div className="flex justify-between text-sm">
+                <span className="text-muted-foreground">Weighted Engagement (WET):</span>
+                <span className="font-medium">{leData.wet} min</span>
+              </div>
+              
+              <div className="flex justify-between text-sm">
+                <span className="text-muted-foreground">Persistence Factor:</span>
+                <span className="font-medium">+{leData.persistence}</span>
+              </div>
+              
+              <Separator />
+              
+              <div className="flex justify-between items-center">
+                <span className="text-base font-medium text-foreground">Final LE:</span>
+                <span className="text-xl font-bold text-accent">{leData.finalLE} min</span>
               </div>
             </div>
-            
-            <Separator className="my-2" />
-            
-            <div className="flex justify-between text-xs">
-              <span className="text-muted-foreground">Weighted Engagement (WET):</span>
-              <span className="font-medium">{leData.wet} min</span>
-            </div>
-            
-            <div className="flex justify-between text-xs">
-              <span className="text-muted-foreground">Persistence Factor:</span>
-              <span className="font-medium">+{leData.persistence}</span>
-            </div>
-            
-            <Separator className="my-2" />
-            
-            <div className="flex justify-between items-center">
-              <span className="text-sm font-medium text-foreground">Final LE:</span>
-              <span className="text-lg font-bold text-accent">{leData.finalLE} min</span>
-            </div>
-          </div>
-        </section>
+          </section>
 
-        <Separator />
+          <Separator />
 
-        {/* Concept Mastery Evidence (CME) Section */}
-        <section className="space-y-3">
-          <div className="flex items-center gap-2 text-sm font-semibold text-foreground">
-            <Brain className="h-4 w-4 text-accent" />
-            Concept Mastery Evidence (CME)
-          </div>
+          {/* Concept Mastery Evidence (CME) Section */}
+          <section className="space-y-3">
+            <div className="flex items-center gap-2 text-base font-semibold text-foreground">
+              <Brain className="h-5 w-5 text-accent" />
+              Concept Mastery Evidence (CME)
+            </div>
 
-          <div className="bg-muted/30 rounded-lg p-3 space-y-3">
-            {/* Highest Concept Level */}
-            <div className="space-y-1">
-              <div className="flex items-center justify-between">
-                <span className="text-xs text-muted-foreground flex items-center gap-1">
-                  <Target className="h-3 w-3" />
-                  Highest Level
+            <div className="bg-muted/30 rounded-lg p-4 space-y-4">
+              {/* Highest Concept Level */}
+              <div className="space-y-2">
+                <div className="flex items-center justify-between">
+                  <span className="text-sm text-muted-foreground flex items-center gap-1">
+                    <Target className="h-4 w-4" />
+                    Highest Level
+                  </span>
+                  <Badge variant="secondary" className="text-sm">
+                    L{cmeData.highestLevel}
+                  </Badge>
+                </div>
+                <div className="text-base font-medium">
+                  {CONCEPT_LEVELS[cmeData.highestLevel - 1]?.name}
+                </div>
+                <div className="text-sm text-muted-foreground">
+                  {CONCEPT_LEVELS[cmeData.highestLevel - 1]?.description}
+                </div>
+              </div>
+
+              <Separator />
+
+              {/* Independence & Retention Status */}
+              <div className="grid grid-cols-2 gap-4">
+                <div className="space-y-2">
+                  <span className="text-sm text-muted-foreground flex items-center gap-1">
+                    <Shield className="h-4 w-4" />
+                    Independence
+                  </span>
+                  <Badge className={`text-sm ${getIndependenceColor(cmeData.independence)}`}>
+                    {cmeData.independence}
+                  </Badge>
+                </div>
+                <div className="space-y-2">
+                  <span className="text-sm text-muted-foreground flex items-center gap-1">
+                    <Clock className="h-4 w-4" />
+                    Retention
+                  </span>
+                  <Badge className={`text-sm ${getRetentionColor(cmeData.retention)}`}>
+                    {cmeData.retention}
+                  </Badge>
+                </div>
+              </div>
+
+              <Separator />
+
+              {/* Level Breakdown */}
+              <div className="space-y-3">
+                <span className="text-sm text-muted-foreground flex items-center gap-1">
+                  <Activity className="h-4 w-4" />
+                  Level Breakdown
                 </span>
-                <Badge variant="secondary" className="text-xs">
-                  L{cmeData.highestLevel}
-                </Badge>
-              </div>
-              <div className="text-sm font-medium">
-                {CONCEPT_LEVELS[cmeData.highestLevel - 1]?.name}
-              </div>
-              <div className="text-xs text-muted-foreground">
-                {CONCEPT_LEVELS[cmeData.highestLevel - 1]?.description}
-              </div>
-            </div>
-
-            <Separator className="my-2" />
-
-            {/* Independence & Retention Status */}
-            <div className="grid grid-cols-2 gap-2">
-              <div className="space-y-1">
-                <span className="text-xs text-muted-foreground flex items-center gap-1">
-                  <Shield className="h-3 w-3" />
-                  Independence
-                </span>
-                <Badge className={`text-xs ${getIndependenceColor(cmeData.independence)}`}>
-                  {cmeData.independence}
-                </Badge>
-              </div>
-              <div className="space-y-1">
-                <span className="text-xs text-muted-foreground flex items-center gap-1">
-                  <Clock className="h-3 w-3" />
-                  Retention
-                </span>
-                <Badge className={`text-xs ${getRetentionColor(cmeData.retention)}`}>
-                  {cmeData.retention}
-                </Badge>
+                <div className="space-y-2">
+                  {Object.entries(cmeData.levelBreakdown).map(([level, pct]) => (
+                    <div key={level} className="flex items-center gap-3">
+                      <span className="text-sm w-8 text-muted-foreground">L{level}</span>
+                      <Progress value={pct} className="h-2.5 flex-1" />
+                      <span className="text-sm w-10 text-right font-medium">{pct}%</span>
+                    </div>
+                  ))}
+                </div>
               </div>
             </div>
+          </section>
 
-            <Separator className="my-2" />
+          <Separator />
 
-            {/* Level Breakdown */}
-            <div className="space-y-2">
-              <span className="text-xs text-muted-foreground flex items-center gap-1">
-                <Activity className="h-3 w-3" />
-                Level Breakdown
-              </span>
-              <div className="space-y-1.5">
-                {Object.entries(cmeData.levelBreakdown).map(([level, pct]) => (
-                  <div key={level} className="flex items-center gap-2">
-                    <span className="text-xs w-6 text-muted-foreground">L{level}</span>
-                    <Progress value={pct} className="h-2 flex-1" />
-                    <span className="text-xs w-8 text-right font-medium">{pct}%</span>
-                  </div>
+          {/* Prerequisites */}
+          {prerequisites.length > 0 && (
+            <section className="space-y-3">
+              <div className="flex items-center gap-2 text-base font-semibold text-foreground">
+                <TrendingUp className="h-5 w-5 text-accent rotate-180" />
+                Prerequisites ({prerequisites.length})
+              </div>
+              <div className="space-y-3 pl-7">
+                {prerequisites.map(({ node: prereq, reason }) => (
+                  <button
+                    key={prereq!.id}
+                    className="w-full text-left group"
+                    onClick={() => onNodeSelect(prereq!.id)}
+                  >
+                    <div className="flex items-center gap-2 text-base text-foreground group-hover:text-accent transition-colors">
+                      <Link className="h-4 w-4" />
+                      {prereq!.name}
+                    </div>
+                    <div className="text-sm text-muted-foreground mt-1 pl-6">
+                      {reason}
+                    </div>
+                  </button>
                 ))}
               </div>
-            </div>
-          </div>
-        </section>
+            </section>
+          )}
 
-        <Separator />
-
-        {/* Prerequisites */}
-        {prerequisites.length > 0 && (
-          <section className="space-y-3">
-            <div className="flex items-center gap-2 text-sm font-semibold text-foreground">
-              <TrendingUp className="h-4 w-4 text-accent rotate-180" />
-              Prerequisites ({prerequisites.length})
-            </div>
-            <div className="space-y-2 pl-6">
-              {prerequisites.map(({ node: prereq, reason }) => (
-                <button
-                  key={prereq!.id}
-                  className="w-full text-left group"
-                  onClick={() => onNodeSelect(prereq!.id)}
-                >
-                  <div className="flex items-center gap-2 text-sm text-foreground group-hover:text-accent transition-colors">
-                    <Link className="h-3 w-3" />
-                    {prereq!.name}
-                  </div>
-                  <div className="text-xs text-muted-foreground mt-0.5 pl-5">
-                    {reason}
-                  </div>
-                </button>
-              ))}
-            </div>
-          </section>
-        )}
-
-        {/* Unlocks */}
-        {unlocks.length > 0 && (
-          <section className="space-y-3">
-            <div className="flex items-center gap-2 text-sm font-semibold text-foreground">
-              <ArrowRight className="h-4 w-4 text-accent" />
-              Unlocks ({unlocks.length})
-            </div>
-            <div className="space-y-2 pl-6">
-              {unlocks.map(({ node: unlock, reason }) => (
-                <button
-                  key={unlock!.id}
-                  className="w-full text-left group"
-                  onClick={() => onNodeSelect(unlock!.id)}
-                >
-                  <div className="flex items-center gap-2 text-sm text-foreground group-hover:text-accent transition-colors">
-                    <Link className="h-3 w-3" />
-                    {unlock!.name}
-                  </div>
-                  <div className="text-xs text-muted-foreground mt-0.5 pl-5">
-                    {reason}
-                  </div>
-                </button>
-              ))}
-            </div>
-          </section>
-        )}
+          {/* Unlocks */}
+          {unlocks.length > 0 && (
+            <section className="space-y-3">
+              <div className="flex items-center gap-2 text-base font-semibold text-foreground">
+                <ArrowRight className="h-5 w-5 text-accent" />
+                Unlocks ({unlocks.length})
+              </div>
+              <div className="space-y-3 pl-7">
+                {unlocks.map(({ node: unlock, reason }) => (
+                  <button
+                    key={unlock!.id}
+                    className="w-full text-left group"
+                    onClick={() => onNodeSelect(unlock!.id)}
+                  >
+                    <div className="flex items-center gap-2 text-base text-foreground group-hover:text-accent transition-colors">
+                      <Link className="h-4 w-4" />
+                      {unlock!.name}
+                    </div>
+                    <div className="text-sm text-muted-foreground mt-1 pl-6">
+                      {reason}
+                    </div>
+                  </button>
+                ))}
+              </div>
+            </section>
+          )}
+        </div>
       </div>
     </div>
   );
