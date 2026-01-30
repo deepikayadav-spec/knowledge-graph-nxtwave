@@ -21,6 +21,26 @@ import { toast } from '@/hooks/use-toast';
 
 const BATCH_SIZE = 5;
 
+function getInvokeHttpStatus(err: unknown): number | undefined {
+  const anyErr = err as any;
+  return (
+    anyErr?.context?.status ??
+    anyErr?.status ??
+    anyErr?.cause?.status ??
+    anyErr?.cause?.context?.status
+  );
+}
+
+function normalizeGraphPayload(data: any): KnowledgeGraph {
+  return {
+    globalNodes: data?.globalNodes || [],
+    edges: data?.edges || [],
+    courses: data?.courses || {},
+    questionPaths: data?.questionPaths || {},
+    ipaByQuestion: data?.ipaByQuestion || undefined,
+  };
+}
+
 export function KnowledgeGraphApp() {
   const [graph, setGraph] = useState<KnowledgeGraph | null>(null);
   const [selectedNodeId, setSelectedNodeId] = useState<string | null>(null);
@@ -37,30 +57,51 @@ export function KnowledgeGraphApp() {
     setIsGenerating(true);
     
     try {
-      // Split into smaller batches to prevent MAX_TOKENS truncation
-      const batches: string[][] = [];
+      // Split into smaller batches to prevent MAX_TOKENS truncation.
+      // If a batch still triggers 413, automatically split it further (down to 1 question).
+      const queue: string[][] = [];
       for (let i = 0; i < questions.length; i += BATCH_SIZE) {
-        batches.push(questions.slice(i, i + BATCH_SIZE));
+        queue.push(questions.slice(i, i + BATCH_SIZE));
       }
 
       const graphs: KnowledgeGraph[] = [];
 
-      for (let i = 0; i < batches.length; i++) {
-        const batch = batches[i];
+      while (queue.length) {
+        const batch = queue.shift()!;
+
         const { data, error } = await supabase.functions.invoke('generate-graph', {
           body: { questions: batch },
         });
 
-        if (error) throw error;
-        if (data?.error) throw new Error(data.error);
+        if (error) {
+          const status = getInvokeHttpStatus(error);
+          if (status === 413) {
+            if (batch.length <= 1) {
+              throw new Error(
+                "One question is too large to process (the model response gets truncated). Shorten that question or split it into smaller questions."
+              );
+            }
 
-        graphs.push({
-          globalNodes: data?.globalNodes || [],
-          edges: data?.edges || [],
-          courses: data?.courses || {},
-          questionPaths: data?.questionPaths || {},
-          ipaByQuestion: data?.ipaByQuestion || undefined,
-        });
+            const mid = Math.ceil(batch.length / 2);
+            const left = batch.slice(0, mid);
+            const right = batch.slice(mid);
+
+            // Put the split batches back at the front so we keep making progress.
+            // (unshift right first so left is processed next)
+            queue.unshift(right);
+            queue.unshift(left);
+            continue;
+          }
+
+          throw error;
+        }
+
+        if (data?.error) {
+          // Edge function sometimes returns { error: "..." } in a 200 response.
+          throw new Error(data.error);
+        }
+
+        graphs.push(normalizeGraphPayload(data));
       }
 
       const newGraph = graphs.length === 1 ? graphs[0] : mergeGraphs(graphs);
@@ -73,9 +114,19 @@ export function KnowledgeGraphApp() {
       });
     } catch (error) {
       console.error('Graph generation error:', error);
+
+      const status = getInvokeHttpStatus(error);
+      const isTruncation =
+        status === 413 ||
+        (error instanceof Error && error.message.toLowerCase().includes('truncated'));
+
       toast({
         title: "Generation failed",
-        description: error instanceof Error ? error.message : "Failed to generate knowledge graph.",
+        description: isTruncation
+          ? "The AI response was too large and got truncated. I’ll automatically split into smaller batches, but if a single question is huge you may need to shorten it."
+          : error instanceof Error
+            ? error.message
+            : "Failed to generate knowledge graph.",
         variant: "destructive",
       });
     } finally {
