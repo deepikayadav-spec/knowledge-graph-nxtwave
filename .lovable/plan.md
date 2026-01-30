@@ -1,133 +1,56 @@
 
 
-# UI Cleanup and Metrics Update Plan
+# Fix: Redeploy Edge Function and Clear State
 
-## Overview
-This plan addresses 4 changes:
-1. Remove the Quick Add Question button from the graph view header
-2. Make edges more visible with dark colors and thicker lines
-3. Improve node name visibility
-4. Update the learning metrics panel to use actual terminology from the Pod Metrics document
+## Problem Diagnosis
 
----
+The error is **NOT an API key issue** - it's a truncation issue. The logs show:
+- "Generating graph for 65 questions" (but you said 13)
+- "AI response appears truncated"
 
-## Change 1: Remove Quick Add Question Button
+This means either:
+1. The edge function with `maxOutputTokens: 65536` hasn't been deployed
+2. Your browser is sending cached data (65 questions from previous attempt)
 
-**File:** `src/components/KnowledgeGraphApp.tsx`
+## Solution
 
-Remove the `QuickQuestionInput` component from the header section (lines 148-151) in the graph view. The import can stay since it's still used for the landing page.
+### Step 1: Force Redeploy Edge Function
 
-**What to remove:**
-```tsx
-<QuickQuestionInput
-  onGenerate={handleGenerate}
-  isLoading={isGenerating}
-/>
+I'll deploy the edge function to ensure the latest code (with increased token limit) is live.
+
+### Step 2: Add Better Error Logging
+
+Add logging to show the actual finish reason from Gemini to diagnose if it's hitting model limits:
+
+```typescript
+// After getting response, log the finish reason
+const finishReason = data.candidates?.[0]?.finishReason;
+console.log(`Gemini finish reason: ${finishReason}`);
+if (finishReason === 'MAX_TOKENS') {
+  console.warn('Response was truncated due to max tokens limit');
+}
 ```
 
----
+### Step 3: Reduce Batch Size as Fallback
 
-## Change 2: Make Edges More Visible
+If truncation persists, reduce `BATCH_SIZE` from 15 to 10 to ensure each batch produces smaller responses:
 
-**File:** `src/components/graph/GraphEdge.tsx`
-
-Update the edge styling:
-- Use dark colors instead of light pastels
-- Increase stroke width significantly
-- Increase opacity for better visibility
-- Make arrows larger
-
-**Current values:**
-- Default color: `hsl(215, 25%, 75%)` (light gray)
-- Default stroke width: `1.5`
-- Default opacity: `0.5`
-
-**New values:**
-- Default color: `hsl(220, 20%, 35%)` (dark slate gray)
-- Default stroke width: `2.5`
-- Default opacity: `0.7`
-- Highlighted: stroke width `4`, opacity `1`
-- Hovered: stroke width `3`, opacity `0.85`
-- Arrow size: `8` (from `6`)
-
----
-
-## Change 3: Improve Node Name Visibility
-
-**File:** `src/components/graph/GraphNode.tsx`
-
-Update the foreignObject node label (lines 206-223):
-- Increase font size from `10px` to `11px`
-- Add a subtle text shadow for contrast against the canvas
-- Use darker text color for better readability
-- Increase the foreignObject dimensions for longer names
-
----
-
-## Change 4: Update Learning Metrics Terminology
-
-**File:** `src/components/panels/NodeDetailPanel.tsx`
-
-Replace the current simple metrics display with the actual framework from the Pod Metrics document:
-
-**Learning Effort (LE) section will show:**
-- Passive Learning Time (dummy: 5-20 min)
-- Active Learning Time (dummy: 5-15 min)  
-- Persistence Factor (dummy: 0.25 or 0.5)
-- Final LE calculation display
-
-**Learning Value section (CME) will show:**
-- Highest Concept Level (dummy: Level 1-7 with descriptions)
-- Independence Status (dummy: one of Independent / Lightly Scaffolded / Heavily Assisted)
-- Knowledge Retention (dummy: one of Current / Aging / Expired)
-- Per-level percentage breakdown (dummy percentages for levels 1-4)
-
----
+**File:** `src/components/panels/QuestionInputPanel.tsx` (line 17)
+```typescript
+const BATCH_SIZE = 10; // Reduced from 15 for safety
+```
 
 ## Files to Modify
 
 | File | Change |
 |------|--------|
-| `src/components/KnowledgeGraphApp.tsx` | Remove QuickQuestionInput from header (lines 148-151) |
-| `src/components/graph/GraphEdge.tsx` | Dark colors, thick strokes, higher opacity (lines 38-45) |
-| `src/components/graph/GraphNode.tsx` | Larger font, text shadow for labels (lines 206-223) |
-| `src/components/panels/NodeDetailPanel.tsx` | Complete rewrite of metrics section with CME + LE framework |
+| `supabase/functions/generate-graph/index.ts` | Add finish reason logging for better diagnostics |
+| `src/components/panels/QuestionInputPanel.tsx` | Reduce BATCH_SIZE from 15 to 10 |
 
----
+## Testing
 
-## Visual Preview
-
-**Edge Changes:**
-```
-Before: Light gray, thin (1.5px), 50% opacity
-After:  Dark slate, thick (2.5px), 70% opacity
-```
-
-**Node Label Changes:**
-```
-Before: 10px font, no shadow
-After:  11px font, subtle shadow for contrast
-```
-
-**Metrics Panel:**
-```
-Before:
-  Learning Value: 75 points
-  Learning Effort: 25 minutes
-
-After:
-  LEARNING EFFORT (LE)
-  ├── Passive Time: 12 min
-  ├── Active Time: 8 min  
-  ├── WET: 14 min
-  ├── Persistence: +0.25
-  └── Final LE: 17.5 min
-
-  CONCEPT MASTERY EVIDENCE (CME)
-  ├── Highest Level: Level 4 (Direct Application)
-  ├── Independence: Lightly Scaffolded
-  ├── Retention: Current
-  └── Level Breakdown:
-      L1: 100% | L2: 85% | L3: 70% | L4: 45%
-```
+After deployment:
+1. Hard refresh your browser (Ctrl+Shift+R)
+2. Try with exactly 13 questions
+3. If it still fails, try with 5 questions to isolate the issue
 
