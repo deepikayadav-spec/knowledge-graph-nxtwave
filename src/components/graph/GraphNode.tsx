@@ -105,8 +105,9 @@ export function GraphNodeComponent({
     : node.name;
 
   // CME badge value - show target level if unmeasured, else measured level
+  const targetLevel = node.knowledgePoint?.targetAssessmentLevel || '?';
   const badgeValue = isUnmeasured 
-    ? `T${node.knowledgePoint?.targetAssessmentLevel || '?'}` 
+    ? `Lv${targetLevel}` 
     : (node.cme.highestConceptLevel / 7).toFixed(1);
 
   return (

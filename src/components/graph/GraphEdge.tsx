@@ -35,18 +35,22 @@ export function GraphEdgeComponent({
   const endX = toX - Math.cos(angle) * nodeRadius;
   const endY = toY - Math.sin(angle) * nodeRadius;
 
+  // Subtler default edges, pop on interaction
   const strokeColor = isHighlighted
     ? 'hsl(173, 58%, 39%)'
     : isHovered
     ? 'hsl(220, 20%, 45%)'
-    : 'hsl(220, 20%, 35%)';
+    : 'hsl(220, 15%, 70%)';
 
-  const strokeWidth = isHighlighted ? 4 : isHovered ? 3 : 2.5;
-  const opacity = isHighlighted ? 1 : isHovered ? 0.85 : 0.7;
+  const strokeWidth = isHighlighted ? 3.5 : isHovered ? 2.5 : 1.5;
+  const opacity = isHighlighted ? 1 : isHovered ? 0.7 : 0.35;
 
   // Arrow marker
   const arrowSize = 8;
   const arrowAngle = Math.atan2(endY - controlY, endX - controlX);
+
+  // Only show arrows when highlighted or hovered
+  const showArrow = isHighlighted || isHovered;
 
   return (
     <g className="transition-all duration-200" style={{ opacity }}>
@@ -59,19 +63,21 @@ export function GraphEdgeComponent({
         className={isHighlighted ? 'animate-draw' : ''}
       />
 
-      {/* Arrow head */}
-      <polygon
-        points={`
-          ${endX},${endY}
-          ${endX - arrowSize * Math.cos(arrowAngle - Math.PI / 6)},${
-          endY - arrowSize * Math.sin(arrowAngle - Math.PI / 6)
-        }
-          ${endX - arrowSize * Math.cos(arrowAngle + Math.PI / 6)},${
-          endY - arrowSize * Math.sin(arrowAngle + Math.PI / 6)
-        }
-        `}
-        fill={strokeColor}
-      />
+      {/* Arrow head - only on highlight/hover */}
+      {showArrow && (
+        <polygon
+          points={`
+            ${endX},${endY}
+            ${endX - arrowSize * Math.cos(arrowAngle - Math.PI / 6)},${
+            endY - arrowSize * Math.sin(arrowAngle - Math.PI / 6)
+          }
+            ${endX - arrowSize * Math.cos(arrowAngle + Math.PI / 6)},${
+            endY - arrowSize * Math.sin(arrowAngle + Math.PI / 6)
+          }
+          `}
+          fill={strokeColor}
+        />
+      )}
     </g>
   );
 }
