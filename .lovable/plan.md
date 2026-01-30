@@ -1,132 +1,222 @@
 
-# Incremental Knowledge Graph System
+# Pivot: Skill Taxonomy + Graph Persistence
 
-## Overview
-Convert the current "batch generation" approach to an **incremental** system where users continuously add questions and the graph evolves accordingly—reusing existing nodes when possible and creating new ones only when needed.
+## The Problem with Current Approach
 
-## Current vs. Proposed Architecture
+The current system encourages **decomposition** ("Can I split this further?"), creating:
+- 74 nodes for 72 questions (1:1 ratio = wrong)
+- Context-specific nodes like "Using nested loops for pyramid printing"
+- Minimal node reuse across questions
+
+## Target Architecture
 
 ```text
-CURRENT FLOW:
-┌─────────────┐     ┌─────────────┐     ┌─────────────┐
-│  Questions  │ ──▶ │  Generate   │ ──▶ │  Replace    │
-│  (batch)    │     │  Full Graph │     │  Graph      │
-└─────────────┘     └─────────────┘     └─────────────┘
+CURRENT (Atomic Decomposition):
+Question: "Print a pyramid pattern"
+  └── Nested loop for pyramid printing  ← Context-specific
+  └── Printing spaces before stars      ← Too granular
+  └── Calculating row width             ← Too granular
 
-PROPOSED FLOW:
-┌─────────────┐     ┌─────────────┐     ┌─────────────┐
-│  Existing   │ ──┬▶│  Generate   │ ──▶ │  Merge Into │
-│  Graph      │   │ │  Delta Only │     │  Existing   │
-├─────────────┤   │ └─────────────┘     └─────────────┘
-│  New        │ ──┘
-│  Questions  │
-└─────────────┘
+PROPOSED (Skill Taxonomy):
+Question: "Print a pyramid pattern"
+  └── Nested Loop Iteration    ← Transferable skill (reused 50+ times)
+  └── String Building          ← Transferable skill (reused 30+ times)
+  └── Pattern Recognition      ← Transferable skill (reused 20+ times)
 ```
 
 ---
 
-## Key Design Decisions
+## Part 1: New Skill Taxonomy Model
 
-| Aspect | Decision | Rationale |
-|--------|----------|-----------|
-| **Context passing** | Send existing node IDs + names to AI | Enables reuse without sending full graph (token efficient) |
-| **Node matching** | AI decides reuse vs. create | Semantic matching is better done by LLM than string comparison |
-| **Graph persistence** | In-memory (React state) | Simple MVP; can add backend storage later |
-| **UI paradigm** | "Add questions" always visible | Encourages incremental building |
+### Skill Tiers (Not Atomic Operations)
+
+| Tier | Description | Example | Target Count |
+|------|-------------|---------|--------------|
+| **Foundational** | Language primitives everyone knows | Variables, Operators | 10-15 skills |
+| **Core** | Building-block patterns | Iteration, Conditionals, Data Structures | 20-40 skills |
+| **Applied** | Combining patterns for tasks | Sorting, Searching, Accumulation | 30-50 skills |
+| **Advanced** | Complex problem-solving patterns | Dynamic Programming, Graph Traversal | 20-40 skills |
+
+**Target**: ~100-150 total skills for a comprehensive programming curriculum
+
+### Skill Definition Criteria (NEW)
+
+A skill should be:
+1. **Transferable**: Applies across 5+ different problem contexts
+2. **Teachable**: Can be explained and practiced as a unit
+3. **Assessable**: Can be tested (but multiple questions can test same skill)
+4. **Named generically**: "Nested Loop Iteration" NOT "Nested loops for printing pyramids"
+
+### Examples of Proper Skill Granularity
+
+**TOO GRANULAR (Current System Creates)**:
+- "Initializing empty dictionary for frequency counting"
+- "Incrementing dictionary value for word count"
+- "Using nested loop for pyramid pattern"
+- "Using nested loop for matrix traversal"
+
+**CORRECT LEVEL (Proposed)**:
+- "Dictionary Operations" (covers init, access, update, delete)
+- "Nested Loop Iteration" (covers all 2D iteration patterns)
+- "Accumulator Pattern" (covers counting, summing, collecting)
+- "String Manipulation" (covers building, parsing, formatting)
 
 ---
 
-## Implementation Plan
+## Part 2: Revised AI Prompt Strategy
 
-### Phase 1: Modify Edge Function
+### New System Prompt Philosophy
 
-**File:** `supabase/functions/generate-graph/index.ts`
+Replace the "atomicity test" with a "transferability test":
 
-**Changes:**
-1. Accept optional `existingNodes` parameter containing `{id, name}[]`
-2. Update system prompt to instruct AI to reuse existing nodes when semantically equivalent
-3. Return only new/modified nodes and edges
-
-**Updated prompt section:**
 ```text
-=== INCREMENTAL MODE ===
-You are given existing nodes from the knowledge graph.
-REUSE existing nodes when the cognitive operation is semantically equivalent.
-Only create NEW nodes for genuinely new cognitive capabilities.
+=== SKILL IDENTIFICATION PRINCIPLES ===
 
-Existing nodes (reuse these IDs when applicable):
-{existingNodes list}
+1. TRANSFERABLE SKILLS (Not Atomic Operations)
+   Each node represents a SKILL that applies across many problem types.
+   
+   TEST: "Does this skill apply to 5+ different problems?"
+   If NO → Too specific, generalize it
+   If YES → Good skill level
+   
+   WRONG: "Using nested loops for pyramid printing" (context-specific)
+   WRONG: "Incrementing a counter in a loop" (too fine)
+   RIGHT: "Nested Loop Iteration" (applies to pyramids, matrices, grids, etc.)
+   RIGHT: "Accumulator Pattern" (applies to counting, summing, collecting)
+
+2. SKILL CONSOLIDATION (Not Decomposition)
+   When you see similar operations, MERGE them into one skill.
+   
+   MERGE THESE INTO ONE:
+   - "Nested loops for pyramids" + "Nested loops for matrices" → "Nested Loop Iteration"
+   - "Counting words" + "Counting characters" + "Summing values" → "Accumulator Pattern"
+
+3. SKILL HIERARCHY
+   Level 0: Fundamentals (variables, operators, basic types)
+   Level 1: Control Flow (conditionals, loops, functions)
+   Level 2: Data Structures (lists, dicts, sets)
+   Level 3: Patterns (accumulator, search, sort)
+   Level 4: Advanced (recursion, DP, graphs)
+
+4. TARGET METRICS
+   - 1 skill per 5-15 questions on average
+   - High reuse: each skill should appear in 10%+ of questions
+   - Total skills: aim for 100-200 for a full curriculum
 ```
 
-**Request body:**
-```typescript
+### Updated Output Format
+
+```json
 {
-  questions: string[];
-  existingNodes?: Array<{ id: string; name: string }>;
+  "skills": [
+    {
+      "id": "nested_loop_iteration",
+      "name": "Nested Loop Iteration",
+      "tier": "core",
+      "level": 2,
+      "description": "Using loops within loops to traverse 2D structures or generate patterns",
+      "transferableContexts": [
+        "Matrix traversal",
+        "Pattern printing",
+        "Grid operations",
+        "Combination generation"
+      ],
+      "prerequisites": ["basic_loop", "variable_scope"],
+      "appearsInQuestions": ["Q1", "Q5", "Q12", "Q34", ...]
+    }
+  ],
+  "edges": [...],
+  "questionMappings": {
+    "Print a pyramid pattern": {
+      "skills": ["nested_loop_iteration", "string_building", "pattern_recognition"],
+      "primarySkill": "nested_loop_iteration"
+    }
+  }
 }
 ```
 
 ---
 
-### Phase 2: Update Client Logic
+## Part 3: Database Persistence
 
-**File:** `src/components/KnowledgeGraphApp.tsx`
+### New Tables
 
-**Changes:**
-1. Keep graph state persistent (don't clear on new generation)
-2. Pass existing node summaries to edge function
-3. Merge returned delta into existing graph
-4. Update UI to show "Add More Questions" always
-
-**Key logic:**
-```typescript
-const handleAddQuestions = async (newQuestions: string[]) => {
-  const existingNodes = graph?.globalNodes.map(n => ({
-    id: n.id,
-    name: n.name
-  })) || [];
-  
-  // Call API with context
-  const { data } = await supabase.functions.invoke('generate-graph', {
-    body: { 
-      questions: newQuestions,
-      existingNodes 
-    }
-  });
-  
-  // Merge into existing graph
-  const updatedGraph = mergeGraphs([graph, data].filter(Boolean));
-  setGraph(updatedGraph);
-};
+**Table: `knowledge_graphs`**
+```sql
+CREATE TABLE knowledge_graphs (
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  name TEXT NOT NULL,
+  description TEXT,
+  created_at TIMESTAMPTZ DEFAULT now(),
+  updated_at TIMESTAMPTZ DEFAULT now(),
+  total_skills INTEGER DEFAULT 0,
+  total_questions INTEGER DEFAULT 0
+);
 ```
 
+**Table: `skills`**
+```sql
+CREATE TABLE skills (
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  graph_id UUID REFERENCES knowledge_graphs(id) ON DELETE CASCADE,
+  skill_id TEXT NOT NULL, -- e.g., "nested_loop_iteration"
+  name TEXT NOT NULL,
+  tier TEXT NOT NULL, -- foundational, core, applied, advanced
+  level INTEGER NOT NULL,
+  description TEXT,
+  transferable_contexts JSONB DEFAULT '[]',
+  created_at TIMESTAMPTZ DEFAULT now(),
+  UNIQUE(graph_id, skill_id)
+);
+```
+
+**Table: `skill_edges`**
+```sql
+CREATE TABLE skill_edges (
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  graph_id UUID REFERENCES knowledge_graphs(id) ON DELETE CASCADE,
+  from_skill TEXT NOT NULL,
+  to_skill TEXT NOT NULL,
+  relationship_type TEXT DEFAULT 'requires',
+  reason TEXT,
+  UNIQUE(graph_id, from_skill, to_skill)
+);
+```
+
+**Table: `questions`**
+```sql
+CREATE TABLE questions (
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  graph_id UUID REFERENCES knowledge_graphs(id) ON DELETE CASCADE,
+  question_text TEXT NOT NULL,
+  skills TEXT[] NOT NULL, -- Array of skill_ids
+  primary_skill TEXT,
+  created_at TIMESTAMPTZ DEFAULT now()
+);
+```
+
+### API Changes
+
+- `POST /generate-graph` → Returns skill taxonomy (not atomic nodes)
+- `POST /save-graph` → Persists graph to database
+- `GET /graphs` → List saved graphs
+- `GET /graphs/:id` → Load specific graph
+- `DELETE /graphs/:id` → Delete graph
+
 ---
 
-### Phase 3: Enhance Merge Logic
+## Part 4: UI Updates
 
-**File:** `src/lib/graph/mergeGraphs.ts`
+### Graph Management
+- Add "Save Graph" button in header
+- Add "My Graphs" sidebar/dropdown to load saved graphs
+- Add "New Graph" option to start fresh
+- Show graph name in header when loaded
 
-**Enhancements:**
-1. Handle node updates (AI might return updated versions of existing nodes)
-2. Merge `appearsInQuestions` arrays when same node referenced
-3. Prevent duplicate edges with same from/to
-
----
-
-### Phase 4: UI Updates
-
-**File:** `src/components/KnowledgeGraphApp.tsx`
-
-**Changes:**
-1. Always show question input (not just on landing)
-2. Add "Clear Graph" button for starting fresh
-3. Show cumulative stats (total questions processed)
-
-**File:** `src/components/panels/QuickQuestionInput.tsx`
-
-**Changes:**
-1. Update wording to "Add More Questions"
-2. Add visual indicator showing incremental mode
+### Skill Display Changes
+- Show tier badges (Foundational, Core, Applied, Advanced)
+- Show "appears in X questions" count prominently
+- Group skills by tier in legend
 
 ---
 
@@ -134,88 +224,45 @@ const handleAddQuestions = async (newQuestions: string[]) => {
 
 | File | Changes |
 |------|---------|
-| `supabase/functions/generate-graph/index.ts` | Accept existing nodes, update prompt for incremental mode |
-| `src/components/KnowledgeGraphApp.tsx` | Persistent state, pass context to API, show input always |
-| `src/lib/graph/mergeGraphs.ts` | Handle node updates, improve deduplication |
-| `src/components/panels/QuickQuestionInput.tsx` | Update UI wording for incremental paradigm |
+| `supabase/functions/generate-graph/index.ts` | Complete prompt rewrite for skill taxonomy |
+| `src/types/graph.ts` | Add Skill type, update interfaces for new model |
+| `src/components/KnowledgeGraphApp.tsx` | Add save/load functionality, graph management |
+| `src/lib/graph/mergeGraphs.ts` | Update for skill-based merging |
+| Database | Create new tables for persistence |
 
 ---
 
-## Technical Details
+## Implementation Order
 
-### System Prompt Addition (Edge Function)
-
-```text
-=== INCREMENTAL ANALYSIS MODE ===
-
-You are extending an existing knowledge graph. Follow these rules:
-
-1. REUSE EXISTING NODES when the cognitive operation matches:
-   - If an existing node covers the same atomic skill, use its ID
-   - Don't create duplicates like "check_key_exists_2" if "check_key_exists" exists
-
-2. CREATE NEW NODES only when:
-   - No existing node covers this specific cognitive operation
-   - The operation is genuinely new to the graph
-
-3. EDGES:
-   - Create edges from existing nodes to new nodes when prerequisites apply
-   - Create edges between new nodes as needed
-   - Don't duplicate existing edges
-
-4. QUESTION PATHS:
-   - Map new questions to both existing and new nodes
-   - Existing nodes remain valid prerequisites
-
-Existing nodes in the graph:
-{NODES_LIST}
-
-Analyze ONLY the new questions and return:
-- New nodes (if any)
-- New edges (connecting to both existing and new nodes)
-- Question paths for the new questions only
-```
-
-### Merge Strategy
-
-```typescript
-// In mergeGraphs.ts
-function mergeIncrementally(existing: KnowledgeGraph, delta: KnowledgeGraph): KnowledgeGraph {
-  // 1. Update existing nodes if delta has same ID
-  // 2. Add genuinely new nodes
-  // 3. Merge appearsInQuestions arrays
-  // 4. Add new edges (skip duplicates)
-  // 5. Add new question paths
-}
-```
+1. **Database setup**: Create tables for graph persistence
+2. **Prompt rewrite**: Change AI from atomic decomposition to skill taxonomy
+3. **Type updates**: Align TypeScript types with new model
+4. **Save/Load UI**: Add graph management features
+5. **Test with your 72 questions**: Verify ~15-25 skills instead of 74 nodes
 
 ---
 
-## User Experience Flow
+## Expected Outcomes
 
-1. **First Use:** User enters questions → Full graph generated
-2. **Add More:** User enters more questions → AI analyzes with context → Delta merged
-3. **Graph Grows:** Each addition builds on existing graph
-4. **Clear Option:** User can reset and start fresh if needed
-
----
-
-## Edge Cases Handled
-
-| Case | Handling |
-|------|----------|
-| Very large existing graph | Send only ID + name (not full node data) |
-| AI creates duplicate anyway | Merge logic deduplicates by ID |
-| Contradictory edges | Later edges take precedence |
-| Node renamed by AI | Keep original (ID is source of truth) |
+| Metric | Current | Target |
+|--------|---------|--------|
+| Nodes per 72 questions | 74 | 15-25 |
+| Node reuse rate | ~1 question/node | 3-5 questions/node |
+| Nodes for 1000 questions | ~1000 | 80-150 |
+| Graph readability | Dense, overwhelming | Clear skill hierarchy |
 
 ---
 
-## Testing Checklist
+## Key Prompt Changes (Summary)
 
-After implementation:
-1. Generate initial graph with 3 questions
-2. Add 2 more questions that share concepts → verify node reuse
-3. Add 2 questions with completely new concepts → verify new nodes created
-4. Verify question paths reference both old and new nodes
-5. Clear graph and start fresh → verify clean slate
+**Remove**:
+- "Can I split this further?" test
+- "Atomic knowledge points" concept
+- "5-8 nodes per question" target
+
+**Add**:
+- "Does this skill apply to 5+ problems?" test
+- "Transferable skill" concept
+- "1 skill per 5-15 questions" target
+- Skill consolidation instructions
+- Tier-based hierarchy (Foundational → Advanced)
