@@ -14,7 +14,7 @@ interface QuestionInputPanelProps {
   onClose: () => void;
 }
 
-const BATCH_SIZE = 10; // Reduced to 10 for safer AI response sizes
+const BATCH_SIZE = 5; // Reduced to 5 for detailed multi-line questions
 
 function mergeGraphs(graphs: KnowledgeGraph[]): KnowledgeGraph {
   const nodeMap = new Map<string, GraphNode>();
