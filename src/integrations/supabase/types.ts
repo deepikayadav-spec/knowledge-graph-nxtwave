@@ -14,6 +14,70 @@ export type Database = {
   }
   public: {
     Tables: {
+      class_students: {
+        Row: {
+          class_id: string
+          enrolled_at: string
+          id: string
+          student_id: string
+          student_name: string
+        }
+        Insert: {
+          class_id: string
+          enrolled_at?: string
+          id?: string
+          student_id: string
+          student_name: string
+        }
+        Update: {
+          class_id?: string
+          enrolled_at?: string
+          id?: string
+          student_id?: string
+          student_name?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "class_students_class_id_fkey"
+            columns: ["class_id"]
+            isOneToOne: false
+            referencedRelation: "classes"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      classes: {
+        Row: {
+          created_at: string
+          graph_id: string
+          id: string
+          name: string
+          teacher_id: string | null
+        }
+        Insert: {
+          created_at?: string
+          graph_id: string
+          id?: string
+          name: string
+          teacher_id?: string | null
+        }
+        Update: {
+          created_at?: string
+          graph_id?: string
+          id?: string
+          name?: string
+          teacher_id?: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "classes_graph_id_fkey"
+            columns: ["graph_id"]
+            isOneToOne: false
+            referencedRelation: "knowledge_graphs"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       knowledge_graphs: {
         Row: {
           created_at: string | null
@@ -51,6 +115,7 @@ export type Database = {
           id: string
           primary_skill: string | null
           question_text: string
+          skill_weights: Json | null
           skills: string[]
         }
         Insert: {
@@ -59,6 +124,7 @@ export type Database = {
           id?: string
           primary_skill?: string | null
           question_text: string
+          skill_weights?: Json | null
           skills?: string[]
         }
         Update: {
@@ -67,6 +133,7 @@ export type Database = {
           id?: string
           primary_skill?: string | null
           question_text?: string
+          skill_weights?: Json | null
           skills?: string[]
         }
         Relationships: [
@@ -151,6 +218,108 @@ export type Database = {
         Relationships: [
           {
             foreignKeyName: "skills_graph_id_fkey"
+            columns: ["graph_id"]
+            isOneToOne: false
+            referencedRelation: "knowledge_graphs"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      student_attempts: {
+        Row: {
+          attempted_at: string
+          class_id: string | null
+          graph_id: string
+          id: string
+          independence_level: string
+          is_correct: boolean
+          question_id: string
+          student_id: string
+        }
+        Insert: {
+          attempted_at?: string
+          class_id?: string | null
+          graph_id: string
+          id?: string
+          independence_level: string
+          is_correct: boolean
+          question_id: string
+          student_id: string
+        }
+        Update: {
+          attempted_at?: string
+          class_id?: string | null
+          graph_id?: string
+          id?: string
+          independence_level?: string
+          is_correct?: boolean
+          question_id?: string
+          student_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "student_attempts_class_id_fkey"
+            columns: ["class_id"]
+            isOneToOne: false
+            referencedRelation: "classes"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "student_attempts_graph_id_fkey"
+            columns: ["graph_id"]
+            isOneToOne: false
+            referencedRelation: "knowledge_graphs"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "student_attempts_question_id_fkey"
+            columns: ["question_id"]
+            isOneToOne: false
+            referencedRelation: "questions"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      student_kp_mastery: {
+        Row: {
+          earned_points: number
+          graph_id: string
+          id: string
+          last_reviewed_at: string | null
+          max_points: number
+          raw_mastery: number
+          retrieval_count: number
+          skill_id: string
+          stability: number
+          student_id: string
+        }
+        Insert: {
+          earned_points?: number
+          graph_id: string
+          id?: string
+          last_reviewed_at?: string | null
+          max_points?: number
+          raw_mastery?: number
+          retrieval_count?: number
+          skill_id: string
+          stability?: number
+          student_id: string
+        }
+        Update: {
+          earned_points?: number
+          graph_id?: string
+          id?: string
+          last_reviewed_at?: string | null
+          max_points?: number
+          raw_mastery?: number
+          retrieval_count?: number
+          skill_id?: string
+          stability?: number
+          student_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "student_kp_mastery_graph_id_fkey"
             columns: ["graph_id"]
             isOneToOne: false
             referencedRelation: "knowledge_graphs"

@@ -226,7 +226,8 @@ IMPORTANT: Do NOT include "ipaByQuestion" in your output. Output ONLY these fiel
       "requiredNodes": ["skill1", "skill2"],
       "executionOrder": ["skill1", "skill2"],
       "validationStatus": "valid",
-      "primarySkill": "skill2"
+      "primarySkill": "skill2",
+      "skillWeights": {"skill2": 0.6, "skill1": 0.4}
     }
   },
   
@@ -238,6 +239,28 @@ IMPORTANT: Do NOT include "ipaByQuestion" in your output. Output ONLY these fiel
 }
 
 NOTE: cme and le fields will be auto-populated by the client. Do NOT include them.
+
+=== SKILL WEIGHT GENERATION ===
+
+For EACH question, estimate the cognitive load distribution across its required skills:
+
+1. IDENTIFY PRIMARY SKILL: The skill that is the main differentiator/challenge
+   - This is the skill that requires the most cognitive effort
+   - Usually the highest-level or most complex skill in the path
+   
+2. IDENTIFY SECONDARY SKILLS: Supporting/prerequisite knowledge applied passively
+   - These are skills needed but not the focus of the question
+   
+3. ASSIGN WEIGHTS (must sum to 1.0):
+   - PRIMARY skill: 0.5-0.7 (typically 0.6)
+   - SECONDARY skills: Split remaining weight equally
+   
+4. EXAMPLE:
+   Question testing: [loop_iteration, dictionary_operations, accumulator_pattern]
+   Primary skill: accumulator_pattern (the strategic challenge)
+   Weights: { "accumulator_pattern": 0.6, "loop_iteration": 0.2, "dictionary_operations": 0.2 }
+   
+5. ALWAYS include skillWeights in questionPaths output
 
 === QUALITY VALIDATION (MANDATORY - FAIL = REDO) ===
 
