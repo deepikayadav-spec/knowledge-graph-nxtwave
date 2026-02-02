@@ -19,15 +19,13 @@ const systemPrompt = `You are a Knowledge Graph Engineer using the IPA/LTA metho
 === INPUT FORMAT ===
 
 Questions are provided in a structured format with these sections:
-- Problem: The task description
+- Question: The task description
 - Input: Expected input format/types
 - Output: Expected output format/types  
-- Constraints: Limits and restrictions (edge cases, performance requirements)
-- Examples: Sample input/output pairs
+- Explanation: Solution approach, algorithm description, or hints
 
 Use ALL sections when performing IPA analysis:
-- Constraints inform edge case handling and MONITOR steps
-- Examples help identify patterns and test cases
+- Explanation informs the DECIDE and EXECUTE steps with solution strategy
 - Input/Output sections clarify data type handling requirements
 
 === OVERVIEW ===
@@ -282,19 +280,18 @@ Before outputting, you MUST verify and FIX if any check fails:
 === EXAMPLE IPA/LTA ANALYSIS ===
 
 Question (structured format):
-Problem: Count frequency of each word in a sentence.
+Question: Count frequency of each word in a sentence.
 Input: A string containing words separated by spaces.
 Output: A dictionary mapping each word to its frequency count.
-Constraints: Case-insensitive, ignore punctuation, handle empty strings.
-Examples: "hello world hello" → {"hello": 2, "world": 1}
+Explanation: Split the string by spaces, iterate through words, and use a dictionary to track counts. Normalize case for consistency.
 
 IPA Trace:
 1. PERCEIVE: Input is a string with spaces separating words (from Input section)
-2. ENCODE: Split string into list of words, normalize case (from Constraints)
+2. ENCODE: Split string into list of words, normalize case (from Explanation)
 3. RETRIEVE: Dictionary can map word → count (from Output section)
-4. DECIDE: Use accumulator pattern with dictionary
+4. DECIDE: Use accumulator pattern with dictionary (from Explanation)
 5. EXECUTE: For each word, check if in dict, then increment or initialize
-6. MONITOR: Handle case sensitivity, punctuation, empty string (from Constraints)
+6. MONITOR: Verify counts are correct, handle empty input
 
 LTA Extraction:
 - PERCEIVE step requires: string_recognition (declarative)

@@ -50,7 +50,7 @@ export function QuickQuestionInput({ onGenerate, isLoading, isLandingMode = fals
           
           <Textarea
             placeholder={`[QUESTION]
-Problem:
+Question:
 Write a function to check if a key exists in a nested dictionary.
 
 Input:
@@ -59,16 +59,11 @@ A dictionary (may contain nested dicts) and a target key string.
 Output:
 True if key exists at any nesting level, False otherwise.
 
-Constraints:
-- Max nesting depth: 10 levels
-- Keys are always strings
-
-Examples:
-{"a": {"b": 1}}, "b" → True
-{"x": 1}, "y" → False
+Explanation:
+Use recursion to traverse nested dictionaries, checking each level for the target key.
 
 [QUESTION]
-Problem:
+Question:
 Count word frequencies in a given text.
 ...`}
             value={questionsText}
@@ -129,7 +124,7 @@ Count word frequencies in a given text.
         <CollapsibleContent>
           <div className="p-3 pt-0 space-y-2">
             <Textarea
-              placeholder={`[QUESTION]\nProblem:\n...\n\nInput:\n...\n\nOutput:\n...`}
+              placeholder={`[QUESTION]\nQuestion:\n...\n\nInput:\n...\n\nOutput:\n...\n\nExplanation:\n...`}
               value={questionsText}
               onChange={(e) => setQuestionsText(e.target.value)}
               className="min-h-[80px] text-sm resize-none font-mono"
