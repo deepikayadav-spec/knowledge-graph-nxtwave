@@ -422,10 +422,10 @@ serve(async (req) => {
       existingNodes?: ExistingNode[];
     };
     
-    const OPENROUTER_API_KEY = Deno.env.get("OPENROUTER_API_KEY");
+    const LOVABLE_API_KEY = Deno.env.get("LOVABLE_API_KEY");
     
-    if (!OPENROUTER_API_KEY) {
-      throw new Error("OPENROUTER_API_KEY is not configured");
+    if (!LOVABLE_API_KEY) {
+      throw new Error("LOVABLE_API_KEY is not configured");
     }
 
     const isIncremental = existingNodes && existingNodes.length > 0;
@@ -465,14 +465,12 @@ ${isIncremental ? '- REUSE existing skill IDs when IPA/LTA maps to same capabili
 
 Generate the IPA/LTA knowledge graph JSON.`;
 
-    const model = "openai/o1";
-    const response = await fetch("https://openrouter.ai/api/v1/chat/completions", {
+    const model = "google/gemini-2.5-pro";
+    const response = await fetch("https://ai.gateway.lovable.dev/v1/chat/completions", {
       method: "POST",
       headers: {
-        "Authorization": `Bearer ${OPENROUTER_API_KEY}`,
+        "Authorization": `Bearer ${LOVABLE_API_KEY}`,
         "Content-Type": "application/json",
-        "HTTP-Referer": "https://lovable.dev",
-        "X-Title": "Knowledge Graph Generator",
       },
       body: JSON.stringify({
         model,
@@ -480,30 +478,29 @@ Generate the IPA/LTA knowledge graph JSON.`;
           { role: "system", content: fullSystemPrompt },
           { role: "user", content: userPrompt },
         ],
-        max_tokens: 65536,
+        max_tokens: 16384,
         temperature: 0.2,
-        response_format: { type: "json_object" },
       }),
     });
 
     if (!response.ok) {
       const errorData = await response.json().catch(() => ({}));
-      console.error("OpenRouter API error:", response.status, JSON.stringify(errorData));
+      console.error("Lovable AI error:", response.status, JSON.stringify(errorData));
       
       if (response.status === 429) {
-        return new Response(JSON.stringify({ error: "Rate limit exceeded. Please try again later." }), {
+        return new Response(JSON.stringify({ error: "Too many requests. Please wait a moment and try again." }), {
           status: 429,
           headers: { ...corsHeaders, "Content-Type": "application/json" },
         });
       }
       if (response.status === 402) {
-        return new Response(JSON.stringify({ error: "Insufficient OpenRouter credits. Please add credits to your account." }), {
+        return new Response(JSON.stringify({ error: "AI credits depleted. Please add credits to your Lovable workspace." }), {
           status: 402,
           headers: { ...corsHeaders, "Content-Type": "application/json" },
         });
       }
       if (response.status === 401) {
-        return new Response(JSON.stringify({ error: "Invalid OpenRouter API key." }), {
+        return new Response(JSON.stringify({ error: "AI authentication failed. Please contact support." }), {
           status: 401,
           headers: { ...corsHeaders, "Content-Type": "application/json" },
         });
@@ -517,7 +514,7 @@ Generate the IPA/LTA knowledge graph JSON.`;
     const data = await response.json();
     
     const finishReason = data.choices?.[0]?.finish_reason;
-    console.log(`[IPA/LTA] OpenRouter finish reason: ${finishReason}`);
+    console.log(`[IPA/LTA] Lovable AI finish reason: ${finishReason}`);
     if (finishReason === 'length') {
       console.warn('[IPA/LTA] Response was truncated due to max tokens limit');
     }
