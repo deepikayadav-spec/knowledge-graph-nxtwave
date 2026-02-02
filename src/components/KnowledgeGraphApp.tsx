@@ -5,9 +5,11 @@ import { QuestionPathSelector } from './panels/QuestionPathSelector';
 import { QuickQuestionInput } from './panels/QuickQuestionInput';
 import { GraphManagerPanel } from './panels/GraphManagerPanel';
 import { GenerationProgress } from './panels/GenerationProgress';
+import { AutosaveIndicator } from './AutosaveIndicator';
 import { KnowledgeGraph, QuestionPath } from '@/types/graph';
 import { useGraphPersistence } from '@/hooks/useGraphPersistence';
 import { useBatchGeneration } from '@/hooks/useBatchGeneration';
+import { useAutosave } from '@/hooks/useAutosave';
 import { Network, Sparkles, Trash2 } from 'lucide-react';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
@@ -37,6 +39,22 @@ export function KnowledgeGraphApp() {
     loadGraph,
     deleteGraph,
   } = useGraphPersistence();
+
+  // Get current graph name for autosave
+  const currentGraphName = useMemo(
+    () => savedGraphs.find(g => g.id === currentGraphId)?.name,
+    [savedGraphs, currentGraphId]
+  );
+
+  // Autosave (only when graph has been saved at least once)
+  const {
+    status: autosaveStatus,
+    lastSavedAt: autosaveLastSavedAt,
+    triggerSave: autosaveTrigger,
+  } = useAutosave(graph, currentGraphId, saveGraph, currentGraphName, {
+    debounceMs: 30000, // 30 seconds after last change
+    enabled: !!currentGraphId, // Only autosave if graph has been saved once
+  });
 
   // Batch generation with progress tracking
   const handleGraphUpdate = useCallback((newGraph: KnowledgeGraph) => {
@@ -192,9 +210,18 @@ export function KnowledgeGraphApp() {
               <Network className="h-4 w-4" />
             </div>
             <div>
-              <h1 className="text-base font-semibold text-foreground">
-                {savedGraphs.find(g => g.id === currentGraphId)?.name || 'Knowledge Graph'}
-              </h1>
+              <div className="flex items-center gap-2">
+                <h1 className="text-base font-semibold text-foreground">
+                  {currentGraphName || 'Knowledge Graph'}
+                </h1>
+                {currentGraphId && (
+                  <AutosaveIndicator
+                    status={autosaveStatus}
+                    lastSavedAt={autosaveLastSavedAt}
+                    onManualSave={autosaveTrigger}
+                  />
+                )}
+              </div>
               <p className="text-xs text-muted-foreground">
                 {stats?.totalNodes} skills · {stats?.totalEdges} relationships · {stats?.totalQuestions} questions
               </p>
