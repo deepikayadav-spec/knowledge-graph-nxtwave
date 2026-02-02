@@ -20,7 +20,7 @@ export function QuickQuestionInput({ onGenerate, isLoading, isLandingMode = fals
     if (!questionsText.trim()) return;
     
     const questions = questionsText
-      .split(/\n\s*\n/)  // Split on blank lines
+      .split(/\[QUESTION\]/i)  // Split on [QUESTION] markers
       .map(q => q.trim())
       .filter(q => q.length > 0);
     
@@ -44,21 +44,42 @@ export function QuickQuestionInput({ onGenerate, isLoading, isLandingMode = fals
           <div className="text-center space-y-2">
             <h2 className="text-2xl font-semibold text-foreground">Build Your Knowledge Graph</h2>
             <p className="text-muted-foreground">
-              Enter coding questions below (separate with blank lines). Add more questions anytime to expand the graph.
+              Enter structured coding questions using [QUESTION] markers. Add more questions anytime to expand the graph.
             </p>
           </div>
           
           <Textarea
-            placeholder="Write a function to check if a key exists in a dictionary.&#10;The function should handle nested dictionaries.&#10;&#10;Implement a function to count word frequencies.&#10;It should ignore case and punctuation."
+            placeholder={`[QUESTION]
+Problem:
+Write a function to check if a key exists in a nested dictionary.
+
+Input:
+A dictionary (may contain nested dicts) and a target key string.
+
+Output:
+True if key exists at any nesting level, False otherwise.
+
+Constraints:
+- Max nesting depth: 10 levels
+- Keys are always strings
+
+Examples:
+{"a": {"b": 1}}, "b" → True
+{"x": 1}, "y" → False
+
+[QUESTION]
+Problem:
+Count word frequencies in a given text.
+...`}
             value={questionsText}
             onChange={(e) => setQuestionsText(e.target.value)}
-            className="min-h-[200px] text-sm resize-none"
+            className="min-h-[200px] text-sm resize-none font-mono"
             onKeyDown={handleKeyDown}
           />
           
           <div className="flex items-center justify-between">
             <span className="text-sm text-muted-foreground">
-              {questionsText.split(/\n\s*\n/).filter(q => q.trim()).length} question(s)
+              {questionsText.split(/\[QUESTION\]/i).filter(q => q.trim()).length} question(s)
             </span>
             <Button
               onClick={handleSubmit}
@@ -108,16 +129,16 @@ export function QuickQuestionInput({ onGenerate, isLoading, isLandingMode = fals
         <CollapsibleContent>
           <div className="p-3 pt-0 space-y-2">
             <Textarea
-              placeholder="Enter questions (separate with blank lines)"
+              placeholder={`[QUESTION]\nProblem:\n...\n\nInput:\n...\n\nOutput:\n...`}
               value={questionsText}
               onChange={(e) => setQuestionsText(e.target.value)}
-              className="min-h-[80px] text-sm resize-none"
+              className="min-h-[80px] text-sm resize-none font-mono"
               onKeyDown={handleKeyDown}
             />
             
             <div className="flex items-center justify-between">
               <span className="text-xs text-muted-foreground">
-                {questionsText.split(/\n\s*\n/).filter(q => q.trim()).length} question(s) · ⌘+Enter to submit
+                {questionsText.split(/\[QUESTION\]/i).filter(q => q.trim()).length} question(s) · ⌘+Enter to submit
               </span>
               <Button
                 size="sm"
