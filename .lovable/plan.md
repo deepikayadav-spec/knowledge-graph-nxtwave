@@ -1,129 +1,130 @@
 
-# Add User-Controlled Batch Processing (50 Questions per Batch)
+# Fix Batch Generation: Smaller Batches, Simpler Output, Live Progress
 
-## Overview
+## Issues Identified
 
-Enhance the knowledge graph generation to support processing 800+ questions in user-controlled batches of 50, with real-time progress tracking, file upload, and resumable sessions.
+1. **Static Loading Screen**: The progress UI exists but the graph is only shown after ALL batches complete. Users see no visual progress.
+2. **Truncation Errors (413)**: 50-question batches with full IPA traces exceed AI output limits.
+3. **Missing Data Errors**: Nodes returned without `le` or `knowledgePoint` fields cause rendering crashes.
+4. **Badge Ref Warning**: The `Badge` component needs `forwardRef` to fix the console warning.
 
-## Current System
+## Solution Overview
 
-| Aspect | Current State |
-|--------|---------------|
-| Batch size | 5 questions (hardcoded) |
-| Progress UI | None |
-| File upload | Not supported |
-| Resume | Not supported |
-| Max questions | Unlimited (but slow with batch=5) |
+Based on your preferences:
+- Batch size: **15 questions** (good balance)
+- IPA output: **No IPA traces** (smaller responses, faster)
+- Live feedback: **Show partial graph while generating** (visual progress)
 
-For 800 questions at batch size 5 = **160 API calls** (~40-80 minutes)
-For 800 questions at batch size 50 = **16 API calls** (~4-8 minutes)
-
-## Implementation Plan
-
-### 1. Make Batch Size Configurable
-
-Update `KnowledgeGraphApp.tsx` to use a larger batch size:
-
-```text
-Current: const BATCH_SIZE = 5;
-New: const BATCH_SIZE = 50;
-```
-
-This reduces API calls by 10x while staying within AI model context limits.
-
-### 2. Add Progress Tracking State
-
-Add new state variables to track batch processing:
-- `currentBatch` / `totalBatches` - Batch progress
-- `skillsDiscovered` - Running count of skills found
-- `batchStartTime` - For time estimation
-- `partialGraph` - Checkpoint for resume
-
-### 3. Add Progress UI During Generation
-
-Display real-time progress in both landing and graph modes:
-- Progress bar with percentage
-- "Processing batch X of Y"
-- Skills discovered count
-- Estimated time remaining
-
-### 4. Add File Upload for Bulk Questions
-
-Add a file upload button to `QuickQuestionInput.tsx`:
-- Accepts `.txt` and `.csv` files
-- Parses structured format (Question/Input/Output/Explanation)
-- Validates format before processing
-- Shows question count preview
-
-### 5. Add Rate Limit Handling
-
-Insert delays between batches to prevent 429 errors:
-- 2-second delay between successful batches
-- Exponential backoff on rate limit (30s, 60s, 120s)
-- Auto-retry up to 3 times per batch
-
-### 6. Add Resumable Sessions (Optional Enhancement)
-
-Save progress to localStorage after each batch:
-- Resume button if generation was interrupted
-- Partial results preserved on page refresh
+---
 
 ## File Changes
 
-| File | Changes |
-|------|---------|
-| `src/components/KnowledgeGraphApp.tsx` | Increase batch size, add progress state, delays, resume logic |
-| `src/components/panels/QuickQuestionInput.tsx` | Add file upload, progress display |
+### 1. Reduce Batch Size and Show Live Graph
+**File**: `src/hooks/useBatchGeneration.ts`
+
+Changes:
+- Change `BATCH_SIZE` from 50 to **15**
+- After each batch completes, immediately call `onGraphUpdate()` with the merged partial graph so users see it growing in real-time
+- Add defensive data normalization to ensure every node has required fields (`knowledgePoint`, `cme`, `le`)
+
+### 2. Remove IPA from AI Output
+**File**: `supabase/functions/generate-graph/index.ts`
+
+Changes:
+- Update the system prompt to instruct the AI to **skip** the `ipaByQuestion` field entirely
+- Reduce `max_tokens` calculation since we no longer need space for IPA traces
+- This significantly reduces response size, preventing truncation
+
+### 3. Add Default Values for Missing Node Data
+**File**: `src/lib/graph/mergeGraphs.ts`
+
+Changes:
+- Add a normalization function that ensures every `GraphNode` has:
+  - `knowledgePoint` with safe defaults
+  - `cme` with `measured: false` defaults
+  - `le` with `estimated: true` and `estimatedMinutes: 20`
+- Apply this normalization during merge to prevent crashes
+
+### 4. Fix Badge forwardRef Warning
+**File**: `src/components/ui/badge.tsx`
+
+Changes:
+- Wrap the `Badge` component with `React.forwardRef` to properly handle refs passed by parent components
+
+### 5. Update KnowledgeGraphApp for Live Updates
+**File**: `src/components/KnowledgeGraphApp.tsx`
+
+Changes:
+- Ensure the graph view renders as soon as `graph` state has any nodes (not just when generation completes)
+- The `handleGraphUpdate` callback already sets graph state; just need to ensure it's called incrementally
+
+---
 
 ## Technical Details
 
-### Updated handleGenerate Logic
-
-```text
-for each batch of 50 questions:
-  1. Update progress UI
-  2. Call generate-graph API
-  3. On 429 error: wait with exponential backoff, retry
-  4. Merge results into accumulated graph
-  5. Save checkpoint to localStorage
-  6. Wait 2 seconds before next batch
-  7. Update skills discovered count
-```
-
-### File Upload Format
-
-```text
-Supported formats:
-1. Plain text with "Question:" delimiters (current format)
-2. One question per line (simple mode)
-3. CSV with columns: Question, Input, Output, Explanation
-```
-
-### Progress UI Component
-
-```text
-+--------------------------------------------------+
-| Processing batch 3 of 16                          |
-| [====================                    ] 18.75% |
-| 47 skills discovered · ~12 minutes remaining      |
-+--------------------------------------------------+
-```
-
-## Performance Expectations
+### Batch Size Calculation
 
 | Questions | Batch Size | API Calls | Est. Time |
 |-----------|------------|-----------|-----------|
-| 800 | 5 (old) | 160 | 40-80 min |
-| 800 | 50 (new) | 16 | 4-8 min |
-| 800 | 25 (conservative) | 32 | 8-16 min |
+| 800 | 15 | 54 | ~14-27 min |
+| 400 | 15 | 27 | ~7-14 min |
+| 100 | 15 | 7 | ~2-4 min |
 
-## Risk Mitigation
+### Default Node Schema
 
-1. **Rate limits**: 2-second delays + exponential backoff
-2. **Token limits**: 50 questions fits within 16K token response
-3. **Data loss**: LocalStorage checkpoints every batch
-4. **Large files**: Validate file size before parsing (max 1MB)
+```text
+{
+  knowledgePoint: {
+    atomicityCheck: "Auto-generated skill",
+    assessmentExample: "",
+    targetAssessmentLevel: 3,
+    appearsInQuestions: []
+  },
+  cme: {
+    measured: false,
+    highestConceptLevel: 0,
+    levelLabels: [...],
+    independence: "Unknown",
+    retention: "Unknown",
+    evidenceByLevel: {}
+  },
+  le: {
+    estimated: true,
+    estimatedMinutes: 20
+  }
+}
+```
 
-## Cost
+### Prompt Change (Edge Function)
 
-All processing uses Lovable AI (`google/gemini-2.5-pro`) which has **free included usage**. No additional API keys or payment required for typical usage volumes.
+```text
+Before:
+"Include 'ipaByQuestion' showing your cognitive analysis"
+
+After:
+"SKIP the 'ipaByQuestion' field entirely - output ONLY globalNodes, edges, questionPaths, courses"
+```
+
+---
+
+## Files to Modify
+
+| File | Change |
+|------|--------|
+| `src/hooks/useBatchGeneration.ts` | Batch size 15, live graph updates, data normalization |
+| `supabase/functions/generate-graph/index.ts` | Remove IPA from output, reduce max_tokens |
+| `src/lib/graph/mergeGraphs.ts` | Add normalizeNode() with safe defaults |
+| `src/components/ui/badge.tsx` | Add forwardRef wrapper |
+| `src/components/KnowledgeGraphApp.tsx` | Minor: ensure graph displays during generation |
+
+---
+
+## Expected Outcome
+
+After these changes:
+1. Users will see the graph appear after the **first batch** (15 questions) completes
+2. Graph grows visually as each batch finishes
+3. Progress bar shows accurate batch count and time remaining
+4. No more truncation errors (smaller AI responses)
+5. No more crashes from missing node fields
+6. Console warning about Badge refs is fixed
