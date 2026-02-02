@@ -1,116 +1,170 @@
 
-# Switch to OpenRouter API
+
+# Structured Question Input Format
 
 ## Overview
 
-Replace the direct Gemini API integration with OpenRouter, allowing you to use various AI models (Gemini, Claude, GPT-4, etc.) through a single API key.
+Update the question input system to accept structured coding problems with clear sections (Problem, Input, Output, Constraints, Examples) instead of free-form text. This provides richer context for the AI to generate more accurate knowledge graphs.
+
+## Proposed Format
+
+Each question will use a marker-based format:
+
+```text
+[QUESTION]
+Problem:
+Write a function to check if a key exists in a nested dictionary.
+
+Input:
+A dictionary that may contain nested dictionaries, and a key to search for.
+
+Output:
+Return True if the key exists at any level, False otherwise.
+
+Constraints:
+- Dictionary depth can be up to 10 levels
+- Keys are strings only
+
+Examples:
+Input: {"a": {"b": 1}}, "b"
+Output: True
+
+[QUESTION]
+Problem:
+Count word frequencies in a sentence.
+...
+```
 
 ## Changes Required
 
-### 1. Add OpenRouter API Key Secret
+### 1. Update QuickQuestionInput Component
 
-Before making code changes, you'll need to provide your OpenRouter API key. I'll prompt you to add this secret.
+**File**: `src/components/panels/QuickQuestionInput.tsx`
 
-### 2. Update Edge Function
+**Changes**:
+- Update placeholder text to show the new structured format
+- Change parsing logic from `split(/\n\s*\n/)` to split on `[QUESTION]` markers
+- Update helper text and question count display
+
+### 2. Update QuestionInputPanel Component
+
+**File**: `src/components/panels/QuestionInputPanel.tsx`
+
+**Changes**:
+- Update placeholder text to show structured format example
+- Change parsing logic to use `[QUESTION]` marker splitting
+- Update description/help text
+
+### 3. Update Edge Function System Prompt
 
 **File**: `supabase/functions/generate-graph/index.ts`
 
-#### Current Implementation (Gemini Direct)
-```typescript
-const GEMINI_API_KEY = Deno.env.get("GEMINI_API_KEY");
+**Changes**:
+- Update the system prompt to expect structured question format
+- Add parsing guidance for Problem/Input/Output/Constraints/Examples sections
+- Update the example in the prompt to use structured format
 
-const response = await fetch(
-  `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent?key=${GEMINI_API_KEY}`,
+### 4. Alternative: JSON Input Option
+
+If you prefer JSON input, we could also support this format:
+
+```json
+[
   {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({
-      contents: [{ role: "user", parts: [{ text: prompt }] }],
-      generationConfig: {
-        responseMimeType: "application/json",
-        maxOutputTokens: 65536,
-        temperature: 0.2,
-      },
-    }),
+    "problem": "Check if key exists in nested dictionary",
+    "input": "Dictionary with nested structure, key to find",
+    "output": "Boolean indicating if key was found",
+    "constraints": ["Max depth 10", "String keys only"],
+    "examples": [
+      {"input": "{\"a\": {\"b\": 1}}, \"b\"", "output": "True"}
+    ]
   }
-);
-
-// Extract from Gemini format
-const data = await response.json();
-const text = data.candidates?.[0]?.content?.parts?.[0]?.text;
+]
 ```
 
-#### New Implementation (OpenRouter)
-```typescript
-const OPENROUTER_API_KEY = Deno.env.get("OPENROUTER_API_KEY");
-
-const response = await fetch("https://openrouter.ai/api/v1/chat/completions", {
-  method: "POST",
-  headers: {
-    "Authorization": `Bearer ${OPENROUTER_API_KEY}`,
-    "Content-Type": "application/json",
-    "HTTP-Referer": "https://lovable.dev",
-    "X-Title": "Knowledge Graph Generator",
-  },
-  body: JSON.stringify({
-    model: "google/gemini-2.0-flash-001",  // Can easily switch models
-    messages: [
-      { role: "system", content: systemPrompt },
-      { role: "user", content: userPrompt }
-    ],
-    max_tokens: 65536,
-    temperature: 0.2,
-    response_format: { type: "json_object" },
-  }),
-});
-
-// Extract from OpenAI-compatible format
-const data = await response.json();
-const text = data.choices?.[0]?.message?.content;
-```
-
-### Key Differences
-
-| Aspect | Gemini Direct | OpenRouter |
-|--------|---------------|------------|
-| API Format | Google-specific | OpenAI-compatible |
-| Auth | API key in URL | Bearer token header |
-| Messages | `contents[].parts[].text` | `messages[].content` |
-| Response | `candidates[0].content.parts[0].text` | `choices[0].message.content` |
-| JSON mode | `responseMimeType: "application/json"` | `response_format: { type: "json_object" }` |
-
-### 3. Update Error Handling
-
-OpenRouter uses standard HTTP status codes:
-- 429: Rate limit exceeded
-- 402: Insufficient credits
-- 401: Invalid API key
-- 400: Bad request
-
-### 4. Model Selection
-
-With OpenRouter, you can easily switch models by changing the `model` parameter:
-- `google/gemini-2.0-flash-001` (current equivalent)
-- `google/gemini-2.5-pro-preview-03-25` (more capable)
-- `anthropic/claude-3.5-sonnet` (alternative)
-- `openai/gpt-4-turbo` (alternative)
+This would require adding a JSON/Text format toggle in the UI.
 
 ---
 
-## Implementation Steps
+## Implementation Details
 
-1. **Add OPENROUTER_API_KEY secret** - I'll prompt you to enter this
-2. **Update the fetch call** - Change endpoint and headers
-3. **Update request body** - Convert to OpenAI chat format
-4. **Update response parsing** - Extract from `choices[0].message.content`
-5. **Update error handling** - Handle OpenRouter-specific errors
-6. **Optionally remove GEMINI_API_KEY** - No longer needed after migration
+### Parsing Logic Update
+
+```typescript
+// Current (blank line splitting)
+const questions = questionsText
+  .split(/\n\s*\n/)
+  .map(q => q.trim())
+  .filter(q => q.length > 0);
+
+// New (marker splitting)
+const questions = questionsText
+  .split(/\[QUESTION\]/i)
+  .map(q => q.trim())
+  .filter(q => q.length > 0);
+```
+
+### Updated Placeholder Example
+
+```text
+[QUESTION]
+Problem:
+Write a function to check if a key exists in a nested dictionary.
+
+Input:
+A dictionary (may contain nested dicts) and a target key string.
+
+Output:
+True if key exists at any nesting level, False otherwise.
+
+Constraints:
+- Max nesting depth: 10 levels
+- Keys are always strings
+
+Examples:
+{"a": {"b": 1}}, "b" → True
+{"x": 1}, "y" → False
+
+[QUESTION]
+Problem:
+Count word frequencies in a given text.
+...
+```
+
+### System Prompt Update
+
+Add section to explain the structured format:
+
+```text
+=== INPUT FORMAT ===
+
+Questions are provided in structured format with these sections:
+- Problem: The task description
+- Input: Expected input format/types
+- Output: Expected output format/types  
+- Constraints: Limits and restrictions
+- Examples: Sample input/output pairs
+
+Use ALL sections when performing IPA analysis - constraints inform edge cases,
+examples help identify patterns.
+```
 
 ---
 
 ## Benefits
 
-- **Model flexibility**: Switch between Gemini, Claude, GPT-4, etc. with one line change
-- **Unified billing**: Single dashboard for all AI usage
-- **Fallback options**: If one model is down, easily switch to another
-- **OpenAI-compatible format**: Cleaner, more standard API structure
+1. **Richer Context**: Constraints and examples help the AI identify edge case handling skills
+2. **Better Skill Extraction**: Input/Output sections clarify data type handling requirements
+3. **Curriculum Alignment**: Format matches typical coding assessment question formats
+4. **Consistent Structure**: Easier to batch process and validate questions
+
+---
+
+## Summary of File Changes
+
+| File | Type of Change |
+|------|----------------|
+| `src/components/panels/QuickQuestionInput.tsx` | Update placeholder, parsing logic, help text |
+| `src/components/panels/QuestionInputPanel.tsx` | Update placeholder, parsing logic, description |
+| `supabase/functions/generate-graph/index.ts` | Update system prompt with format documentation |
+
