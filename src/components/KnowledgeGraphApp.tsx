@@ -10,10 +10,17 @@ import { KnowledgeGraph, QuestionPath } from '@/types/graph';
 import { useGraphPersistence } from '@/hooks/useGraphPersistence';
 import { useBatchGeneration } from '@/hooks/useBatchGeneration';
 import { useAutosave } from '@/hooks/useAutosave';
-import { Network, Sparkles, Trash2 } from 'lucide-react';
+import { Network, Sparkles, Trash2, GraduationCap } from 'lucide-react';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
+import { Switch } from '@/components/ui/switch';
+import { Label } from '@/components/ui/label';
 import { toast } from '@/hooks/use-toast';
+import {
+  StudentSelector,
+  ClassSelector,
+  MasterySidebar,
+} from './mastery';
 
 // Helper to get path array from either format (backward compatible)
 const getPathArray = (path: QuestionPath | string[]): string[] => {
@@ -27,6 +34,13 @@ export function KnowledgeGraphApp() {
   const [graph, setGraph] = useState<KnowledgeGraph | null>(null);
   const [selectedNodeId, setSelectedNodeId] = useState<string | null>(null);
   const [selectedQuestion, setSelectedQuestion] = useState<string | null>(null);
+
+  // Mastery tracking state
+  const [masteryMode, setMasteryMode] = useState(false);
+  const [selectedClassId, setSelectedClassId] = useState<string | null>(null);
+  const [selectedClassName, setSelectedClassName] = useState<string | null>(null);
+  const [selectedStudentId, setSelectedStudentId] = useState<string | null>(null);
+  const [selectedStudentName, setSelectedStudentName] = useState<string | null>(null);
 
   // Graph persistence
   const {
@@ -74,11 +88,30 @@ export function KnowledgeGraphApp() {
   } = useBatchGeneration(graph, handleGraphUpdate);
 
   // Clear graph and start fresh
+  // Handle class selection from ClassManagerPanel
+  const handleClassSelect = useCallback((classId: string, className: string) => {
+    setSelectedClassId(classId);
+    setSelectedClassName(className);
+    setSelectedStudentId(null);
+    setSelectedStudentName(null);
+  }, []);
+
+  // Handle student selection
+  const handleStudentChange = useCallback((studentId: string | null, studentName: string | null) => {
+    setSelectedStudentId(studentId);
+    setSelectedStudentName(studentName);
+  }, []);
+
+  // Clear graph and start fresh
   const handleClearGraph = useCallback(() => {
     setGraph(null);
     setSelectedNodeId(null);
     setSelectedQuestion(null);
     setCurrentGraphId(null);
+    setSelectedClassId(null);
+    setSelectedClassName(null);
+    setSelectedStudentId(null);
+    setSelectedStudentName(null);
     clearCheckpoint();
     toast({
       title: "Graph cleared",
@@ -299,7 +332,40 @@ export function KnowledgeGraphApp() {
             </div>
           </div>
 
-          <div className="flex items-center gap-2">
+          <div className="flex items-center gap-3">
+            {/* Mastery Mode Toggle */}
+            {currentGraphId && (
+              <div className="flex items-center gap-2 px-2 py-1 rounded-md bg-muted/50">
+                <Switch
+                  id="mastery-mode"
+                  checked={masteryMode}
+                  onCheckedChange={setMasteryMode}
+                />
+                <Label htmlFor="mastery-mode" className="text-sm font-medium cursor-pointer flex items-center gap-1.5">
+                  <GraduationCap className="h-4 w-4" />
+                  Mastery
+                </Label>
+              </div>
+            )}
+
+            {/* Class & Student Selectors (when mastery mode is on) */}
+            {masteryMode && currentGraphId && (
+              <div className="flex items-center gap-2">
+                <ClassSelector
+                  graphId={currentGraphId}
+                  selectedClassId={selectedClassId}
+                  onClassSelect={handleClassSelect}
+                />
+                {selectedClassId && (
+                  <StudentSelector
+                    classId={selectedClassId}
+                    selectedStudentId={selectedStudentId}
+                    onStudentChange={handleStudentChange}
+                  />
+                )}
+              </div>
+            )}
+
             <QuestionPathSelector
               questions={graph.questionPaths}
               selectedQuestion={selectedQuestion}
@@ -391,6 +457,18 @@ export function KnowledgeGraphApp() {
             </div>
           )}
         </div>
+
+        {/* Mastery Sidebar */}
+        {masteryMode && currentGraphId && selectedClassId && (
+          <MasterySidebar
+            graphId={currentGraphId}
+            classId={selectedClassId}
+            className={selectedClassName || undefined}
+            studentId={selectedStudentId}
+            studentName={selectedStudentName}
+            skills={graph.globalNodes}
+          />
+        )}
       </div>
 
       {/* Full-screen modal overlay */}

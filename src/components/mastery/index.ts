@@ -1,7 +1,9 @@
 // Barrel export for mastery components
 export { StudentSelector } from './StudentSelector';
+export { ClassSelector } from './ClassSelector';
 export { AttemptLoggerPanel } from './AttemptLoggerPanel';
 export { BulkUploadPanel } from './BulkUploadPanel';
 export { ClassManagerPanel } from './ClassManagerPanel';
 export { MasteryOverview } from './MasteryOverview';
 export { ClassAnalyticsPanel } from './ClassAnalyticsPanel';
+export { MasterySidebar } from './MasterySidebar';
