@@ -81,7 +81,7 @@ export function QuestionInputPanel({ onGraphGenerated, isOpen, onClose }: Questi
 
   const handleGenerate = async () => {
     const questions = questionsText
-      .split(/\n\s*\n/)  // Split on blank lines
+      .split(/\[QUESTION\]/i)  // Split on [QUESTION] markers
       .map(q => q.trim())
       .filter(q => q.length > 0);
 
@@ -160,7 +160,7 @@ export function QuestionInputPanel({ onGraphGenerated, isOpen, onClose }: Questi
 
   if (!isOpen) return null;
 
-  const questionCount = questionsText.split(/\n\s*\n/).filter(q => q.trim().length > 0).length;
+  const questionCount = questionsText.split(/\[QUESTION\]/i).filter(q => q.trim().length > 0).length;
   const batchCount = Math.ceil(questionCount / BATCH_SIZE);
 
   return (
@@ -183,24 +183,39 @@ export function QuestionInputPanel({ onGraphGenerated, isOpen, onClose }: Questi
           <div className="space-y-2">
             <label htmlFor="questions" className="flex items-center gap-2 text-sm font-medium">
               <Code className="h-4 w-4 text-muted-foreground" />
-              Coding Questions (separate with blank lines)
+              Structured Coding Questions (use [QUESTION] markers)
             </label>
             <Textarea
               id="questions"
-              placeholder={`Write a function that checks if a key exists in a dictionary.
-The function should handle nested dictionaries and return True/False.
+              placeholder={`[QUESTION]
+Problem:
+Write a function to check if a key exists in a nested dictionary.
 
-Implement a function to count word frequencies in a text.
-It should ignore case and punctuation.
+Input:
+A dictionary (may contain nested dicts) and a target key string.
 
-Create a function that merges two sorted lists into one sorted list.`}
+Output:
+True if key exists at any nesting level, False otherwise.
+
+Constraints:
+- Max nesting depth: 10 levels
+- Keys are always strings
+
+Examples:
+{"a": {"b": 1}}, "b" → True
+{"x": 1}, "y" → False
+
+[QUESTION]
+Problem:
+Count word frequencies in a given text.
+...`}
               value={questionsText}
               onChange={(e) => setQuestionsText(e.target.value)}
               disabled={isLoading}
               className="min-h-[200px] font-mono text-sm"
             />
             <p className="text-xs text-muted-foreground">
-              Separate each question with a blank line. Multi-line descriptions are supported.
+              Use [QUESTION] to separate each question. Include Problem, Input, Output, Constraints, and Examples sections.
               {questionCount > BATCH_SIZE && (
                 <span className="block mt-1 text-primary">
                   {questionCount} questions will be processed in {batchCount} batches.
