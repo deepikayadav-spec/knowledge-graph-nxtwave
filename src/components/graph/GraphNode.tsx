@@ -13,16 +13,20 @@ interface GraphNodeComponentProps {
   onMouseLeave: () => void;
 }
 
+// Default LE value for nodes without LE data
+const DEFAULT_LE_MINUTES = 20;
+
 // Get effective LE value from either estimated or measured data
-const getEffectiveLE = (le: LE): number => {
+const getEffectiveLE = (le?: LE): number => {
+  if (!le) return DEFAULT_LE_MINUTES;
   if (le.estimated) {
-    return le.estimatedMinutes;
+    return le.estimatedMinutes ?? DEFAULT_LE_MINUTES;
   }
-  return le.measuredMinutes || le.finalLE || le.estimatedMinutes || 20;
+  return le.measuredMinutes || le.finalLE || le.estimatedMinutes || DEFAULT_LE_MINUTES;
 };
 
 // Calculate node radius based on Learning Effort (LE)
-const getNodeRadius = (le: LE) => {
+const getNodeRadius = (le?: LE) => {
   const leValue = getEffectiveLE(le);
   const baseRadius = 22;
   const maxRadius = 40;
