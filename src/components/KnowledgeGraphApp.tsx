@@ -38,6 +38,7 @@ export function KnowledgeGraphApp() {
     saveGraph,
     loadGraph,
     deleteGraph,
+    copyGraph,
   } = useGraphPersistence();
 
   // Get current graph name for autosave
@@ -116,6 +117,75 @@ export function KnowledgeGraphApp() {
     await generate(questions);
   }, [generate]);
 
+  // Remove a question from the graph
+  const handleRemoveQuestion = useCallback((questionText: string) => {
+    if (!graph) return;
+    
+    // Get skills used by this question
+    const questionPath = graph.questionPaths[questionText];
+    const questionSkills = new Set(
+      Array.isArray(questionPath) 
+        ? questionPath 
+        : questionPath?.requiredNodes || questionPath?.executionOrder || []
+    );
+    
+    // Get all skills used by other questions
+    const otherQuestionsSkills = new Set<string>();
+    Object.entries(graph.questionPaths).forEach(([q, path]) => {
+      if (q !== questionText) {
+        const skills = Array.isArray(path) ? path : path?.requiredNodes || path?.executionOrder || [];
+        skills.forEach(s => otherQuestionsSkills.add(s));
+      }
+    });
+    
+    // Find orphaned skills (only used by this question)
+    const orphanedSkills = new Set<string>();
+    questionSkills.forEach(skillId => {
+      if (!otherQuestionsSkills.has(skillId)) {
+        orphanedSkills.add(skillId);
+      }
+    });
+    
+    // Update graph
+    const newQuestionPaths = { ...graph.questionPaths };
+    delete newQuestionPaths[questionText];
+    
+    const newNodes = graph.globalNodes.filter(n => !orphanedSkills.has(n.id));
+    const newEdges = graph.edges.filter(e => 
+      !orphanedSkills.has(e.from) && !orphanedSkills.has(e.to)
+    );
+    
+    // Update appearsInQuestions for remaining nodes
+    newNodes.forEach(node => {
+      node.knowledgePoint.appearsInQuestions = node.knowledgePoint.appearsInQuestions.filter(
+        q => q !== questionText
+      );
+    });
+    
+    setGraph({
+      ...graph,
+      globalNodes: newNodes,
+      edges: newEdges,
+      questionPaths: newQuestionPaths,
+    });
+    
+    toast({
+      title: 'Question removed',
+      description: orphanedSkills.size > 0 
+        ? `Removed ${orphanedSkills.size} orphaned skill(s).`
+        : 'Question has been removed from the graph.',
+    });
+  }, [graph]);
+
+  // Copy a graph
+  const handleCopyGraph = useCallback(async (graphId: string, newName: string) => {
+    const newId = await copyGraph(graphId, newName);
+    if (newId) {
+      // Optionally load the copied graph
+      await handleLoadGraph(newId);
+    }
+  }, [copyGraph, handleLoadGraph]);
+
   const selectedNode = useMemo(
     () => graph?.globalNodes.find((n) => n.id === selectedNodeId) || null,
     [graph?.globalNodes, selectedNodeId]
@@ -170,6 +240,7 @@ export function KnowledgeGraphApp() {
               onLoad={handleLoadGraph}
               onDelete={handleDeleteGraph}
               onNew={handleClearGraph}
+              onCopy={handleCopyGraph}
             />
           </div>
         </header>
@@ -233,6 +304,7 @@ export function KnowledgeGraphApp() {
               questions={graph.questionPaths}
               selectedQuestion={selectedQuestion}
               onQuestionSelect={setSelectedQuestion}
+              onQuestionRemove={handleRemoveQuestion}
             />
             <GraphManagerPanel
               savedGraphs={savedGraphs}
@@ -244,6 +316,7 @@ export function KnowledgeGraphApp() {
               onLoad={handleLoadGraph}
               onDelete={handleDeleteGraph}
               onNew={handleClearGraph}
+              onCopy={handleCopyGraph}
             />
             <Button
               variant="outline"

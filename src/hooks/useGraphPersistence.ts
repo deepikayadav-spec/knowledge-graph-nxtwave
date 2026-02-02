@@ -309,6 +309,113 @@ export function useGraphPersistence() {
     }
   }, [currentGraphId, fetchGraphs]);
 
+  // Copy graph
+  const copyGraph = useCallback(async (sourceGraphId: string, newName: string): Promise<string | null> => {
+    setIsSaving(true);
+    try {
+      // Load the source graph first
+      const [skillsRes, edgesRes, questionsRes, graphRes] = await Promise.all([
+        supabase.from('skills').select('*').eq('graph_id', sourceGraphId),
+        supabase.from('skill_edges').select('*').eq('graph_id', sourceGraphId),
+        supabase.from('questions').select('*').eq('graph_id', sourceGraphId),
+        supabase.from('knowledge_graphs').select('*').eq('id', sourceGraphId).single(),
+      ]);
+
+      if (skillsRes.error) throw skillsRes.error;
+      if (edgesRes.error) throw edgesRes.error;
+      if (questionsRes.error) throw questionsRes.error;
+      if (graphRes.error) throw graphRes.error;
+
+      const sourceGraph = graphRes.data;
+
+      // Create new graph
+      const { data: newGraph, error: createError } = await supabase
+        .from('knowledge_graphs')
+        .insert({
+          name: newName,
+          description: sourceGraph.description,
+          total_skills: sourceGraph.total_skills,
+          total_questions: sourceGraph.total_questions,
+        })
+        .select('id')
+        .single();
+
+      if (createError) throw createError;
+      const newGraphId = newGraph.id;
+
+      // Copy skills
+      if (skillsRes.data && skillsRes.data.length > 0) {
+        const skillsToInsert = skillsRes.data.map((skill: any) => ({
+          graph_id: newGraphId,
+          skill_id: skill.skill_id,
+          name: skill.name,
+          tier: skill.tier,
+          level: skill.level,
+          description: skill.description,
+          transferable_contexts: skill.transferable_contexts,
+        }));
+
+        const { error: skillsError } = await supabase
+          .from('skills')
+          .insert(skillsToInsert);
+
+        if (skillsError) throw skillsError;
+      }
+
+      // Copy edges
+      if (edgesRes.data && edgesRes.data.length > 0) {
+        const edgesToInsert = edgesRes.data.map((edge: any) => ({
+          graph_id: newGraphId,
+          from_skill: edge.from_skill,
+          to_skill: edge.to_skill,
+          relationship_type: edge.relationship_type,
+          reason: edge.reason,
+        }));
+
+        const { error: edgesError } = await supabase
+          .from('skill_edges')
+          .insert(edgesToInsert);
+
+        if (edgesError) throw edgesError;
+      }
+
+      // Copy questions
+      if (questionsRes.data && questionsRes.data.length > 0) {
+        const questionsToInsert = questionsRes.data.map((q: any) => ({
+          graph_id: newGraphId,
+          question_text: q.question_text,
+          skills: q.skills,
+          primary_skill: q.primary_skill,
+        }));
+
+        const { error: questionsError } = await supabase
+          .from('questions')
+          .insert(questionsToInsert);
+
+        if (questionsError) throw questionsError;
+      }
+
+      await fetchGraphs();
+
+      toast({
+        title: 'Graph copied',
+        description: `Created "${newName}" with ${sourceGraph.total_skills} skills.`,
+      });
+
+      return newGraphId;
+    } catch (error) {
+      console.error('Error copying graph:', error);
+      toast({
+        title: 'Failed to copy graph',
+        description: error instanceof Error ? error.message : 'Unknown error',
+        variant: 'destructive',
+      });
+      return null;
+    } finally {
+      setIsSaving(false);
+    }
+  }, [fetchGraphs]);
+
   return {
     savedGraphs,
     currentGraphId,
@@ -319,5 +426,6 @@ export function useGraphPersistence() {
     saveGraph,
     loadGraph,
     deleteGraph,
+    copyGraph,
   };
 }
