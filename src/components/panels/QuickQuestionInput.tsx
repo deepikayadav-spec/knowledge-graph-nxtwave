@@ -1,9 +1,10 @@
-import { useState, useRef } from 'react';
-import { Send, Loader2, Plus, ChevronDown } from 'lucide-react';
+import { useState, useRef, ChangeEvent } from 'react';
+import { Send, Loader2, Plus, ChevronDown, Upload } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Textarea } from '@/components/ui/textarea';
 import { cn } from '@/lib/utils';
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from '@/components/ui/collapsible';
+import { toast } from '@/hooks/use-toast';
 
 interface QuickQuestionInputProps {
   onGenerate: (questions: string[]) => void;
@@ -11,25 +12,104 @@ interface QuickQuestionInputProps {
   isLandingMode?: boolean;
 }
 
+function parseQuestionsFromText(text: string): string[] {
+  return text
+    .split(/(?=^Question\s*:?\s*$)/im)
+    .map(q => q.trim())
+    .filter(q => q.length > 0);
+}
+
+function parseCSV(text: string): string[] {
+  const lines = text.split('\n').map(l => l.trim()).filter(l => l);
+  if (lines.length < 2) return [];
+  
+  const header = lines[0].toLowerCase();
+  const hasExpectedColumns = header.includes('question') || header.includes('input') || header.includes('output');
+  
+  if (!hasExpectedColumns) {
+    return lines;
+  }
+  
+  const questions: string[] = [];
+  const headerCols = lines[0].split(',').map(h => h.trim().toLowerCase());
+  const qIdx = headerCols.findIndex(h => h.includes('question'));
+  const iIdx = headerCols.findIndex(h => h.includes('input'));
+  const oIdx = headerCols.findIndex(h => h.includes('output'));
+  const eIdx = headerCols.findIndex(h => h.includes('explanation'));
+  
+  for (let i = 1; i < lines.length; i++) {
+    const cols = lines[i].split(',').map(c => c.trim());
+    let q = 'Question:\n';
+    if (qIdx >= 0 && cols[qIdx]) q += cols[qIdx] + '\n\n';
+    if (iIdx >= 0 && cols[iIdx]) q += 'Input:\n' + cols[iIdx] + '\n\n';
+    if (oIdx >= 0 && cols[oIdx]) q += 'Output:\n' + cols[oIdx] + '\n\n';
+    if (eIdx >= 0 && cols[eIdx]) q += 'Explanation:\n' + cols[eIdx];
+    questions.push(q.trim());
+  }
+  
+  return questions;
+}
+
 export function QuickQuestionInput({ onGenerate, isLoading, isLandingMode = false }: QuickQuestionInputProps) {
   const [questionsText, setQuestionsText] = useState('');
   const [isOpen, setIsOpen] = useState(false);
   const containerRef = useRef<HTMLDivElement>(null);
+  const fileInputRef = useRef<HTMLInputElement>(null);
 
   const handleSubmit = () => {
     if (!questionsText.trim()) return;
     
-    // Split on lines starting with "Question" (handles "Question:" or "Question\n")
-    const questions = questionsText
-      .split(/(?=^Question\s*:?\s*$)/im)
-      .map(q => q.trim())
-      .filter(q => q.length > 0);
-    
+    const questions = parseQuestionsFromText(questionsText);
     if (questions.length === 0) return;
     
     onGenerate(questions);
     setQuestionsText('');
     setIsOpen(false);
+  };
+
+  const handleFileUpload = (e: ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+
+    if (file.size > 1024 * 1024) {
+      toast({
+        title: "File too large",
+        description: "Maximum file size is 1MB.",
+        variant: "destructive",
+      });
+      return;
+    }
+
+    const reader = new FileReader();
+    reader.onload = (event) => {
+      const text = event.target?.result as string;
+      let questions: string[] = [];
+
+      if (file.name.endsWith('.csv')) {
+        questions = parseCSV(text);
+      } else {
+        questions = parseQuestionsFromText(text);
+      }
+
+      if (questions.length === 0) {
+        toast({
+          title: "No questions found",
+          description: "Could not parse questions from the file. Use 'Question:' delimiters or CSV format.",
+          variant: "destructive",
+        });
+        return;
+      }
+
+      toast({
+        title: "File loaded",
+        description: `Found ${questions.length} question(s). Click Generate to process.`,
+      });
+
+      setQuestionsText(questions.join('\n\n'));
+    };
+
+    reader.readAsText(file);
+    e.target.value = '';
   };
 
   const handleKeyDown = (e: React.KeyboardEvent) => {
@@ -38,6 +118,8 @@ export function QuickQuestionInput({ onGenerate, isLoading, isLandingMode = fals
     }
   };
 
+  const questionCount = parseQuestionsFromText(questionsText).length;
+
   if (isLandingMode) {
     return (
       <div className="w-full max-w-2xl mx-auto">
@@ -45,9 +127,17 @@ export function QuickQuestionInput({ onGenerate, isLoading, isLandingMode = fals
           <div className="text-center space-y-2">
             <h2 className="text-2xl font-semibold text-foreground">Build Your Knowledge Graph</h2>
             <p className="text-muted-foreground">
-              Enter structured coding questions. Separate multiple questions by starting each with "Question:".
+              Enter structured coding questions or upload a file. Separate multiple questions with "Question:".
             </p>
           </div>
+
+          <input
+            ref={fileInputRef}
+            type="file"
+            accept=".txt,.csv"
+            onChange={handleFileUpload}
+            className="hidden"
+          />
           
           <Textarea
             placeholder={`Question:
@@ -80,9 +170,20 @@ Split by spaces, iterate and count using a dictionary.`}
           />
           
           <div className="flex items-center justify-between">
-            <span className="text-sm text-muted-foreground">
-              {questionsText.split(/(?=^Question\s*:?\s*$)/im).filter(q => q.trim()).length} question(s)
-            </span>
+            <div className="flex items-center gap-3">
+              <span className="text-sm text-muted-foreground">
+                {questionCount} question(s)
+              </span>
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={() => fileInputRef.current?.click()}
+                className="gap-2"
+              >
+                <Upload className="h-4 w-4" />
+                Upload File
+              </Button>
+            </div>
             <Button
               onClick={handleSubmit}
               disabled={isLoading || !questionsText.trim()}
@@ -115,6 +216,14 @@ Split by spaces, iterate and count using a dictionary.`}
           "animate-in fade-in-0 zoom-in-95 duration-200"
         )}
       >
+        <input
+          ref={fileInputRef}
+          type="file"
+          accept=".txt,.csv"
+          onChange={handleFileUpload}
+          className="hidden"
+        />
+
         <CollapsibleTrigger asChild>
           <button className="w-full flex items-center justify-between gap-2 p-3 hover:bg-muted/50 transition-colors">
             <span className="text-sm font-medium text-foreground flex items-center gap-2">
@@ -139,9 +248,20 @@ Split by spaces, iterate and count using a dictionary.`}
             />
             
             <div className="flex items-center justify-between">
-              <span className="text-xs text-muted-foreground">
-                {questionsText.split(/(?=^Question\s*:?\s*$)/im).filter(q => q.trim()).length} question(s) · ⌘+Enter to submit
-              </span>
+              <div className="flex items-center gap-2">
+                <span className="text-xs text-muted-foreground">
+                  {questionCount} question(s) · ⌘+Enter
+                </span>
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  onClick={() => fileInputRef.current?.click()}
+                  className="h-6 px-2 text-xs"
+                >
+                  <Upload className="h-3 w-3 mr-1" />
+                  Upload
+                </Button>
+              </div>
               <Button
                 size="sm"
                 onClick={handleSubmit}

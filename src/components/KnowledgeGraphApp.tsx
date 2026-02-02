@@ -4,9 +4,14 @@ import { NodeDetailPanel } from './panels/NodeDetailPanel';
 import { QuestionPathSelector } from './panels/QuestionPathSelector';
 import { QuickQuestionInput } from './panels/QuickQuestionInput';
 import { GraphManagerPanel } from './panels/GraphManagerPanel';
+import { GenerationProgress } from './panels/GenerationProgress';
 import { KnowledgeGraph, QuestionPath } from '@/types/graph';
-import { mergeGraphs } from '@/lib/graph/mergeGraphs';
 import { useGraphPersistence } from '@/hooks/useGraphPersistence';
+import { useBatchGeneration } from '@/hooks/useBatchGeneration';
+import { Network, Sparkles, Trash2 } from 'lucide-react';
+import { Badge } from '@/components/ui/badge';
+import { Button } from '@/components/ui/button';
+import { toast } from '@/hooks/use-toast';
 
 // Helper to get path array from either format (backward compatible)
 const getPathArray = (path: QuestionPath | string[]): string[] => {
@@ -16,39 +21,10 @@ const getPathArray = (path: QuestionPath | string[]): string[] => {
   return path.executionOrder || path.requiredNodes || [];
 };
 
-import { Network, Sparkles, Trash2 } from 'lucide-react';
-import { Badge } from '@/components/ui/badge';
-import { Button } from '@/components/ui/button';
-import { supabase } from '@/integrations/supabase/client';
-import { toast } from '@/hooks/use-toast';
-
-const BATCH_SIZE = 5;
-
-function getInvokeHttpStatus(err: unknown): number | undefined {
-  const anyErr = err as any;
-  return (
-    anyErr?.context?.status ??
-    anyErr?.status ??
-    anyErr?.cause?.status ??
-    anyErr?.cause?.context?.status
-  );
-}
-
-function normalizeGraphPayload(data: any): KnowledgeGraph {
-  return {
-    globalNodes: data?.globalNodes || [],
-    edges: data?.edges || [],
-    courses: data?.courses || {},
-    questionPaths: data?.questionPaths || {},
-    ipaByQuestion: data?.ipaByQuestion || undefined,
-  };
-}
-
 export function KnowledgeGraphApp() {
   const [graph, setGraph] = useState<KnowledgeGraph | null>(null);
   const [selectedNodeId, setSelectedNodeId] = useState<string | null>(null);
   const [selectedQuestion, setSelectedQuestion] = useState<string | null>(null);
-  const [isGenerating, setIsGenerating] = useState(false);
 
   // Graph persistence
   const {
@@ -62,17 +38,34 @@ export function KnowledgeGraphApp() {
     deleteGraph,
   } = useGraphPersistence();
 
+  // Batch generation with progress tracking
+  const handleGraphUpdate = useCallback((newGraph: KnowledgeGraph) => {
+    setGraph(newGraph);
+    setSelectedNodeId(null);
+    setSelectedQuestion(null);
+  }, []);
+
+  const {
+    generate,
+    abort,
+    resume,
+    progress,
+    hasCheckpoint,
+    clearCheckpoint,
+  } = useBatchGeneration(graph, handleGraphUpdate);
+
   // Clear graph and start fresh
   const handleClearGraph = useCallback(() => {
     setGraph(null);
     setSelectedNodeId(null);
     setSelectedQuestion(null);
     setCurrentGraphId(null);
+    clearCheckpoint();
     toast({
       title: "Graph cleared",
       description: "You can start building a new knowledge graph.",
     });
-  }, [setCurrentGraphId]);
+  }, [setCurrentGraphId, clearCheckpoint]);
 
   // Save current graph
   const handleSaveGraph = useCallback(async (name: string, description?: string) => {
@@ -100,119 +93,10 @@ export function KnowledgeGraphApp() {
     }
   }, [deleteGraph, currentGraphId]);
 
+  // Handle question generation
   const handleGenerate = useCallback(async (questions: string[]) => {
-    setIsGenerating(true);
-    
-    // Start with existing graph nodes - will ACCUMULATE across batches
-    let accumulatedNodes: {id: string; name: string; tier?: string; description?: string}[] = 
-      graph?.globalNodes.map(n => ({
-        id: n.id,
-        name: n.name,
-        tier: n.tier,
-        description: n.description
-      })) || [];
-    
-    try {
-      const queue: string[][] = [];
-      for (let i = 0; i < questions.length; i += BATCH_SIZE) {
-        queue.push(questions.slice(i, i + BATCH_SIZE));
-      }
-
-      const deltaGraphs: KnowledgeGraph[] = [];
-
-      while (queue.length) {
-        const batch = queue.shift()!;
-
-        const { data, error } = await supabase.functions.invoke('generate-graph', {
-          body: { 
-            questions: batch,
-            // Send ACCUMULATED nodes including previous batches
-            existingNodes: accumulatedNodes.length > 0 ? accumulatedNodes : undefined
-          },
-        });
-
-        if (error) {
-          const status = getInvokeHttpStatus(error);
-          if (status === 413) {
-            if (batch.length <= 1) {
-              throw new Error(
-                "One question is too large to process. Shorten that question or split it into smaller questions."
-              );
-            }
-
-            const mid = Math.ceil(batch.length / 2);
-            queue.unshift(batch.slice(mid));
-            queue.unshift(batch.slice(0, mid));
-            continue;
-          }
-
-          throw error;
-        }
-
-        if (data?.error) {
-          throw new Error(data.error);
-        }
-
-        const deltaGraph = normalizeGraphPayload(data);
-        deltaGraphs.push(deltaGraph);
-        
-        // ACCUMULATE new nodes for next batch to prevent duplicates
-        for (const node of deltaGraph.globalNodes) {
-          if (!accumulatedNodes.some(n => n.id === node.id)) {
-            accumulatedNodes.push({
-              id: node.id,
-              name: node.name,
-              tier: node.tier,
-              description: node.description
-            });
-          }
-        }
-      }
-
-      // Merge all delta graphs from this batch
-      const combinedDelta = deltaGraphs.length === 1 
-        ? deltaGraphs[0] 
-        : mergeGraphs(deltaGraphs);
-
-      // Merge with existing graph (incremental) or use as new graph
-      const newGraph = graph 
-        ? mergeGraphs([graph, combinedDelta])
-        : combinedDelta;
-
-      setGraph(newGraph);
-      setSelectedNodeId(null);
-      setSelectedQuestion(null);
-      
-      const addedNodes = combinedDelta.globalNodes.length;
-      const addedEdges = combinedDelta.edges.length;
-      
-      toast({
-        title: graph ? "Graph updated!" : "Graph generated!",
-        description: graph 
-          ? `Added ${addedNodes} new skill${addedNodes !== 1 ? 's' : ''} and ${addedEdges} relationship${addedEdges !== 1 ? 's' : ''}. Total: ${newGraph.globalNodes.length} skills.`
-          : `Created ${newGraph.globalNodes.length} skill nodes with ${newGraph.edges.length} relationships.`,
-      });
-    } catch (error) {
-      console.error('Graph generation error:', error);
-
-      const status = getInvokeHttpStatus(error);
-      const isTruncation =
-        status === 413 ||
-        (error instanceof Error && error.message.toLowerCase().includes('truncated'));
-
-      toast({
-        title: "Generation failed",
-        description: isTruncation
-          ? "The AI response was too large. Try adding fewer questions at a time."
-          : error instanceof Error
-            ? error.message
-            : "Failed to generate knowledge graph.",
-        variant: "destructive",
-      });
-    } finally {
-      setIsGenerating(false);
-    }
-  }, [graph]);
+    await generate(questions);
+  }, [generate]);
 
   const selectedNode = useMemo(
     () => graph?.globalNodes.find((n) => n.id === selectedNodeId) || null,
@@ -233,6 +117,9 @@ export function KnowledgeGraphApp() {
     const totalQuestions = Object.keys(graph.questionPaths).length;
     return { totalNodes, totalEdges, totalQuestions };
   }, [graph]);
+
+  const isGenerating = progress.isProcessing;
+  const showCheckpointResume = hasCheckpoint() && !isGenerating;
 
   // Landing page - no graph yet
   if (!graph) {
@@ -270,11 +157,25 @@ export function KnowledgeGraphApp() {
         </header>
 
         <div className="flex-1 flex items-center justify-center p-8">
-          <QuickQuestionInput
-            onGenerate={handleGenerate}
-            isLoading={isGenerating}
-            isLandingMode={true}
-          />
+          <div className="w-full max-w-2xl space-y-4">
+            {(isGenerating || showCheckpointResume) && (
+              <GenerationProgress
+                progress={progress}
+                onPause={abort}
+                onResume={resume}
+                onCancel={clearCheckpoint}
+                hasCheckpoint={showCheckpointResume}
+              />
+            )}
+            
+            {!isGenerating && (
+              <QuickQuestionInput
+                onGenerate={handleGenerate}
+                isLoading={isGenerating}
+                isLandingMode={true}
+              />
+            )}
+          </div>
         </div>
       </div>
     );
@@ -342,13 +243,25 @@ export function KnowledgeGraphApp() {
             highlightedPath={highlightedPath}
           />
 
-          {/* Floating question input */}
-          <div className="absolute top-4 left-4 w-80">
-            <QuickQuestionInput
-              onGenerate={handleGenerate}
-              isLoading={isGenerating}
-              isLandingMode={false}
-            />
+          {/* Floating question input and progress */}
+          <div className="absolute top-4 left-4 w-80 space-y-2">
+            {(isGenerating || showCheckpointResume) && (
+              <GenerationProgress
+                progress={progress}
+                onPause={abort}
+                onResume={resume}
+                onCancel={clearCheckpoint}
+                hasCheckpoint={showCheckpointResume}
+              />
+            )}
+            
+            {!isGenerating && (
+              <QuickQuestionInput
+                onGenerate={handleGenerate}
+                isLoading={isGenerating}
+                isLandingMode={false}
+              />
+            )}
           </div>
 
           {/* Floating info when path is selected */}
@@ -378,7 +291,6 @@ export function KnowledgeGraphApp() {
             </div>
           )}
         </div>
-
       </div>
 
       {/* Full-screen modal overlay */}
