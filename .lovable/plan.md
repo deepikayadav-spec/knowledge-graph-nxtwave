@@ -1,226 +1,116 @@
 
-# Remove Node Badges and Create Full-Screen Node Detail View
+# Switch to OpenRouter API
 
 ## Overview
 
-Two changes requested:
-1. Remove the Lv2/Lv3 (target level) badges from graph nodes completely
-2. Display node details in a full-screen, scrollable view when clicking a node
+Replace the direct Gemini API integration with OpenRouter, allowing you to use various AI models (Gemini, Claude, GPT-4, etc.) through a single API key.
 
----
+## Changes Required
 
-## Part 1: Remove CME/Target Badge from Nodes
+### 1. Add OpenRouter API Key Secret
 
-**File**: `src/components/graph/GraphNode.tsx`
+Before making code changes, you'll need to provide your OpenRouter API key. I'll prompt you to add this secret.
 
-Remove the entire badge section (lines 186-204):
+### 2. Update Edge Function
 
+**File**: `supabase/functions/generate-graph/index.ts`
+
+#### Current Implementation (Gemini Direct)
 ```typescript
-// DELETE THIS ENTIRE BLOCK:
-{/* CME/Target badge (top right) */}
-<g transform={`translate(${nodeRadius - 6}, ${-nodeRadius + 6})`}>
-  <circle r={10} ... />
-  <text ...>{badgeValue}</text>
-</g>
-```
+const GEMINI_API_KEY = Deno.env.get("GEMINI_API_KEY");
 
-Also remove the unused variables:
-- `isUnmeasured` (line 48)
-- `targetLevel` (line 108)
-- `badgeValue` (line 109-111)
-
-**Result**: Clean nodes with just colors (root/intermediate/leaf) and names.
-
----
-
-## Part 2: Full-Screen Scrollable Node Detail Modal
-
-**File**: `src/components/panels/NodeDetailPanel.tsx`
-
-Transform from a side panel to a full-screen modal overlay:
-
-### Current Layout
-```text
-+-------------------+--------+
-|                   | Detail |
-|   Graph Canvas    | Panel  |
-|                   | (w-80) |
-+-------------------+--------+
-```
-
-### New Layout
-```text
-+---------------------------+
-|   Graph Canvas (behind)   |
-+---------------------------+
-|  +---------------------+  |
-|  |  FULL SCREEN MODAL  |  |
-|  |                     |  |
-|  |  (scrollable)       |  |
-|  |                     |  |
-|  +---------------------+  |
-+---------------------------+
-```
-
-### Implementation Changes
-
-**Updated Component Structure**:
-```tsx
-export function NodeDetailPanel({ ... }: NodeDetailPanelProps) {
-  return (
-    // Fixed overlay covering entire screen
-    <div className="fixed inset-0 z-50 bg-black/50 backdrop-blur-sm flex items-center justify-center p-4 md:p-8">
-      {/* Modal container - max width, full height with scroll */}
-      <div className="bg-card rounded-2xl shadow-2xl w-full max-w-2xl max-h-[90vh] flex flex-col animate-scale-in">
-        
-        {/* Sticky header with close button */}
-        <div className="sticky top-0 bg-card border-b border-border p-6 rounded-t-2xl">
-          <div className="flex items-start justify-between gap-4">
-            <div>
-              <h2 className="text-2xl font-bold text-foreground">{node.name}</h2>
-              {node.description && (
-                <p className="text-muted-foreground mt-2">{node.description}</p>
-              )}
-            </div>
-            <Button variant="ghost" size="icon" onClick={onClose}>
-              <X className="h-5 w-5" />
-            </Button>
-          </div>
-        </div>
-        
-        {/* Scrollable content area */}
-        <div className="flex-1 overflow-y-auto p-6 space-y-6">
-          {/* LE Section */}
-          {/* CME Section */}
-          {/* Prerequisites Section */}
-          {/* Unlocks Section */}
-        </div>
-        
-      </div>
-    </div>
-  );
-}
-```
-
-**File**: `src/components/KnowledgeGraphApp.tsx`
-
-Move the NodeDetailPanel outside the flex layout to work as a true overlay:
-
-```tsx
-// Change from:
-<div className="flex-1 flex overflow-hidden">
-  <div className="flex-1 relative">
-    <GraphCanvas ... />
-  </div>
-  {selectedNode && (
-    <div className="shrink-0 p-4">
-      <NodeDetailPanel ... />
-    </div>
-  )}
-</div>
-
-// To:
-<div className="flex-1 flex overflow-hidden">
-  <div className="flex-1 relative">
-    <GraphCanvas ... />
-  </div>
-</div>
-
-{/* Full-screen modal overlay */}
-{selectedNode && (
-  <NodeDetailPanel ... />
-)}
-```
-
----
-
-## Part 3: Add Animation for Modal
-
-**File**: `src/index.css`
-
-Add a scale-in animation for the modal:
-
-```css
-@keyframes scale-in {
-  from {
-    opacity: 0;
-    transform: scale(0.95);
+const response = await fetch(
+  `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent?key=${GEMINI_API_KEY}`,
+  {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({
+      contents: [{ role: "user", parts: [{ text: prompt }] }],
+      generationConfig: {
+        responseMimeType: "application/json",
+        maxOutputTokens: 65536,
+        temperature: 0.2,
+      },
+    }),
   }
-  to {
-    opacity: 1;
-    transform: scale(1);
-  }
-}
+);
 
-.animate-scale-in {
-  animation: scale-in 0.2s ease-out;
-}
+// Extract from Gemini format
+const data = await response.json();
+const text = data.candidates?.[0]?.content?.parts?.[0]?.text;
 ```
 
----
+#### New Implementation (OpenRouter)
+```typescript
+const OPENROUTER_API_KEY = Deno.env.get("OPENROUTER_API_KEY");
 
-## Part 4: Handle Click Outside to Close
+const response = await fetch("https://openrouter.ai/api/v1/chat/completions", {
+  method: "POST",
+  headers: {
+    "Authorization": `Bearer ${OPENROUTER_API_KEY}`,
+    "Content-Type": "application/json",
+    "HTTP-Referer": "https://lovable.dev",
+    "X-Title": "Knowledge Graph Generator",
+  },
+  body: JSON.stringify({
+    model: "google/gemini-2.0-flash-001",  // Can easily switch models
+    messages: [
+      { role: "system", content: systemPrompt },
+      { role: "user", content: userPrompt }
+    ],
+    max_tokens: 65536,
+    temperature: 0.2,
+    response_format: { type: "json_object" },
+  }),
+});
 
-**File**: `src/components/panels/NodeDetailPanel.tsx`
-
-Add backdrop click handler to close the modal:
-
-```tsx
-<div 
-  className="fixed inset-0 z-50 ..."
-  onClick={(e) => {
-    // Close only if clicking the backdrop, not the modal content
-    if (e.target === e.currentTarget) {
-      onClose();
-    }
-  }}
->
+// Extract from OpenAI-compatible format
+const data = await response.json();
+const text = data.choices?.[0]?.message?.content;
 ```
 
----
+### Key Differences
 
-## Summary of Changes
+| Aspect | Gemini Direct | OpenRouter |
+|--------|---------------|------------|
+| API Format | Google-specific | OpenAI-compatible |
+| Auth | API key in URL | Bearer token header |
+| Messages | `contents[].parts[].text` | `messages[].content` |
+| Response | `candidates[0].content.parts[0].text` | `choices[0].message.content` |
+| JSON mode | `responseMimeType: "application/json"` | `response_format: { type: "json_object" }` |
 
-| File | Changes |
-|------|---------|
-| `src/components/graph/GraphNode.tsx` | Remove entire CME/Target badge group and related variables |
-| `src/components/panels/NodeDetailPanel.tsx` | Convert to full-screen modal with scrollable content |
-| `src/components/KnowledgeGraphApp.tsx` | Move NodeDetailPanel outside flex container for proper overlay |
-| `src/index.css` | Add scale-in animation for modal |
+### 3. Update Error Handling
 
----
+OpenRouter uses standard HTTP status codes:
+- 429: Rate limit exceeded
+- 402: Insufficient credits
+- 401: Invalid API key
+- 400: Bad request
 
-## Visual Before/After
+### 4. Model Selection
 
-```text
-BEFORE (Side Panel):
-+---------------------+--------+
-|                     | Detail |
-|   Graph with        | Panel  |
-|   Lv2/Lv3 badges    | w-80   |
-|                     |        |
-+---------------------+--------+
-
-AFTER (Full-Screen Modal):
-+---------------------------+
-|        Graph with         |
-|     NO badges (clean)     |
-+---------------------------+
-       |                   |
-       | +---------------+ |
-       | |  FULL SCREEN  | |
-       | |  Node Details | |
-       | |  (scrollable) | |
-       | +---------------+ |
-       |                   |
-+---------------------------+
-```
+With OpenRouter, you can easily switch models by changing the `model` parameter:
+- `google/gemini-2.0-flash-001` (current equivalent)
+- `google/gemini-2.5-pro-preview-03-25` (more capable)
+- `anthropic/claude-3.5-sonnet` (alternative)
+- `openai/gpt-4-turbo` (alternative)
 
 ---
 
-## Expected Outcome
+## Implementation Steps
 
-- **Cleaner nodes**: No more Lv2/Lv3 badges cluttering the visualization
-- **Full node details**: Modal shows all information in a large, readable format
-- **Scrollable content**: Long content (many prerequisites/unlocks) scrolls naturally
-- **Better UX**: Click outside modal to dismiss, proper focus on details
+1. **Add OPENROUTER_API_KEY secret** - I'll prompt you to enter this
+2. **Update the fetch call** - Change endpoint and headers
+3. **Update request body** - Convert to OpenAI chat format
+4. **Update response parsing** - Extract from `choices[0].message.content`
+5. **Update error handling** - Handle OpenRouter-specific errors
+6. **Optionally remove GEMINI_API_KEY** - No longer needed after migration
+
+---
+
+## Benefits
+
+- **Model flexibility**: Switch between Gemini, Claude, GPT-4, etc. with one line change
+- **Unified billing**: Single dashboard for all AI usage
+- **Fallback options**: If one model is down, easily switch to another
+- **OpenAI-compatible format**: Cleaner, more standard API structure
