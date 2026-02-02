@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { Save, FolderOpen, Plus, Trash2, Loader2 } from 'lucide-react';
+import { Save, FolderOpen, Plus, Trash2, Loader2, Copy } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import {
@@ -42,6 +42,7 @@ interface GraphManagerPanelProps {
   onLoad: (graphId: string) => void;
   onDelete: (graphId: string) => void;
   onNew: () => void;
+  onCopy?: (graphId: string, newName: string) => void;
 }
 
 export function GraphManagerPanel({
@@ -54,10 +55,14 @@ export function GraphManagerPanel({
   onLoad,
   onDelete,
   onNew,
+  onCopy,
 }: GraphManagerPanelProps) {
   const [saveDialogOpen, setSaveDialogOpen] = useState(false);
+  const [copyDialogOpen, setCopyDialogOpen] = useState(false);
+  const [copySourceId, setCopySourceId] = useState<string | null>(null);
   const [graphName, setGraphName] = useState('');
   const [graphDescription, setGraphDescription] = useState('');
+  const [copyName, setCopyName] = useState('');
   const [deleteConfirmId, setDeleteConfirmId] = useState<string | null>(null);
 
   const currentGraph = savedGraphs.find(g => g.id === currentGraphId);
@@ -74,6 +79,21 @@ export function GraphManagerPanel({
     if (deleteConfirmId) {
       onDelete(deleteConfirmId);
       setDeleteConfirmId(null);
+    }
+  };
+
+  const handleOpenCopyDialog = (graphId: string, graphName: string) => {
+    setCopySourceId(graphId);
+    setCopyName(`${graphName} (Copy)`);
+    setCopyDialogOpen(true);
+  };
+
+  const handleConfirmCopy = () => {
+    if (copySourceId && copyName.trim() && onCopy) {
+      onCopy(copySourceId, copyName.trim());
+      setCopyDialogOpen(false);
+      setCopySourceId(null);
+      setCopyName('');
     }
   };
 
@@ -115,17 +135,32 @@ export function GraphManagerPanel({
                     {formatDistanceToNow(new Date(graph.updated_at), { addSuffix: true })}
                   </div>
                 </div>
-                <Button
-                  variant="ghost"
-                  size="icon"
-                  className="h-6 w-6 shrink-0 ml-2 text-muted-foreground hover:text-destructive"
-                  onClick={(e) => {
-                    e.stopPropagation();
-                    setDeleteConfirmId(graph.id);
-                  }}
-                >
-                  <Trash2 className="h-3 w-3" />
-                </Button>
+                <div className="flex items-center gap-1 shrink-0 ml-2">
+                  {onCopy && (
+                    <Button
+                      variant="ghost"
+                      size="icon"
+                      className="h-6 w-6 text-muted-foreground hover:text-foreground"
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        handleOpenCopyDialog(graph.id, graph.name);
+                      }}
+                    >
+                      <Copy className="h-3 w-3" />
+                    </Button>
+                  )}
+                  <Button
+                    variant="ghost"
+                    size="icon"
+                    className="h-6 w-6 text-muted-foreground hover:text-destructive"
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      setDeleteConfirmId(graph.id);
+                    }}
+                  >
+                    <Trash2 className="h-3 w-3" />
+                  </Button>
+                </div>
               </DropdownMenuItem>
             ))
           )}
@@ -217,6 +252,49 @@ export function GraphManagerPanel({
           </AlertDialogFooter>
         </AlertDialogContent>
       </AlertDialog>
+
+      {/* Copy Dialog */}
+      <Dialog open={copyDialogOpen} onOpenChange={setCopyDialogOpen}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Copy Graph</DialogTitle>
+            <DialogDescription>
+              Create a duplicate of this graph with a new name.
+            </DialogDescription>
+          </DialogHeader>
+          <div className="space-y-4 py-4">
+            <div className="space-y-2">
+              <label htmlFor="copy-name" className="text-sm font-medium">
+                New Name
+              </label>
+              <Input
+                id="copy-name"
+                placeholder="e.g., Python Fundamentals (Copy)"
+                value={copyName}
+                onChange={(e) => setCopyName(e.target.value)}
+              />
+            </div>
+          </div>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setCopyDialogOpen(false)}>
+              Cancel
+            </Button>
+            <Button onClick={handleConfirmCopy} disabled={!copyName.trim() || isSaving}>
+              {isSaving ? (
+                <>
+                  <Loader2 className="h-4 w-4 mr-2 animate-spin" />
+                  Copying...
+                </>
+              ) : (
+                <>
+                  <Copy className="h-4 w-4 mr-2" />
+                  Copy Graph
+                </>
+              )}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }
