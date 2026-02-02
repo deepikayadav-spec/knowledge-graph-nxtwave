@@ -19,8 +19,9 @@ export function QuickQuestionInput({ onGenerate, isLoading, isLandingMode = fals
   const handleSubmit = () => {
     if (!questionsText.trim()) return;
     
+    // Split on lines starting with "Question" (handles "Question:" or "Question\n")
     const questions = questionsText
-      .split(/\[QUESTION\]/i)  // Split on [QUESTION] markers
+      .split(/(?=^Question\s*:?\s*$)/im)
       .map(q => q.trim())
       .filter(q => q.length > 0);
     
@@ -44,13 +45,12 @@ export function QuickQuestionInput({ onGenerate, isLoading, isLandingMode = fals
           <div className="text-center space-y-2">
             <h2 className="text-2xl font-semibold text-foreground">Build Your Knowledge Graph</h2>
             <p className="text-muted-foreground">
-              Enter structured coding questions using [QUESTION] markers. Add more questions anytime to expand the graph.
+              Enter structured coding questions. Separate multiple questions by starting each with "Question:".
             </p>
           </div>
           
           <Textarea
-            placeholder={`[QUESTION]
-Question:
+            placeholder={`Question:
 Write a function to check if a key exists in a nested dictionary.
 
 Input:
@@ -62,10 +62,17 @@ True if key exists at any nesting level, False otherwise.
 Explanation:
 Use recursion to traverse nested dictionaries, checking each level for the target key.
 
-[QUESTION]
 Question:
 Count word frequencies in a given text.
-...`}
+
+Input:
+A string of text.
+
+Output:
+A dictionary with word counts.
+
+Explanation:
+Split by spaces, iterate and count using a dictionary.`}
             value={questionsText}
             onChange={(e) => setQuestionsText(e.target.value)}
             className="min-h-[200px] text-sm resize-none font-mono"
@@ -74,7 +81,7 @@ Count word frequencies in a given text.
           
           <div className="flex items-center justify-between">
             <span className="text-sm text-muted-foreground">
-              {questionsText.split(/\[QUESTION\]/i).filter(q => q.trim()).length} question(s)
+              {questionsText.split(/(?=^Question\s*:?\s*$)/im).filter(q => q.trim()).length} question(s)
             </span>
             <Button
               onClick={handleSubmit}
@@ -124,7 +131,7 @@ Count word frequencies in a given text.
         <CollapsibleContent>
           <div className="p-3 pt-0 space-y-2">
             <Textarea
-              placeholder={`[QUESTION]\nQuestion:\n...\n\nInput:\n...\n\nOutput:\n...\n\nExplanation:\n...`}
+              placeholder={`Question:\n...\n\nInput:\n...\n\nOutput:\n...\n\nExplanation:\n...`}
               value={questionsText}
               onChange={(e) => setQuestionsText(e.target.value)}
               className="min-h-[80px] text-sm resize-none font-mono"
@@ -133,7 +140,7 @@ Count word frequencies in a given text.
             
             <div className="flex items-center justify-between">
               <span className="text-xs text-muted-foreground">
-                {questionsText.split(/\[QUESTION\]/i).filter(q => q.trim()).length} question(s) · ⌘+Enter to submit
+                {questionsText.split(/(?=^Question\s*:?\s*$)/im).filter(q => q.trim()).length} question(s) · ⌘+Enter to submit
               </span>
               <Button
                 size="sm"

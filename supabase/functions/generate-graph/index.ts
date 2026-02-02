@@ -18,11 +18,13 @@ const systemPrompt = `You are a Knowledge Graph Engineer using the IPA/LTA metho
 
 === INPUT FORMAT ===
 
-Questions are provided in a structured format with these sections:
+Questions are provided in a simple structured format with these sections:
 - Question: The task description
 - Input: Expected input format/types
 - Output: Expected output format/types  
 - Explanation: Solution approach, algorithm description, or hints
+
+Multiple questions are separated by new "Question:" sections.
 
 Use ALL sections when performing IPA analysis:
 - Explanation informs the DECIDE and EXECUTE steps with solution strategy
