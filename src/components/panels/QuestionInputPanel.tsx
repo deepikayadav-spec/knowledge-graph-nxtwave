@@ -81,7 +81,7 @@ export function QuestionInputPanel({ onGraphGenerated, isOpen, onClose }: Questi
 
   const handleGenerate = async () => {
     const questions = questionsText
-      .split(/\[QUESTION\]/i)  // Split on [QUESTION] markers
+      .split(/(?=^Question\s*:?\s*$)/im)  // Split on lines starting with "Question:"
       .map(q => q.trim())
       .filter(q => q.length > 0);
 
@@ -160,7 +160,7 @@ export function QuestionInputPanel({ onGraphGenerated, isOpen, onClose }: Questi
 
   if (!isOpen) return null;
 
-  const questionCount = questionsText.split(/\[QUESTION\]/i).filter(q => q.trim().length > 0).length;
+  const questionCount = questionsText.split(/(?=^Question\s*:?\s*$)/im).filter(q => q.trim().length > 0).length;
   const batchCount = Math.ceil(questionCount / BATCH_SIZE);
 
   return (
@@ -183,12 +183,11 @@ export function QuestionInputPanel({ onGraphGenerated, isOpen, onClose }: Questi
           <div className="space-y-2">
             <label htmlFor="questions" className="flex items-center gap-2 text-sm font-medium">
               <Code className="h-4 w-4 text-muted-foreground" />
-              Structured Coding Questions (use [QUESTION] markers)
+              Structured Coding Questions
             </label>
             <Textarea
               id="questions"
-              placeholder={`[QUESTION]
-Question:
+              placeholder={`Question:
 Write a function to check if a key exists in a nested dictionary.
 
 Input:
@@ -200,17 +199,24 @@ True if key exists at any nesting level, False otherwise.
 Explanation:
 Use recursion to traverse nested dictionaries, checking each level for the target key.
 
-[QUESTION]
 Question:
 Count word frequencies in a given text.
-...`}
+
+Input:
+A string of text.
+
+Output:
+A dictionary with word counts.
+
+Explanation:
+Split by spaces, iterate and count using a dictionary.`}
               value={questionsText}
               onChange={(e) => setQuestionsText(e.target.value)}
               disabled={isLoading}
               className="min-h-[200px] font-mono text-sm"
             />
             <p className="text-xs text-muted-foreground">
-              Use [QUESTION] to separate each question. Include Question, Input, Output, and Explanation sections.
+              Include Question, Input, Output, and Explanation sections. Start each new question with "Question:".
               {questionCount > BATCH_SIZE && (
                 <span className="block mt-1 text-primary">
                   {questionCount} questions will be processed in {batchCount} batches.
