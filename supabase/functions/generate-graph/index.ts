@@ -404,10 +404,10 @@ serve(async (req) => {
       existingNodes?: ExistingNode[];
     };
     
-    const GEMINI_API_KEY = Deno.env.get("GEMINI_API_KEY");
+    const OPENROUTER_API_KEY = Deno.env.get("OPENROUTER_API_KEY");
     
-    if (!GEMINI_API_KEY) {
-      throw new Error("GEMINI_API_KEY is not configured");
+    if (!OPENROUTER_API_KEY) {
+      throw new Error("OPENROUTER_API_KEY is not configured");
     }
 
     const isIncremental = existingNodes && existingNodes.length > 0;
@@ -447,33 +447,30 @@ ${isIncremental ? '- REUSE existing skill IDs when IPA/LTA maps to same capabili
 
 Generate the IPA/LTA knowledge graph JSON.`;
 
-    const model = "gemini-2.0-flash";
-    const response = await fetch(
-      `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${GEMINI_API_KEY}`,
-      {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-        },
-        body: JSON.stringify({
-          contents: [
-            {
-              role: "user",
-              parts: [{ text: fullSystemPrompt + "\n\n" + userPrompt }],
-            },
-          ],
-          generationConfig: {
-            responseMimeType: "application/json",
-            maxOutputTokens: 65536,
-            temperature: 0.2,
-          },
-        }),
-      }
-    );
+    const model = "google/gemini-2.0-flash-001";
+    const response = await fetch("https://openrouter.ai/api/v1/chat/completions", {
+      method: "POST",
+      headers: {
+        "Authorization": `Bearer ${OPENROUTER_API_KEY}`,
+        "Content-Type": "application/json",
+        "HTTP-Referer": "https://lovable.dev",
+        "X-Title": "Knowledge Graph Generator",
+      },
+      body: JSON.stringify({
+        model,
+        messages: [
+          { role: "system", content: fullSystemPrompt },
+          { role: "user", content: userPrompt },
+        ],
+        max_tokens: 65536,
+        temperature: 0.2,
+        response_format: { type: "json_object" },
+      }),
+    });
 
     if (!response.ok) {
-      const errorText = await response.text();
-      console.error("Gemini API error:", response.status, errorText);
+      const errorData = await response.json().catch(() => ({}));
+      console.error("OpenRouter API error:", response.status, JSON.stringify(errorData));
       
       if (response.status === 429) {
         return new Response(JSON.stringify({ error: "Rate limit exceeded. Please try again later." }), {
@@ -481,13 +478,19 @@ Generate the IPA/LTA knowledge graph JSON.`;
           headers: { ...corsHeaders, "Content-Type": "application/json" },
         });
       }
-      if (response.status === 403) {
-        return new Response(JSON.stringify({ error: "Invalid API key or permission denied." }), {
-          status: 403,
+      if (response.status === 402) {
+        return new Response(JSON.stringify({ error: "Insufficient OpenRouter credits. Please add credits to your account." }), {
+          status: 402,
           headers: { ...corsHeaders, "Content-Type": "application/json" },
         });
       }
-      return new Response(JSON.stringify({ error: "AI processing failed" }), {
+      if (response.status === 401) {
+        return new Response(JSON.stringify({ error: "Invalid OpenRouter API key." }), {
+          status: 401,
+          headers: { ...corsHeaders, "Content-Type": "application/json" },
+        });
+      }
+      return new Response(JSON.stringify({ error: errorData.error?.message || "AI processing failed" }), {
         status: 500,
         headers: { ...corsHeaders, "Content-Type": "application/json" },
       });
@@ -495,15 +498,16 @@ Generate the IPA/LTA knowledge graph JSON.`;
 
     const data = await response.json();
     
-    const finishReason = data.candidates?.[0]?.finishReason;
-    console.log(`[IPA/LTA] Gemini finish reason: ${finishReason}`);
-    if (finishReason === 'MAX_TOKENS') {
+    const finishReason = data.choices?.[0]?.finish_reason;
+    console.log(`[IPA/LTA] OpenRouter finish reason: ${finishReason}`);
+    if (finishReason === 'length') {
       console.warn('[IPA/LTA] Response was truncated due to max tokens limit');
     }
     
-    const content = data.candidates?.[0]?.content?.parts?.[0]?.text;
+    const content = data.choices?.[0]?.message?.content;
 
     if (!content) {
+      console.error("[IPA/LTA] No content in response. Full response:", JSON.stringify(data));
       throw new Error("No content in AI response");
     }
 
