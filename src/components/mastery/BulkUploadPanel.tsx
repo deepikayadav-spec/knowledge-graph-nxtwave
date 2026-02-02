@@ -6,7 +6,8 @@ import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { useToast } from '@/hooks/use-toast';
 import { Upload, FileText, AlertCircle, CheckCircle2 } from 'lucide-react';
-import type { BulkUploadRow, BulkUploadValidation, IndependenceLevel } from '@/types/mastery';
+import { calculateAndPersistMastery, buildQuestionsMap } from '@/lib/mastery/persistMastery';
+import type { BulkUploadRow, BulkUploadValidation, IndependenceLevel, StudentAttempt } from '@/types/mastery';
 
 interface BulkUploadPanelProps {
   graphId: string;
@@ -244,10 +245,10 @@ export function BulkUploadPanel({
 
     setUploading(true);
     try {
-      // Ensure question map is loaded
+      // Load questions with all fields needed for matching and mastery calculation
       const { data: questionsData } = await supabase
         .from('questions')
-        .select('id, question_text')
+        .select('id, graph_id, question_text, skills, primary_skill, skill_weights')
         .eq('graph_id', graphId);
 
       const qMap = new Map<string, string>();
@@ -299,9 +300,41 @@ export function BulkUploadPanel({
         }
       }
 
+      // Calculate and persist mastery for each student
+      if (questionsData && questionsData.length > 0) {
+        const questionsMap = buildQuestionsMap(questionsData);
+
+        // 2. Group attempts by student
+        const attemptsByStudent = new Map<string, StudentAttempt[]>();
+        for (const row of validation.rows) {
+          const questionId = qMap.get(row.questionText.toLowerCase().trim());
+          if (!questionId) continue;
+
+          const attempt: StudentAttempt = {
+            id: crypto.randomUUID(),
+            graphId,
+            classId: classId || undefined,
+            studentId: row.studentId,
+            questionId,
+            isCorrect: row.isCorrect,
+            independenceLevel: row.independenceLevel,
+            attemptedAt: row.attemptedAt,
+          };
+
+          const existing = attemptsByStudent.get(row.studentId) || [];
+          existing.push(attempt);
+          attemptsByStudent.set(row.studentId, existing);
+        }
+
+        // 3. Calculate and persist mastery for each student
+        for (const [studentId, studentAttempts] of attemptsByStudent) {
+          await calculateAndPersistMastery(graphId, studentId, studentAttempts, questionsMap);
+        }
+      }
+
       toast({
         title: 'Upload complete',
-        description: `Imported ${attempts.length} attempts`,
+        description: `Imported ${attempts.length} attempts and calculated mastery`,
       });
 
       setValidation(null);
