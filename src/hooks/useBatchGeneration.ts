@@ -4,7 +4,7 @@ import { mergeGraphs } from '@/lib/graph/mergeGraphs';
 import { supabase } from '@/integrations/supabase/client';
 import { toast } from '@/hooks/use-toast';
 
-const BATCH_SIZE = 15;
+const BATCH_SIZE = 10;
 const DELAY_BETWEEN_BATCHES_MS = 2000;
 const LOCAL_STORAGE_KEY = 'kg-generation-checkpoint';
 

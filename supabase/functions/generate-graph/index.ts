@@ -392,21 +392,20 @@ function attemptJsonRepair(text: string): any | null {
 
 /**
  * Calculate appropriate max_tokens based on input size
- * Optimized for output without IPA traces
+ * Generous allocation to prevent truncation
  */
 function calculateMaxTokens(questionCount: number, isIncremental: boolean): number {
-  // Tokens per question for skills, edges, questionPaths (no IPA)
-  // Each question needs ~400 tokens for full node + edges + path output
-  const tokensPerQuestion = 400;
-  // Base overhead for JSON structure
-  const baseOverhead = 3000;
+  // Each question needs ~600 tokens for complete output (nodes + edges + paths)
+  const tokensPerQuestion = 600;
+  // Base overhead for JSON structure and shared nodes
+  const baseOverhead = 4000;
   // Extra for incremental mode (edge connections to existing nodes)
-  const incrementalOverhead = isIncremental ? 1000 : 0;
+  const incrementalOverhead = isIncremental ? 2000 : 0;
   
   const estimated = baseOverhead + incrementalOverhead + (questionCount * tokensPerQuestion);
   
-  // Clamp between reasonable bounds
-  const maxTokens = Math.min(Math.max(estimated, 8000), 24000);
+  // Always use at least 12000, cap at 28000
+  const maxTokens = Math.min(Math.max(estimated, 12000), 28000);
   
   console.log(`[IPA/LTA] Calculated max_tokens: ${maxTokens} for ${questionCount} questions`);
   return maxTokens;
