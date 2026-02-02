@@ -191,18 +191,9 @@ Construct prerequisite edges using strict necessity criteria:
 
 === OUTPUT FORMAT (strict JSON) ===
 
+IMPORTANT: Do NOT include "ipaByQuestion" in your output. Output ONLY these fields:
+
 {
-  "ipaByQuestion": {
-    "Question text here": [
-      {"step": 1, "type": "PERCEIVE", "operation": "Description of what is perceived"},
-      {"step": 2, "type": "ENCODE", "operation": "Description of encoding"},
-      {"step": 3, "type": "RETRIEVE", "operation": "Description of retrieval"},
-      {"step": 4, "type": "DECIDE", "operation": "Description of decision"},
-      {"step": 5, "type": "EXECUTE", "operation": "Description of execution"},
-      {"step": 6, "type": "MONITOR", "operation": "Description of monitoring"}
-    ]
-  },
-  
   "globalNodes": [
     {
       "id": "snake_case_skill_id",
@@ -214,18 +205,6 @@ Construct prerequisite edges using strict necessity criteria:
         "assessmentExample": "Sample question testing ONLY this skill",
         "targetAssessmentLevel": 3,
         "appearsInQuestions": ["Q1", "Q5", "Q12"]
-      },
-      "cme": {
-        "measured": false,
-        "highestConceptLevel": 0,
-        "levelLabels": ["Recognition", "Recall (simple)", "Recall (complex)", "Direct application"],
-        "independence": "Unknown",
-        "retention": "Unknown",
-        "evidenceByLevel": {}
-      },
-      "le": {
-        "estimated": true,
-        "estimatedMinutes": 15
       },
       "tier": "core",
       "knowledgeType": "procedural",
@@ -257,6 +236,8 @@ Construct prerequisite edges using strict necessity criteria:
     }
   }
 }
+
+NOTE: cme and le fields will be auto-populated by the client. Do NOT include them.
 
 === QUALITY VALIDATION (MANDATORY - FAIL = REDO) ===
 
@@ -411,21 +392,22 @@ function attemptJsonRepair(text: string): any | null {
 
 /**
  * Calculate appropriate max_tokens based on input size
+ * Now optimized since we skip IPA output
  */
 function calculateMaxTokens(questionCount: number, isIncremental: boolean): number {
-  // Base tokens per question for IPA analysis (~6 steps) + skills + edges
-  const tokensPerQuestion = 300;
+  // Reduced tokens per question since we skip IPA output
+  const tokensPerQuestion = 150;
   // Base overhead for structure
   const baseOverhead = 2000;
   // Extra for incremental mode (edge connections)
-  const incrementalOverhead = isIncremental ? 1000 : 0;
+  const incrementalOverhead = isIncremental ? 500 : 0;
   
   const estimated = baseOverhead + incrementalOverhead + (questionCount * tokensPerQuestion);
   
-  // Clamp between reasonable bounds - max 32000 for gemini-2.5-pro
-  const maxTokens = Math.min(Math.max(estimated, 8000), 32000);
+  // Clamp between reasonable bounds - reduced max since output is smaller
+  const maxTokens = Math.min(Math.max(estimated, 4000), 16000);
   
-  console.log(`[IPA/LTA] Calculated max_tokens: ${maxTokens} for ${questionCount} questions`);
+  console.log(`[IPA/LTA] Calculated max_tokens: ${maxTokens} for ${questionCount} questions (no IPA output)`);
   return maxTokens;
 }
 
@@ -534,8 +516,8 @@ ${questions.map((q: string, i: number) => `${i + 1}. ${q}`).join('\n')}
 
 === ANALYSIS INSTRUCTIONS ===
 
-1. For EACH question, perform IPA (trace cognitive algorithm with PERCEIVE/ENCODE/RETRIEVE/DECIDE/EXECUTE/MONITOR)
-2. For EACH IPA step, perform LTA (identify declarative/procedural/conditional/strategic knowledge)
+1. For EACH question, perform IPA internally (trace cognitive algorithm)
+2. For EACH IPA step, perform LTA (identify knowledge requirements)
 3. NORMALIZE the extracted knowledge into unified skill nodes
 4. BUILD the DAG with necessity-tested prerequisite edges
 
@@ -544,10 +526,11 @@ ${questions.map((q: string, i: number) => `${i + 1}. ${q}`).join('\n')}
 - Expected skill count: ${targetMinSkills} to ${targetMaxSkills} skills for ${questions.length} questions
 - Apply the "WITHOUT X?" test for EVERY edge
 - Ensure 60%+ skill reuse across questions
-- Include "ipaByQuestion" showing your cognitive analysis
 ${isIncremental ? '- REUSE existing skill IDs when IPA/LTA maps to same capability\n- Return ONLY new skills, but include all necessary edges' : ''}
 
-Generate the IPA/LTA knowledge graph JSON.`;
+CRITICAL: Do NOT include "ipaByQuestion" in your output. Output ONLY: globalNodes, edges, questionPaths, courses.
+
+Generate the knowledge graph JSON.`;
 
     const model = "google/gemini-2.5-pro";
     const maxTokens = calculateMaxTokens(questions.length, isIncremental ?? false);
