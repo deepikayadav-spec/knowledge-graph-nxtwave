@@ -188,7 +188,7 @@ export function QuestionInputPanel({ onGraphGenerated, isOpen, onClose }: Questi
             <Textarea
               id="questions"
               placeholder={`[QUESTION]
-Problem:
+Question:
 Write a function to check if a key exists in a nested dictionary.
 
 Input:
@@ -197,16 +197,11 @@ A dictionary (may contain nested dicts) and a target key string.
 Output:
 True if key exists at any nesting level, False otherwise.
 
-Constraints:
-- Max nesting depth: 10 levels
-- Keys are always strings
-
-Examples:
-{"a": {"b": 1}}, "b" → True
-{"x": 1}, "y" → False
+Explanation:
+Use recursion to traverse nested dictionaries, checking each level for the target key.
 
 [QUESTION]
-Problem:
+Question:
 Count word frequencies in a given text.
 ...`}
               value={questionsText}
@@ -215,7 +210,7 @@ Count word frequencies in a given text.
               className="min-h-[200px] font-mono text-sm"
             />
             <p className="text-xs text-muted-foreground">
-              Use [QUESTION] to separate each question. Include Problem, Input, Output, Constraints, and Examples sections.
+              Use [QUESTION] to separate each question. Include Question, Input, Output, and Explanation sections.
               {questionCount > BATCH_SIZE && (
                 <span className="block mt-1 text-primary">
                   {questionCount} questions will be processed in {batchCount} batches.
