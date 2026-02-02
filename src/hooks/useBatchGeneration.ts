@@ -1,10 +1,10 @@
 import { useState, useCallback, useRef } from 'react';
-import { KnowledgeGraph, GraphNode } from '@/types/graph';
+import { KnowledgeGraph, GraphNode, CME, LE, KnowledgePoint } from '@/types/graph';
 import { mergeGraphs } from '@/lib/graph/mergeGraphs';
 import { supabase } from '@/integrations/supabase/client';
 import { toast } from '@/hooks/use-toast';
 
-const BATCH_SIZE = 50;
+const BATCH_SIZE = 15;
 const DELAY_BETWEEN_BATCHES_MS = 2000;
 const LOCAL_STORAGE_KEY = 'kg-generation-checkpoint';
 
@@ -20,18 +20,68 @@ interface Checkpoint {
   questions: string[];
   processedBatches: number;
   accumulatedNodes: { id: string; name: string; tier?: string; description?: string }[];
-  deltaGraphs: KnowledgeGraph[];
+  partialGraph: KnowledgeGraph | null; // Store merged partial graph instead of all deltas
   existingGraph: KnowledgeGraph | null;
   timestamp: number;
 }
 
-function normalizeGraphPayload(data: any): KnowledgeGraph {
+// Default values for missing node fields
+const DEFAULT_CME: CME = {
+  measured: false,
+  highestConceptLevel: 0,
+  levelLabels: ['Recognition', 'Recall (simple)', 'Recall (complex)', 'Direct application'],
+  independence: 'Unknown',
+  retention: 'Unknown',
+  evidenceByLevel: {},
+};
+
+const DEFAULT_LE: LE = {
+  estimated: true,
+  estimatedMinutes: 20,
+};
+
+const DEFAULT_KNOWLEDGE_POINT: KnowledgePoint = {
+  atomicityCheck: 'Auto-generated skill',
+  assessmentExample: '',
+  targetAssessmentLevel: 3,
+  appearsInQuestions: [],
+};
+
+/**
+ * Normalize a node to ensure all required fields exist
+ */
+function normalizeNode(node: Partial<GraphNode> & { id: string; name: string }): GraphNode {
   return {
-    globalNodes: data?.globalNodes || [],
+    ...node,
+    id: node.id,
+    name: node.name,
+    level: node.level ?? 0,
+    description: node.description ?? '',
+    tier: node.tier ?? 'core',
+    knowledgePoint: {
+      ...DEFAULT_KNOWLEDGE_POINT,
+      ...node.knowledgePoint,
+    },
+    cme: {
+      ...DEFAULT_CME,
+      ...node.cme,
+    },
+    le: {
+      ...DEFAULT_LE,
+      ...node.le,
+    },
+    transferableContexts: node.transferableContexts ?? [],
+  };
+}
+
+function normalizeGraphPayload(data: any): KnowledgeGraph {
+  const rawNodes = data?.globalNodes || [];
+  return {
+    globalNodes: rawNodes.map((n: any) => normalizeNode(n)),
     edges: data?.edges || [],
     courses: data?.courses || {},
     questionPaths: data?.questionPaths || {},
-    ipaByQuestion: data?.ipaByQuestion || undefined,
+    ipaByQuestion: undefined, // We no longer include IPA
   };
 }
 
@@ -124,7 +174,9 @@ export function useBatchGeneration(
       })) || [];
 
     const questionsToProcess = checkpoint?.questions || questions;
-    const deltaGraphs: KnowledgeGraph[] = checkpoint?.deltaGraphs || [];
+    
+    // Use partial graph from checkpoint, or start with existing graph
+    let partialGraph: KnowledgeGraph | null = checkpoint?.partialGraph || existingGraph;
     let processedBatches = checkpoint?.processedBatches || 0;
 
     // Create batches
@@ -220,7 +272,14 @@ export function useBatchGeneration(
 
         // Process successful response
         const deltaGraph = normalizeGraphPayload(data);
-        deltaGraphs.push(deltaGraph);
+
+        // Merge immediately for live updates
+        partialGraph = partialGraph 
+          ? mergeGraphs([partialGraph, deltaGraph])
+          : deltaGraph;
+
+        // Update UI immediately so user sees progress
+        onGraphUpdate(partialGraph);
 
         // Accumulate nodes for next batch
         for (const node of deltaGraph.globalNodes) {
@@ -234,12 +293,12 @@ export function useBatchGeneration(
           }
         }
 
-        // Save checkpoint
+        // Save checkpoint with partial graph (not all deltas - saves storage)
         saveCheckpoint({
           questions: questionsToProcess,
           processedBatches: i + 1,
           accumulatedNodes,
-          deltaGraphs,
+          partialGraph,
           existingGraph,
           timestamp: Date.now(),
         });
@@ -250,21 +309,15 @@ export function useBatchGeneration(
         }
       }
 
-      // All batches complete - merge and update
-      const combinedDelta = deltaGraphs.length === 1 
-        ? deltaGraphs[0] 
-        : mergeGraphs(deltaGraphs);
-
-      const newGraph = existingGraph 
-        ? mergeGraphs([existingGraph, combinedDelta])
-        : combinedDelta;
-
-      onGraphUpdate(newGraph);
+      // All batches complete
       clearCheckpoint();
+
+      const finalGraph = partialGraph!;
+      const newSkillCount = finalGraph.globalNodes.length - (existingGraph?.globalNodes.length || 0);
 
       toast({
         title: existingGraph ? "Graph updated!" : "Graph generated!",
-        description: `Created ${combinedDelta.globalNodes.length} skills with ${combinedDelta.edges.length} relationships. Total: ${newGraph.globalNodes.length} skills.`,
+        description: `Added ${newSkillCount} skills. Total: ${finalGraph.globalNodes.length} skills, ${finalGraph.edges.length} relationships.`,
       });
 
     } catch (error) {

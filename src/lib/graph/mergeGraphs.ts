@@ -1,9 +1,53 @@
-import type { GraphEdge, GraphNode, KnowledgeGraph, QuestionPath } from "@/types/graph";
+import type { GraphEdge, GraphNode, KnowledgeGraph, QuestionPath, CME, LE, KnowledgePoint } from "@/types/graph";
+
+// Default values for missing node fields
+const DEFAULT_CME: CME = {
+  measured: false,
+  highestConceptLevel: 0,
+  levelLabels: ['Recognition', 'Recall (simple)', 'Recall (complex)', 'Direct application'],
+  independence: 'Unknown',
+  retention: 'Unknown',
+  evidenceByLevel: {},
+};
+
+const DEFAULT_LE: LE = {
+  estimated: true,
+  estimatedMinutes: 20,
+};
+
+const DEFAULT_KNOWLEDGE_POINT: KnowledgePoint = {
+  atomicityCheck: 'Auto-generated skill',
+  assessmentExample: '',
+  targetAssessmentLevel: 3,
+  appearsInQuestions: [],
+};
 
 /**
- * Semantic similarity heuristic - checks if two skills are likely duplicates
- * Uses word overlap after normalization to detect similar skill names
+ * Normalize a node to ensure all required fields exist
  */
+function normalizeNode(node: Partial<GraphNode> & { id: string; name: string }): GraphNode {
+  return {
+    ...node,
+    id: node.id,
+    name: node.name,
+    level: node.level ?? 0,
+    description: node.description ?? '',
+    tier: node.tier ?? 'core',
+    knowledgePoint: {
+      ...DEFAULT_KNOWLEDGE_POINT,
+      ...node.knowledgePoint,
+    },
+    cme: {
+      ...DEFAULT_CME,
+      ...node.cme,
+    },
+    le: {
+      ...DEFAULT_LE,
+      ...node.le,
+    },
+    transferableContexts: node.transferableContexts ?? [],
+  };
+}
 function areSemanticallyEquivalent(a: GraphNode, b: GraphNode): boolean {
   // Normalize names for comparison
   const normalize = (s: string) => s.toLowerCase()
@@ -109,6 +153,7 @@ function deduplicateSemanticDuplicates(
  * - Dedupe edges by from+to
  * - Merge courses, questionPaths, ipaByQuestion
  * - Apply semantic deduplication as final pass
+ * - Normalize all nodes to ensure required fields exist
  */
 export function mergeGraphs(graphs: KnowledgeGraph[]): KnowledgeGraph {
   const nodeMap = new Map<string, GraphNode>();
@@ -116,20 +161,21 @@ export function mergeGraphs(graphs: KnowledgeGraph[]): KnowledgeGraph {
   const edges: GraphEdge[] = [];
   const courses: KnowledgeGraph["courses"] = {};
   const questionPaths: Record<string, QuestionPath | string[]> = {};
-  const ipaByQuestion: NonNullable<KnowledgeGraph["ipaByQuestion"]> = {};
 
   for (const graph of graphs) {
-    // Merge nodes (dedupe by id)
+    // Merge nodes (dedupe by id) - normalize each node
     for (const node of graph.globalNodes) {
-      if (!nodeMap.has(node.id)) {
-        nodeMap.set(node.id, node);
+      const normalized = normalizeNode(node);
+      
+      if (!nodeMap.has(normalized.id)) {
+        nodeMap.set(normalized.id, normalized);
         continue;
       }
 
       // Merge appearsInQuestions arrays
-      const existing = nodeMap.get(node.id)!;
+      const existing = nodeMap.get(normalized.id)!;
       const existingQuestions = existing.knowledgePoint?.appearsInQuestions || [];
-      const newQuestions = node.knowledgePoint?.appearsInQuestions || [];
+      const newQuestions = normalized.knowledgePoint?.appearsInQuestions || [];
       const merged = [...new Set([...existingQuestions, ...newQuestions])];
       existing.knowledgePoint = { ...existing.knowledgePoint, appearsInQuestions: merged };
     }
@@ -159,11 +205,6 @@ export function mergeGraphs(graphs: KnowledgeGraph[]): KnowledgeGraph {
 
     // Merge question paths
     Object.assign(questionPaths, graph.questionPaths || {});
-
-    // Merge IPA
-    if (graph.ipaByQuestion) {
-      Object.assign(ipaByQuestion, graph.ipaByQuestion);
-    }
   }
 
   // After initial merge, apply semantic deduplication to catch near-duplicates
@@ -178,6 +219,6 @@ export function mergeGraphs(graphs: KnowledgeGraph[]): KnowledgeGraph {
     edges: dedupResult.edges,
     courses,
     questionPaths: dedupResult.questionPaths,
-    ipaByQuestion: Object.keys(ipaByQuestion).length ? ipaByQuestion : undefined,
+    ipaByQuestion: undefined, // We no longer include IPA
   };
 }
