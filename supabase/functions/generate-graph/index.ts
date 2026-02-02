@@ -351,6 +351,84 @@ function isLikelyTruncatedJson(text: string): boolean {
   return openCurly !== closeCurly || openSquare !== closeSquare;
 }
 
+/**
+ * Attempt to repair truncated JSON by completing partial structures
+ */
+function attemptJsonRepair(text: string): any | null {
+  console.log("[IPA/LTA] Attempting JSON repair for truncated response...");
+  
+  // Find the last complete object or array
+  let repaired = text.trim();
+  
+  // Count and balance braces/brackets
+  let openCurly = 0;
+  let openSquare = 0;
+  let lastValidPos = 0;
+  
+  for (let i = 0; i < repaired.length; i++) {
+    const char = repaired[i];
+    if (char === '{') openCurly++;
+    else if (char === '}') {
+      openCurly--;
+      if (openCurly >= 0 && openSquare >= 0) lastValidPos = i + 1;
+    }
+    else if (char === '[') openSquare++;
+    else if (char === ']') {
+      openSquare--;
+      if (openCurly >= 0 && openSquare >= 0) lastValidPos = i + 1;
+    }
+  }
+  
+  // Truncate to last valid position and try to close
+  if (lastValidPos > 0 && lastValidPos < repaired.length) {
+    repaired = repaired.substring(0, lastValidPos);
+  }
+  
+  // Add closing brackets/braces as needed
+  while (openSquare > 0) {
+    repaired += ']';
+    openSquare--;
+  }
+  while (openCurly > 0) {
+    repaired += '}';
+    openCurly--;
+  }
+  
+  // Clean up trailing commas
+  repaired = repaired
+    .replace(/,\s*}/g, '}')
+    .replace(/,\s*]/g, ']');
+  
+  try {
+    const parsed = JSON.parse(repaired);
+    console.log("[IPA/LTA] JSON repair successful!");
+    return parsed;
+  } catch (e) {
+    console.error("[IPA/LTA] JSON repair failed:", (e as Error).message);
+    return null;
+  }
+}
+
+/**
+ * Calculate appropriate max_tokens based on input size
+ */
+function calculateMaxTokens(questionCount: number, isIncremental: boolean): number {
+  // Base tokens per question for IPA analysis (~6 steps) + skills + edges
+  const tokensPerQuestion = 300;
+  // Base overhead for structure
+  const baseOverhead = 2000;
+  // Extra for incremental mode (edge connections)
+  const incrementalOverhead = isIncremental ? 1000 : 0;
+  
+  const estimated = baseOverhead + incrementalOverhead + (questionCount * tokensPerQuestion);
+  
+  // Clamp between reasonable bounds - max 32000 for gemini-2.5-pro
+  const maxTokens = Math.min(Math.max(estimated, 8000), 32000);
+  
+  console.log(`[IPA/LTA] Calculated max_tokens: ${maxTokens} for ${questionCount} questions`);
+  return maxTokens;
+}
+
 function extractJsonFromResponse(response: string): any {
   let cleaned = response
     .replace(/```json\s*/gi, "")
@@ -389,17 +467,23 @@ function extractJsonFromResponse(response: string): any {
 
     try {
       return JSON.parse(cleaned);
-    } catch (finalError) {
+    } catch (secondError) {
       console.error("Failed to parse JSON even after fixes. First 500 chars:", cleaned.substring(0, 500));
       console.error("Last 500 chars:", cleaned.substring(cleaned.length - 500));
 
+      // Try JSON repair for truncated responses
       if (isLikelyTruncatedJson(cleaned)) {
+        const repaired = attemptJsonRepair(cleaned);
+        if (repaired) {
+          console.log("[IPA/LTA] Successfully recovered partial response");
+          return repaired;
+        }
         throw new Error(
           "AI response appears truncated (incomplete JSON). Try reducing the number of questions or splitting them into smaller batches."
         );
       }
 
-      throw new Error(`Failed to parse AI response as JSON: ${(finalError as Error).message}`);
+      throw new Error(`Failed to parse AI response as JSON: ${(secondError as Error).message}`);
     }
   }
 }
@@ -466,6 +550,8 @@ ${isIncremental ? '- REUSE existing skill IDs when IPA/LTA maps to same capabili
 Generate the IPA/LTA knowledge graph JSON.`;
 
     const model = "google/gemini-2.5-pro";
+    const maxTokens = calculateMaxTokens(questions.length, isIncremental ?? false);
+    
     const response = await fetch("https://ai.gateway.lovable.dev/v1/chat/completions", {
       method: "POST",
       headers: {
@@ -478,7 +564,7 @@ Generate the IPA/LTA knowledge graph JSON.`;
           { role: "system", content: fullSystemPrompt },
           { role: "user", content: userPrompt },
         ],
-        max_tokens: 16384,
+        max_tokens: maxTokens,
         temperature: 0.2,
       }),
     });
