@@ -447,7 +447,7 @@ ${isIncremental ? '- REUSE existing skill IDs when IPA/LTA maps to same capabili
 
 Generate the IPA/LTA knowledge graph JSON.`;
 
-    const model = "google/gemini-2.0-flash-001";
+    const model = "openai/o1";
     const response = await fetch("https://openrouter.ai/api/v1/chat/completions", {
       method: "POST",
       headers: {
