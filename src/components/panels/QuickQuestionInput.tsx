@@ -7,7 +7,7 @@ import { Collapsible, CollapsibleContent, CollapsibleTrigger } from '@/component
 import { toast } from '@/hooks/use-toast';
 import { supabase } from '@/integrations/supabase/client';
 import { Badge } from '@/components/ui/badge';
-
+import { extractCoreQuestion } from '@/lib/question/extractCore';
 interface QuickQuestionInputProps {
   onGenerate: (questions: string[]) => void;
   isLoading: boolean;
@@ -101,7 +101,8 @@ export function QuickQuestionInput({ onGenerate, isLoading, isLandingMode = fals
 
         let duplicateCount = 0;
         for (const question of questions) {
-          if (existingTexts.has(question.trim().toLowerCase())) {
+          const coreQuestion = extractCoreQuestion(question);
+          if (existingTexts.has(coreQuestion)) {
             duplicateCount++;
           }
         }
