@@ -3,7 +3,7 @@ import { KnowledgeGraph, GraphNode, CME, LE, KnowledgePoint } from '@/types/grap
 import { mergeGraphs } from '@/lib/graph/mergeGraphs';
 import { supabase } from '@/integrations/supabase/client';
 import { toast } from '@/hooks/use-toast';
-
+import { extractCoreQuestion } from '@/lib/question/extractCore';
 // Adaptive batch sizing based on existing node count
 const BASE_BATCH_SIZE = 5; // Default for fresh graphs
 const MIN_BATCH_SIZE = 3;  // Minimum for very large existing graphs
@@ -200,8 +200,8 @@ export function useBatchGeneration(
       const uniqueQuestions: string[] = [];
 
       for (const question of questions) {
-        const normalizedQuestion = question.trim().toLowerCase();
-        if (existingTexts.has(normalizedQuestion)) {
+        const coreQuestion = extractCoreQuestion(question);
+        if (existingTexts.has(coreQuestion)) {
           duplicates.push(question);
         } else {
           uniqueQuestions.push(question);
