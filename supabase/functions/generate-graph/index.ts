@@ -417,20 +417,24 @@ function attemptJsonRepair(text: string): any | null {
  * Calculate appropriate max_tokens based on input size
  * Generous allocation to prevent truncation
  */
-function calculateMaxTokens(questionCount: number, isIncremental: boolean): number {
-  // Each question needs ~600 tokens for complete output (nodes + edges + paths)
-  const tokensPerQuestion = 600;
-  // Base overhead for JSON structure and shared nodes
-  const baseOverhead = 4000;
-  // Extra for incremental mode (edge connections to existing nodes)
-  const incrementalOverhead = isIncremental ? 2000 : 0;
+function calculateMaxTokens(questionCount: number, isIncremental: boolean, existingNodeCount: number = 0): number {
+  // Each question needs ~1200 tokens for complete output (nodes + edges + paths + descriptions)
+  // Complex multi-line questions with OOP concepts need more space
+  const tokensPerQuestion = 1500;
+  
+  // Base overhead for JSON structure
+  const baseOverhead = 6000;
+  
+  // Extra for incremental mode - scales with existing node count
+  // Each existing node adds context that needs to be processed
+  const incrementalOverhead = isIncremental ? 3000 + (existingNodeCount * 50) : 0;
   
   const estimated = baseOverhead + incrementalOverhead + (questionCount * tokensPerQuestion);
   
-  // Always use at least 12000, cap at 28000
-  const maxTokens = Math.min(Math.max(estimated, 12000), 28000);
+  // Use generous limits - minimum 16000, cap at 40000 (model supports up to 65k)
+  const maxTokens = Math.min(Math.max(estimated, 16000), 40000);
   
-  console.log(`[IPA/LTA] Calculated max_tokens: ${maxTokens} for ${questionCount} questions`);
+  console.log(`[IPA/LTA] Calculated max_tokens: ${maxTokens} for ${questionCount} questions (existing nodes: ${existingNodeCount})`);
   return maxTokens;
 }
 
@@ -556,7 +560,7 @@ CRITICAL: Do NOT include "ipaByQuestion" in your output. Output ONLY: globalNode
 Generate the knowledge graph JSON.`;
 
     const model = "google/gemini-2.5-pro";
-    const maxTokens = calculateMaxTokens(questions.length, isIncremental ?? false);
+    const maxTokens = calculateMaxTokens(questions.length, isIncremental ?? false, existingNodes?.length || 0);
     
     const response = await fetch("https://ai.gateway.lovable.dev/v1/chat/completions", {
       method: "POST",

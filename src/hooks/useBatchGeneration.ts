@@ -4,8 +4,21 @@ import { mergeGraphs } from '@/lib/graph/mergeGraphs';
 import { supabase } from '@/integrations/supabase/client';
 import { toast } from '@/hooks/use-toast';
 
-const BATCH_SIZE = 10;
+// Adaptive batch sizing based on existing node count
+const BASE_BATCH_SIZE = 5; // Default for fresh graphs
+const MIN_BATCH_SIZE = 3;  // Minimum for very large existing graphs
 const DELAY_BETWEEN_BATCHES_MS = 2000;
+
+/**
+ * Calculate optimal batch size based on existing skill count
+ * Smaller batches when there are many existing skills to reduce context size
+ */
+function getAdaptiveBatchSize(existingNodeCount: number): number {
+  if (existingNodeCount > 50) return MIN_BATCH_SIZE;
+  if (existingNodeCount > 20) return 4;
+  if (existingNodeCount > 10) return 5;
+  return BASE_BATCH_SIZE;
+}
 const LOCAL_STORAGE_KEY = 'kg-generation-checkpoint';
 
 export interface BatchProgress {
@@ -179,10 +192,15 @@ export function useBatchGeneration(
     let partialGraph: KnowledgeGraph | null = checkpoint?.partialGraph || existingGraph;
     let processedBatches = checkpoint?.processedBatches || 0;
 
-    // Create batches
+    // Calculate adaptive batch size based on existing nodes
+    const existingNodeCount = accumulatedNodes.length;
+    const batchSize = getAdaptiveBatchSize(existingNodeCount);
+    console.log(`[BatchGeneration] Using batch size ${batchSize} for ${existingNodeCount} existing nodes`);
+
+    // Create batches with adaptive sizing
     const batches: string[][] = [];
-    for (let i = 0; i < questionsToProcess.length; i += BATCH_SIZE) {
-      batches.push(questionsToProcess.slice(i, i + BATCH_SIZE));
+    for (let i = 0; i < questionsToProcess.length; i += batchSize) {
+      batches.push(questionsToProcess.slice(i, i + batchSize));
     }
 
     const totalBatches = batches.length;
