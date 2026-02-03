@@ -60,6 +60,7 @@ export function KnowledgeGraphApp() {
     loadGraph,
     deleteGraph,
     copyGraph,
+    fetchGraphs,
   } = useGraphPersistence();
 
   // Skill grouping hook
@@ -113,7 +114,7 @@ export function KnowledgeGraphApp() {
     progress,
     hasCheckpoint,
     clearCheckpoint,
-  } = useBatchGeneration(graph, handleGraphUpdate);
+  } = useBatchGeneration(graph, handleGraphUpdate, fetchGraphs);
 
   // Clear graph and start fresh
   // Handle class selection from ClassManagerPanel

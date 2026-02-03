@@ -121,7 +121,8 @@ async function sleep(ms: number): Promise<void> {
 
 export function useBatchGeneration(
   existingGraph: KnowledgeGraph | null,
-  onGraphUpdate: (graph: KnowledgeGraph) => void
+  onGraphUpdate: (graph: KnowledgeGraph) => void,
+  onGenerationComplete?: () => void
 ) {
   const [progress, setProgress] = useState<BatchProgress>({
     currentBatch: 0,
@@ -417,6 +418,9 @@ export function useBatchGeneration(
         description: `Added ${newSkillCount} skills. Total: ${finalGraph.globalNodes.length} skills, ${finalGraph.edges.length} relationships.`,
       });
 
+      // Trigger callback to refresh saved graphs list
+      onGenerationComplete?.();
+
     } catch (error) {
       console.error('Batch generation error:', error);
       
@@ -428,7 +432,7 @@ export function useBatchGeneration(
     } finally {
       setProgress(prev => ({ ...prev, isProcessing: false }));
     }
-  }, [existingGraph, onGraphUpdate, getCheckpoint, saveCheckpoint, clearCheckpoint]);
+  }, [existingGraph, onGraphUpdate, onGenerationComplete, getCheckpoint, saveCheckpoint, clearCheckpoint]);
 
   const abort = useCallback(() => {
     abortRef.current = true;
