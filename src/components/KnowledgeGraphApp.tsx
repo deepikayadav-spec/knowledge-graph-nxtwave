@@ -68,10 +68,18 @@ export function KnowledgeGraphApp() {
     autoLoad: !!currentGraphId,
   });
 
+  // Extract skill IDs for demo data generation
+  const skillIds = useMemo(
+    () => graph?.globalNodes.map(n => n.id) || [],
+    [graph?.globalNodes]
+  );
+
   // Student mastery hook - lifted up to share with GraphCanvas and NodeDetailPanel
   const studentMasteryHook = useStudentMastery({
     graphId: currentGraphId || '',
     studentId: selectedStudentId || '',
+    skillIds,
+    useDemoData: true, // Enable demo mode for demonstration
     autoLoad: !!currentGraphId && !!selectedStudentId,
   });
 

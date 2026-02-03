@@ -4,3 +4,4 @@ export * from './calculateWeights';
 export * from './calculateMastery';
 export * from './retentionDecay';
 export * from './persistMastery';
+export * from './demoData';

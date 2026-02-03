@@ -7,7 +7,8 @@ import {
   computeEffectiveMastery, 
   calculateOverallMastery,
   getKPsNeedingReview,
-  createEmptyMastery
+  createEmptyMastery,
+  generateDemoMasteryForGraph,
 } from '@/lib/mastery';
 import type { 
   KPMastery, 
@@ -20,6 +21,8 @@ import type {
 interface UseStudentMasteryOptions {
   graphId: string;
   studentId: string;
+  skillIds?: string[];      // For demo data generation
+  useDemoData?: boolean;    // Force demo data mode
   autoLoad?: boolean;
 }
 
@@ -43,6 +46,8 @@ interface UseStudentMasteryReturn {
 export function useStudentMastery({
   graphId,
   studentId,
+  skillIds = [],
+  useDemoData = false,
   autoLoad = true,
 }: UseStudentMasteryOptions): UseStudentMasteryReturn {
   const [mastery, setMastery] = useState<Map<string, KPMastery>>(new Map());
@@ -50,7 +55,7 @@ export function useStudentMastery({
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
-  // Load mastery data from database
+  // Load mastery data from database (or generate demo data)
   const loadMastery = useCallback(async () => {
     if (!graphId || !studentId) return;
     
@@ -58,6 +63,14 @@ export function useStudentMastery({
     setError(null);
     
     try {
+      // If useDemoData is true and we have skillIds, generate demo data directly
+      if (useDemoData && skillIds.length > 0) {
+        const demoMastery = generateDemoMasteryForGraph(graphId, studentId, skillIds);
+        setMastery(demoMastery);
+        setLoading(false);
+        return;
+      }
+      
       // Load questions for this graph
       const { data: questionsData, error: questionsError } = await supabase
         .from('questions')
@@ -108,14 +121,20 @@ export function useStudentMastery({
       const withDecay = computeEffectiveMastery(records);
       withDecay.forEach(m => masteryMap.set(m.skillId, m));
       
-      setMastery(masteryMap);
+      // If no real data exists and skillIds are provided, fill with demo data
+      if (masteryMap.size === 0 && skillIds.length > 0) {
+        const demoMastery = generateDemoMasteryForGraph(graphId, studentId, skillIds);
+        setMastery(demoMastery);
+      } else {
+        setMastery(masteryMap);
+      }
     } catch (err) {
       console.error('Error loading mastery:', err);
       setError(err instanceof Error ? err.message : 'Failed to load mastery data');
     } finally {
       setLoading(false);
     }
-  }, [graphId, studentId]);
+  }, [graphId, studentId, skillIds, useDemoData]);
 
   // Record a new attempt
   const recordAttempt = useCallback(async (
