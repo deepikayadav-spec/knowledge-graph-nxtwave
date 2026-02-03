@@ -510,10 +510,33 @@ serve(async (req) => {
   }
 
   try {
-    const { questions, existingNodes } = await req.json() as {
-      questions: string[];
-      existingNodes?: ExistingNode[];
-    };
+    // Safely parse request body with error handling
+    let body: { questions?: string[]; existingNodes?: ExistingNode[] };
+    try {
+      const text = await req.text();
+      if (!text || text.trim() === '') {
+        return new Response(
+          JSON.stringify({ error: "Request body is empty" }),
+          { status: 400, headers: { ...corsHeaders, "Content-Type": "application/json" } }
+        );
+      }
+      body = JSON.parse(text);
+    } catch (parseErr) {
+      console.error("[IPA/LTA] Failed to parse request body:", parseErr);
+      return new Response(
+        JSON.stringify({ error: "Invalid JSON in request body" }),
+        { status: 400, headers: { ...corsHeaders, "Content-Type": "application/json" } }
+      );
+    }
+    
+    const { questions, existingNodes } = body;
+    
+    if (!questions || !Array.isArray(questions) || questions.length === 0) {
+      return new Response(
+        JSON.stringify({ error: "No questions provided" }),
+        { status: 400, headers: { ...corsHeaders, "Content-Type": "application/json" } }
+      );
+    }
     
     const LOVABLE_API_KEY = Deno.env.get("LOVABLE_API_KEY");
     
