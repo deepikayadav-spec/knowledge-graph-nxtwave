@@ -1,213 +1,94 @@
 
 
-# Fix Duplicate Question Detection
+# Fix: Question Count Not Updating After Adding Questions
 
-## Problem Analysis
+## Problem Identified
 
-The duplicate detection is failing because of a **format mismatch** between:
+After analyzing the code flow and network requests, I found two related issues:
 
-1. **User Input**: Full multi-line blocks containing `Question:`, `Input:`, `Output:`, and `Explanation:` sections
-2. **Database Storage**: Only the simplified question text (first line after "Question:")
+### Issue 1: React Query Cache Not Invalidated
+When questions are successfully generated and merged, the `savedGraphs` list (which shows `total_questions` in the graph manager) is not refreshed. The autosave eventually updates the database, but the UI displays stale data until the page is manually refreshed.
 
-### Current Flow (Broken)
+### Issue 2: Stats Not Refreshing from Database
+The header shows `{stats?.totalQuestions} questions` which calculates from the in-memory `graph.questionPaths`. While this updates correctly after generation, if the user:
+1. Generates questions
+2. The generation succeeds
+3. Autosave triggers (after 30 seconds)
+4. The saved graphs list doesn't refresh
 
-```text
-User pastes:
-  "Question
-   Write a program...
-   Input
-   A single line of text...
-   Output
-   ..."
+The `savedGraphs` metadata (showing in GraphManagerPanel) will be stale.
 
-parseQuestionsFromText() returns:
-  ["Question\nWrite a program...\nInput\nA single line...\nOutput\n..."]
+## Root Cause
 
-checkDuplicateQuestions() compares:
-  User: "question\nwrite a program...\ninput\na single line...\noutput\n..."
-  DB:   "write a program that reads a single line of input..."
-  
-  Result: NO MATCH (despite being the same question)
-```
+Looking at `useBatchGeneration.ts`:
+- After successful generation, `onGraphUpdate(partialGraph)` is called (line 379)
+- This updates the in-memory `graph` state
+- The `stats` memo recalculates from `graph.questionPaths`
+- **BUT** there is no call to `fetchGraphs()` to refresh the saved graphs list
 
-### Solution
+## Solution
 
-Extract and normalize the core question text from multi-line blocks before comparison:
+### Step 1: Add callback to refresh saved graphs after generation completes
 
-1. **Add extraction function**: Parse out only the main question line from structured blocks
-2. **Update duplicate checking**: Use normalized question text for comparisons
-3. **Update UI preview**: Show comparison using extracted question text
+Modify `useBatchGeneration` to accept an optional `onGenerationComplete` callback that `KnowledgeGraphApp` can use to trigger `fetchGraphs()`.
 
----
-
-## Technical Implementation
-
-### 1. Add Question Text Extraction Function
-
-Create a new helper function in `QuickQuestionInput.tsx`:
+**File: `src/hooks/useBatchGeneration.ts`**
 
 ```typescript
-/**
- * Extract the core question text from a structured block.
- * Handles formats like:
- * "Question\nWrite a program...\nInput\n...\nOutput\n..."
- * Returns just "Write a program..." for comparison
- */
-function extractCoreQuestion(fullBlock: string): string {
-  const lines = fullBlock.split('\n').map(l => l.trim()).filter(l => l);
+export function useBatchGeneration(
+  existingGraph: KnowledgeGraph | null,
+  onGraphUpdate: (graph: KnowledgeGraph) => void,
+  onGenerationComplete?: () => void  // NEW: callback after all batches complete
+) {
+  // ... existing code ...
   
-  // Look for content after "Question:" or "Question"
-  let questionStartIdx = -1;
-  for (let i = 0; i < lines.length; i++) {
-    if (/^Question\s*:?\s*$/i.test(lines[i])) {
-      questionStartIdx = i + 1;
-      break;
-    }
-    // Handle "Question: Write a program..." on same line
-    const match = lines[i].match(/^Question\s*:\s*(.+)/i);
-    if (match) {
-      return match[1].trim().toLowerCase();
-    }
-  }
-  
-  // If we found "Question" header, get the next non-header line
-  if (questionStartIdx >= 0 && questionStartIdx < lines.length) {
-    // Find the question text (before Input/Output/Explanation)
-    for (let i = questionStartIdx; i < lines.length; i++) {
-      const line = lines[i];
-      // Stop at section headers
-      if (/^(Input|Output|Explanation)\s*:?\s*$/i.test(line)) break;
-      if (line.length > 0) return line.toLowerCase();
-    }
-  }
-  
-  // Fallback: return first meaningful line
-  return lines.find(l => 
-    !/^(Question|Input|Output|Explanation)\s*:?\s*$/i.test(l)
-  )?.toLowerCase() || fullBlock.trim().toLowerCase();
+  // After line 418 (toast success):
+  onGenerationComplete?.();  // Trigger refresh of saved graphs
 }
 ```
 
-### 2. Update Duplicate Check in QuickQuestionInput.tsx
+### Step 2: Pass `fetchGraphs` as the completion callback
 
-Modify the duplicate checking logic:
+**File: `src/components/KnowledgeGraphApp.tsx`**
 
 ```typescript
-// Before (broken):
-if (existingTexts.has(question.trim().toLowerCase())) {
-  duplicateCount++;
-}
-
-// After (fixed):
-const coreQuestion = extractCoreQuestion(question);
-if (existingTexts.has(coreQuestion)) {
-  duplicateCount++;
-}
+const {
+  generate,
+  abort,
+  resume,
+  progress,
+  hasCheckpoint,
+  clearCheckpoint,
+} = useBatchGeneration(graph, handleGraphUpdate, fetchGraphs);  // Add fetchGraphs as 3rd argument
 ```
 
-### 3. Update Duplicate Check in useBatchGeneration.ts
+This ensures that after generation completes, the saved graphs list is refreshed from the database, showing the updated `total_questions` count.
 
-Apply the same extraction logic:
+### Step 3: Trigger save after generation (optional enhancement)
+
+Instead of waiting 30 seconds for autosave, trigger an immediate save after generation completes:
 
 ```typescript
-// Add the extraction function
-function extractCoreQuestion(fullBlock: string): string {
-  // Same implementation as above
-}
-
-// Update the comparison
-const checkDuplicateQuestions = useCallback(async (
-  questions: string[],
-  graphId?: string
-): Promise<{ uniqueQuestions: string[]; duplicates: string[] }> => {
-  // ...existing code...
-  
-  // Build set of normalized existing questions
-  const existingTexts = new Set(
-    (existingQuestions || []).map(q => q.question_text.trim().toLowerCase())
-  );
-
-  for (const question of questions) {
-    // Extract and normalize the core question
-    const coreQuestion = extractCoreQuestion(question);
-    if (existingTexts.has(coreQuestion)) {
-      duplicates.push(question);
-    } else {
-      uniqueQuestions.push(question);
-    }
-  }
-  
-  return { uniqueQuestions, duplicates };
-}, []);
+// In useBatchGeneration, after successful completion
+onGraphUpdate(partialGraph);
+onGenerationComplete?.();  // This refreshes the saved graphs list
 ```
-
-### 4. Create Shared Utility
-
-Move the extraction function to a shared location:
-
-**New File: `src/lib/question/extractCore.ts`**
-
-```typescript
-/**
- * Extract the core question text from a structured block.
- * Handles multi-line formatted questions with sections.
- */
-export function extractCoreQuestion(fullBlock: string): string {
-  const lines = fullBlock.split('\n').map(l => l.trim()).filter(l => l);
-  
-  // Look for content after "Question:" or "Question"
-  let questionStartIdx = -1;
-  for (let i = 0; i < lines.length; i++) {
-    if (/^Question\s*:?\s*$/i.test(lines[i])) {
-      questionStartIdx = i + 1;
-      break;
-    }
-    const match = lines[i].match(/^Question\s*:\s*(.+)/i);
-    if (match) {
-      return match[1].trim().toLowerCase();
-    }
-  }
-  
-  if (questionStartIdx >= 0 && questionStartIdx < lines.length) {
-    for (let i = questionStartIdx; i < lines.length; i++) {
-      const line = lines[i];
-      if (/^(Input|Output|Explanation)\s*:?\s*$/i.test(line)) break;
-      if (line.length > 0) return line.toLowerCase();
-    }
-  }
-  
-  return lines.find(l => 
-    !/^(Question|Input|Output|Explanation)\s*:?\s*$/i.test(l)
-  )?.toLowerCase() || fullBlock.trim().toLowerCase();
-}
-```
-
----
 
 ## Files to Modify
 
 | File | Change |
 |------|--------|
-| `src/lib/question/extractCore.ts` | Create new file with shared extraction function |
-| `src/components/panels/QuickQuestionInput.tsx` | Import and use `extractCoreQuestion` in duplicate check |
-| `src/hooks/useBatchGeneration.ts` | Import and use `extractCoreQuestion` in duplicate filtering |
-
----
+| `src/hooks/useBatchGeneration.ts` | Add `onGenerationComplete` callback parameter and call it after successful generation |
+| `src/components/KnowledgeGraphApp.tsx` | Pass `fetchGraphs` as the completion callback |
 
 ## Expected Behavior After Fix
 
-| User Action | Result |
-|-------------|--------|
-| Paste same questions first time | All show as "new" |
-| Paste same questions second time | All show as "duplicate" |
-| Paste mixed new + existing | Shows correct "X new, Y duplicate" |
-| Generate with duplicates | Toast shows skipped questions, only new ones processed |
-
----
+| User Action | Before Fix | After Fix |
+|-------------|------------|-----------|
+| Add questions and generate | Header shows updated count but saved graphs list is stale | Both update immediately |
+| View graph manager dropdown | Shows old question count until page refresh | Shows accurate count after generation |
 
 ## Summary
 
-The fix ensures that when comparing user input against stored questions, we extract just the core question text (e.g., "Write a program that reads a single line...") from the full structured block before comparison. This allows the duplicate detection to work correctly regardless of whether the user pastes:
-- Full structured format with Input/Output/Explanation
-- Just the question text alone
+The fix adds a callback mechanism to refresh the saved graphs metadata from the database after generation completes. This ensures the question count displayed in the UI stays synchronized with the actual database state.
 
