@@ -1,5 +1,6 @@
 import { GraphNode, NodeType, NODE_TYPE_COLORS, LE } from '@/types/graph';
 import { cn } from '@/lib/utils';
+import { Check } from 'lucide-react';
 
 interface GraphNodeComponentProps {
   node: GraphNode;
@@ -11,6 +12,10 @@ interface GraphNodeComponentProps {
   onDoubleClick: () => void;
   onMouseEnter: () => void;
   onMouseLeave: () => void;
+  // Edit mode props
+  isEditMode?: boolean;
+  isSelected?: boolean;
+  subtopicColor?: string | null;
 }
 
 // Default LE value for nodes without LE data
@@ -46,6 +51,9 @@ export function GraphNodeComponent({
   onDoubleClick,
   onMouseEnter,
   onMouseLeave,
+  isEditMode = false,
+  isSelected = false,
+  subtopicColor = null,
 }: GraphNodeComponentProps) {
   const nodeRadius = getNodeRadius(node.le);
   const nodeColor = NODE_TYPE_COLORS[nodeType];
@@ -124,8 +132,34 @@ export function GraphNodeComponent({
       onMouseEnter={onMouseEnter}
       onMouseLeave={onMouseLeave}
     >
+      {/* Subtopic color ring (when node belongs to a subtopic) */}
+      {subtopicColor && !isEditMode && (
+        <circle
+          cx={0}
+          cy={0}
+          r={nodeRadius + 6}
+          fill="none"
+          stroke={subtopicColor}
+          strokeWidth={3}
+          opacity={0.7}
+        />
+      )}
+
+      {/* Edit mode selection highlight */}
+      {isEditMode && isSelected && (
+        <circle
+          cx={0}
+          cy={0}
+          r={nodeRadius + 8}
+          fill="hsl(var(--primary) / 0.15)"
+          stroke="hsl(var(--primary))"
+          strokeWidth={3}
+          className="animate-pulse-soft"
+        />
+      )}
+
       {/* Glow effect for selected */}
-      {state === 'selected' && (
+      {state === 'selected' && !isEditMode && (
         <circle
           cx={0}
           cy={0}
@@ -232,6 +266,20 @@ export function GraphNodeComponent({
           </span>
         </div>
       </foreignObject>
+
+      {/* Edit mode selection checkmark */}
+      {isEditMode && isSelected && (
+        <foreignObject
+          x={nodeRadius - 12}
+          y={-nodeRadius - 4}
+          width={24}
+          height={24}
+        >
+          <div className="flex items-center justify-center w-6 h-6 rounded-full bg-primary text-primary-foreground shadow-md">
+            <Check className="h-4 w-4" />
+          </div>
+        </foreignObject>
+      )}
     </g>
   );
 }

@@ -6,10 +6,12 @@ import { QuickQuestionInput } from './panels/QuickQuestionInput';
 import { GraphManagerPanel } from './panels/GraphManagerPanel';
 import { GenerationProgress } from './panels/GenerationProgress';
 import { AutosaveIndicator } from './AutosaveIndicator';
+import { EditModeHeader } from './graph/EditModeHeader';
 import { KnowledgeGraph, QuestionPath } from '@/types/graph';
 import { useGraphPersistence } from '@/hooks/useGraphPersistence';
 import { useBatchGeneration } from '@/hooks/useBatchGeneration';
 import { useAutosave } from '@/hooks/useAutosave';
+import { useSkillGrouping } from '@/hooks/useSkillGrouping';
 import { Network, Sparkles, Trash2, GraduationCap } from 'lucide-react';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
@@ -42,6 +44,10 @@ export function KnowledgeGraphApp() {
   const [selectedStudentId, setSelectedStudentId] = useState<string | null>(null);
   const [selectedStudentName, setSelectedStudentName] = useState<string | null>(null);
 
+  // Grouping edit mode state
+  const [isGroupingEditMode, setIsGroupingEditMode] = useState(false);
+  const [selectedGroupingNodeIds, setSelectedGroupingNodeIds] = useState<Set<string>>(new Set());
+
   // Graph persistence
   const {
     savedGraphs,
@@ -54,6 +60,12 @@ export function KnowledgeGraphApp() {
     deleteGraph,
     copyGraph,
   } = useGraphPersistence();
+
+  // Skill grouping hook
+  const groupingHook = useSkillGrouping({
+    graphId: currentGraphId || '',
+    autoLoad: !!currentGraphId,
+  });
 
   // Get current graph name for autosave
   const currentGraphName = useMemo(
@@ -101,6 +113,25 @@ export function KnowledgeGraphApp() {
     setSelectedStudentId(studentId);
     setSelectedStudentName(studentName);
   }, []);
+
+  // Toggle grouping edit mode
+  const handleToggleGroupingEditMode = useCallback(() => {
+    setIsGroupingEditMode(prev => {
+      if (prev) {
+        // Exiting edit mode - clear selection
+        setSelectedGroupingNodeIds(new Set());
+      }
+      return !prev;
+    });
+  }, []);
+
+  // Handle creating a subtopic from selected nodes
+  const handleCreateSubtopic = useCallback(async (name: string, color: string) => {
+    if (selectedGroupingNodeIds.size === 0) return;
+    const skillIds = Array.from(selectedGroupingNodeIds);
+    await groupingHook.createSubtopic(name, color, skillIds);
+    setSelectedGroupingNodeIds(new Set());
+  }, [selectedGroupingNodeIds, groupingHook]);
 
   // Clear graph and start fresh
   const handleClearGraph = useCallback(() => {
@@ -407,6 +438,12 @@ export function KnowledgeGraphApp() {
             selectedNodeId={selectedNodeId}
             onNodeSelect={setSelectedNodeId}
             highlightedPath={highlightedPath}
+            isEditMode={isGroupingEditMode}
+            selectedGroupingNodeIds={selectedGroupingNodeIds}
+            onNodeSelectionChange={setSelectedGroupingNodeIds}
+            onCreateSubtopic={handleCreateSubtopic}
+            subtopics={groupingHook.subtopics}
+            skillSubtopicMap={groupingHook.skillSubtopicMap}
           />
 
           {/* Floating question input and progress */}
@@ -467,6 +504,8 @@ export function KnowledgeGraphApp() {
             studentId={selectedStudentId}
             studentName={selectedStudentName}
             skills={graph.globalNodes}
+            isEditMode={isGroupingEditMode}
+            onToggleEditMode={handleToggleGroupingEditMode}
           />
         )}
       </div>

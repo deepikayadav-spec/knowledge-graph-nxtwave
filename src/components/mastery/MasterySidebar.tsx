@@ -1,17 +1,19 @@
 // Mastery sidebar container that manages state and renders mastery panels
 
-import { useState, useEffect, useMemo } from 'react';
-import { supabase } from '@/integrations/supabase/client';
-import { ChevronDown, GraduationCap } from 'lucide-react';
+import { useState, useMemo, useCallback } from 'react';
+import { ChevronDown, GraduationCap, Pencil } from 'lucide-react';
 import { Badge } from '@/components/ui/badge';
+import { Button } from '@/components/ui/button';
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from '@/components/ui/collapsible';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { AttemptLoggerPanel } from './AttemptLoggerPanel';
 import { BulkUploadPanel } from './BulkUploadPanel';
 import { MasteryOverview } from './MasteryOverview';
 import { ClassAnalyticsPanel } from './ClassAnalyticsPanel';
+import { HierarchicalMasteryView } from './HierarchicalMasteryView';
 import { useStudentMastery } from '@/hooks/useStudentMastery';
 import { useClassAnalytics } from '@/hooks/useClassAnalytics';
+import { useSkillGrouping } from '@/hooks/useSkillGrouping';
 import type { GraphNode } from '@/types/graph';
 
 interface MasterySidebarProps {
@@ -21,6 +23,9 @@ interface MasterySidebarProps {
   studentId: string | null;
   studentName: string | null;
   skills: GraphNode[];
+  // Edit mode props
+  isEditMode?: boolean;
+  onToggleEditMode?: () => void;
 }
 
 export function MasterySidebar({
@@ -30,6 +35,8 @@ export function MasterySidebar({
   studentId,
   studentName,
   skills,
+  isEditMode = false,
+  onToggleEditMode,
 }: MasterySidebarProps) {
   const [isOpen, setIsOpen] = useState(true);
   const [activeTab, setActiveTab] = useState<string>('log');
@@ -58,11 +65,37 @@ export function MasterySidebar({
     autoLoad: true,
   });
 
+  // Skill grouping
+  const groupingHook = useSkillGrouping({
+    graphId,
+    autoLoad: true,
+  });
+
   // Refetch on attempt recorded
   const handleAttemptRecorded = () => {
     studentMasteryHook.loadMastery();
     classAnalyticsHook.loadAnalytics();
   };
+
+  // Handle creating a topic
+  const handleCreateTopic = useCallback(async (name: string, color: string) => {
+    await groupingHook.createTopic(name, color);
+  }, [groupingHook]);
+
+  // Handle deleting a topic
+  const handleDeleteTopic = useCallback(async (topicId: string) => {
+    await groupingHook.deleteTopic(topicId);
+  }, [groupingHook]);
+
+  // Handle deleting a subtopic
+  const handleDeleteSubtopic = useCallback(async (subtopicId: string) => {
+    await groupingHook.deleteSubtopic(subtopicId);
+  }, [groupingHook]);
+
+  // Handle assigning subtopic to topic
+  const handleAssignSubtopicToTopic = useCallback(async (subtopicId: string, topicId: string | null) => {
+    await groupingHook.assignSubtopicToTopic(subtopicId, topicId);
+  }, [groupingHook]);
 
   return (
     <div className="w-96 border-l border-border bg-card/50 flex flex-col overflow-hidden">
@@ -92,6 +125,7 @@ export function MasterySidebar({
             <TabsList className="mx-4 mt-4 shrink-0">
               <TabsTrigger value="log" className="flex-1">Log</TabsTrigger>
               <TabsTrigger value="upload" className="flex-1">Upload</TabsTrigger>
+              <TabsTrigger value="groups" className="flex-1">Groups</TabsTrigger>
               <TabsTrigger value="overview" className="flex-1">Overview</TabsTrigger>
             </TabsList>
 
@@ -117,6 +151,38 @@ export function MasterySidebar({
                   graphId={graphId}
                   classId={classId}
                   onUploadComplete={handleAttemptRecorded}
+                />
+              </TabsContent>
+
+              <TabsContent value="groups" className="mt-0 space-y-4">
+                {/* Edit Groups button */}
+                {onToggleEditMode && (
+                  <div className="flex items-center justify-between">
+                    <p className="text-sm text-muted-foreground">
+                      {isEditMode ? 'Select skills on the graph to create subtopics' : 'Organize skills into subtopics and topics'}
+                    </p>
+                    <Button
+                      size="sm"
+                      variant={isEditMode ? 'default' : 'outline'}
+                      onClick={onToggleEditMode}
+                      className="gap-1.5"
+                    >
+                      <Pencil className="h-4 w-4" />
+                      {isEditMode ? 'Done' : 'Edit'}
+                    </Button>
+                  </div>
+                )}
+
+                <HierarchicalMasteryView
+                  topics={groupingHook.topics}
+                  subtopics={groupingHook.subtopics}
+                  skillMastery={studentId ? studentMasteryHook.mastery : new Map()}
+                  skillToSubtopic={groupingHook.skillSubtopicMap}
+                  skillNames={skillNames}
+                  onCreateTopic={handleCreateTopic}
+                  onDeleteTopic={handleDeleteTopic}
+                  onDeleteSubtopic={handleDeleteSubtopic}
+                  onAssignSubtopicToTopic={handleAssignSubtopicToTopic}
                 />
               </TabsContent>
 

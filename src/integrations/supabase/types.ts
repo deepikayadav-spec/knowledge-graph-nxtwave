@@ -181,6 +181,86 @@ export type Database = {
           },
         ]
       }
+      skill_subtopics: {
+        Row: {
+          color: string
+          created_at: string | null
+          display_order: number
+          graph_id: string
+          id: string
+          name: string
+          topic_id: string | null
+        }
+        Insert: {
+          color?: string
+          created_at?: string | null
+          display_order?: number
+          graph_id: string
+          id?: string
+          name: string
+          topic_id?: string | null
+        }
+        Update: {
+          color?: string
+          created_at?: string | null
+          display_order?: number
+          graph_id?: string
+          id?: string
+          name?: string
+          topic_id?: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "skill_subtopics_graph_id_fkey"
+            columns: ["graph_id"]
+            isOneToOne: false
+            referencedRelation: "knowledge_graphs"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "skill_subtopics_topic_id_fkey"
+            columns: ["topic_id"]
+            isOneToOne: false
+            referencedRelation: "skill_topics"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      skill_topics: {
+        Row: {
+          color: string
+          created_at: string | null
+          display_order: number
+          graph_id: string
+          id: string
+          name: string
+        }
+        Insert: {
+          color?: string
+          created_at?: string | null
+          display_order?: number
+          graph_id: string
+          id?: string
+          name: string
+        }
+        Update: {
+          color?: string
+          created_at?: string | null
+          display_order?: number
+          graph_id?: string
+          id?: string
+          name?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "skill_topics_graph_id_fkey"
+            columns: ["graph_id"]
+            isOneToOne: false
+            referencedRelation: "knowledge_graphs"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       skills: {
         Row: {
           created_at: string | null
@@ -190,6 +270,7 @@ export type Database = {
           level: number
           name: string
           skill_id: string
+          subtopic_id: string | null
           tier: string
           transferable_contexts: Json | null
         }
@@ -201,6 +282,7 @@ export type Database = {
           level?: number
           name: string
           skill_id: string
+          subtopic_id?: string | null
           tier: string
           transferable_contexts?: Json | null
         }
@@ -212,6 +294,7 @@ export type Database = {
           level?: number
           name?: string
           skill_id?: string
+          subtopic_id?: string | null
           tier?: string
           transferable_contexts?: Json | null
         }
@@ -221,6 +304,13 @@ export type Database = {
             columns: ["graph_id"]
             isOneToOne: false
             referencedRelation: "knowledge_graphs"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "skills_subtopic_id_fkey"
+            columns: ["subtopic_id"]
+            isOneToOne: false
+            referencedRelation: "skill_subtopics"
             referencedColumns: ["id"]
           },
         ]
