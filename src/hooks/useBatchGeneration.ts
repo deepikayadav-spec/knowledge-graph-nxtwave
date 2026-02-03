@@ -193,8 +193,9 @@ export function useBatchGeneration(
       }
 
       // Create a set of normalized existing question texts for fast lookup
+      // Apply extractCoreQuestion to BOTH user input and database records for consistent comparison
       const existingTexts = new Set(
-        (existingQuestions || []).map(q => q.question_text.trim().toLowerCase())
+        (existingQuestions || []).map(q => extractCoreQuestion(q.question_text))
       );
 
       const duplicates: string[] = [];
