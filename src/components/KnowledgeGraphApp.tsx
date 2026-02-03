@@ -438,7 +438,7 @@ export function KnowledgeGraphApp() {
             selectedNodeId={selectedNodeId}
             onNodeSelect={setSelectedNodeId}
             highlightedPath={highlightedPath}
-            isEditMode={isGroupingEditMode}
+            isEditMode={masteryMode && isGroupingEditMode}
             selectedGroupingNodeIds={selectedGroupingNodeIds}
             onNodeSelectionChange={setSelectedGroupingNodeIds}
             onCreateSubtopic={handleCreateSubtopic}
