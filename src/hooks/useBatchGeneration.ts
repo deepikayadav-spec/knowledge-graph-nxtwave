@@ -167,14 +167,95 @@ export function useBatchGeneration(
     return getCheckpoint() !== null;
   }, [getCheckpoint]);
 
+  /**
+   * Check for duplicate questions in the database
+   * Returns an object with unique questions and duplicates found
+   */
+  const checkDuplicateQuestions = useCallback(async (
+    questions: string[],
+    graphId?: string
+  ): Promise<{ uniqueQuestions: string[]; duplicates: string[] }> => {
+    if (!graphId || questions.length === 0) {
+      return { uniqueQuestions: questions, duplicates: [] };
+    }
+
+    try {
+      // Fetch existing questions for this graph
+      const { data: existingQuestions, error } = await supabase
+        .from('questions')
+        .select('question_text')
+        .eq('graph_id', graphId);
+
+      if (error) {
+        console.warn('Failed to check for duplicates:', error);
+        return { uniqueQuestions: questions, duplicates: [] };
+      }
+
+      // Create a set of normalized existing question texts for fast lookup
+      const existingTexts = new Set(
+        (existingQuestions || []).map(q => q.question_text.trim().toLowerCase())
+      );
+
+      const duplicates: string[] = [];
+      const uniqueQuestions: string[] = [];
+
+      for (const question of questions) {
+        const normalizedQuestion = question.trim().toLowerCase();
+        if (existingTexts.has(normalizedQuestion)) {
+          duplicates.push(question);
+        } else {
+          uniqueQuestions.push(question);
+        }
+      }
+
+      return { uniqueQuestions, duplicates };
+    } catch (err) {
+      console.warn('Error checking duplicates:', err);
+      return { uniqueQuestions: questions, duplicates: [] };
+    }
+  }, []);
+
   const generate = useCallback(async (
     questions: string[],
-    resumeFromCheckpoint = false
+    resumeFromCheckpoint = false,
+    graphId?: string
   ) => {
     abortRef.current = false;
     batchStartTimeRef.current = Date.now();
 
     let checkpoint = resumeFromCheckpoint ? getCheckpoint() : null;
+    
+    // Check for duplicate questions (only for new questions, not checkpoint resume)
+    let questionsToProcess = checkpoint?.questions || questions;
+    
+    if (!resumeFromCheckpoint && graphId) {
+      const { uniqueQuestions, duplicates } = await checkDuplicateQuestions(questions, graphId);
+      
+      if (duplicates.length > 0) {
+        const truncatedList = duplicates.slice(0, 3).map(q => {
+          const preview = q.split('\n')[0].substring(0, 50);
+          return preview.length < q.split('\n')[0].length ? preview + '...' : preview;
+        });
+        const moreText = duplicates.length > 3 ? ` and ${duplicates.length - 3} more` : '';
+        
+        toast({
+          title: `${duplicates.length} duplicate question(s) skipped`,
+          description: `Already exists: ${truncatedList.join(', ')}${moreText}`,
+          variant: "default",
+        });
+      }
+      
+      if (uniqueQuestions.length === 0) {
+        toast({
+          title: "No new questions",
+          description: "All submitted questions already exist in the graph.",
+          variant: "default",
+        });
+        return;
+      }
+      
+      questionsToProcess = uniqueQuestions;
+    }
     
     // Initialize from checkpoint or fresh start
     let accumulatedNodes: { id: string; name: string; tier?: string; description?: string }[] = 
@@ -185,8 +266,6 @@ export function useBatchGeneration(
         tier: n.tier,
         description: n.description
       })) || [];
-
-    const questionsToProcess = checkpoint?.questions || questions;
     
     // Use partial graph from checkpoint, or start with existing graph
     let partialGraph: KnowledgeGraph | null = checkpoint?.partialGraph || existingGraph;
