@@ -194,8 +194,8 @@ export function KnowledgeGraphApp() {
 
   // Handle question generation
   const handleGenerate = useCallback(async (questions: string[]) => {
-    await generate(questions);
-  }, [generate]);
+    await generate(questions, false, currentGraphId || undefined);
+  }, [generate, currentGraphId]);
 
   // Remove a question from the graph
   const handleRemoveQuestion = useCallback((questionText: string) => {
