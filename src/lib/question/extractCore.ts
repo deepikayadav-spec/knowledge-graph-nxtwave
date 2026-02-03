@@ -5,7 +5,9 @@
  * Returns just "write a program..." (lowercased) for comparison
  */
 export function extractCoreQuestion(fullBlock: string): string {
-  const lines = fullBlock.split('\n').map(l => l.trim()).filter(l => l);
+  // Strip HTML tags first (database often stores <br/> tags)
+  const cleaned = fullBlock.replace(/<br\s*\/?>/gi, '\n');
+  const lines = cleaned.split('\n').map(l => l.trim()).filter(l => l);
   
   // Look for content after "Question:" or "Question"
   let questionStartIdx = -1;
@@ -32,7 +34,8 @@ export function extractCoreQuestion(fullBlock: string): string {
     }
   }
   
-  // Fallback: return first meaningful line (not a header)
+  // Fallback for plain text questions (no headers)
+  // Return first non-empty line that isn't a header
   return lines.find(l => 
     !/^(Question|Input|Output|Explanation)\s*:?\s*$/i.test(l)
   )?.toLowerCase() || fullBlock.trim().toLowerCase();

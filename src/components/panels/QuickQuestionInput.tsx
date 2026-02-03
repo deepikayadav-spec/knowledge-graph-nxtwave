@@ -95,8 +95,9 @@ export function QuickQuestionInput({ onGenerate, isLoading, isLandingMode = fals
           return;
         }
 
+        // Apply extractCoreQuestion to BOTH user input and database records for consistent comparison
         const existingTexts = new Set(
-          (existingQuestions || []).map(q => q.question_text.trim().toLowerCase())
+          (existingQuestions || []).map(q => extractCoreQuestion(q.question_text))
         );
 
         let duplicateCount = 0;
