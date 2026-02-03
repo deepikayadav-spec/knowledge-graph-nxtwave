@@ -1,6 +1,12 @@
 import { GraphNode, NodeType, NODE_TYPE_COLORS, LE } from '@/types/graph';
 import { cn } from '@/lib/utils';
-import { Check } from 'lucide-react';
+import { Check, AlertTriangle, Clock } from 'lucide-react';
+import type { RetentionStatus } from '@/types/mastery';
+
+interface MasteryData {
+  effectiveMastery: number;
+  retentionStatus: RetentionStatus;
+}
 
 interface GraphNodeComponentProps {
   node: GraphNode;
@@ -16,6 +22,9 @@ interface GraphNodeComponentProps {
   isEditMode?: boolean;
   isSelected?: boolean;
   subtopicColor?: string | null;
+  // Mastery visualization props
+  masteryData?: MasteryData;
+  showMasteryIndicator?: boolean;
 }
 
 // Default LE value for nodes without LE data
@@ -54,11 +63,43 @@ export function GraphNodeComponent({
   isEditMode = false,
   isSelected = false,
   subtopicColor = null,
+  masteryData,
+  showMasteryIndicator = false,
 }: GraphNodeComponentProps) {
   const nodeRadius = getNodeRadius(node.le);
   const nodeColor = NODE_TYPE_COLORS[nodeType];
 
+  // Calculate mastery-based opacity (30% to 100% based on mastery level)
+  const getMasteryOpacity = () => {
+    if (!showMasteryIndicator || !masteryData) return 1;
+    const mastery = masteryData.effectiveMastery;
+    return 0.3 + mastery * 0.7; // 30% at 0%, 100% at 100%
+  };
+
+  // Get mastery-based border color
+  const getMasteryBorderColor = () => {
+    if (!showMasteryIndicator || !masteryData) return null;
+    const mastery = masteryData.effectiveMastery;
+    if (mastery >= 0.8) return 'hsl(142, 76%, 36%)'; // Green for mastered
+    if (mastery >= 0.6) return null; // Normal
+    if (mastery >= 0.4) return 'hsl(38, 92%, 50%)'; // Orange
+    return 'hsl(0, 84%, 60%)'; // Red for low mastery
+  };
+
+  // Get border style based on retention status
+  const getRetentionBorderStyle = () => {
+    if (!showMasteryIndicator || !masteryData) return undefined;
+    switch (masteryData.retentionStatus) {
+      case 'aging': return '6 3'; // Dashed
+      case 'expired': return '2 2'; // Dotted
+      default: return undefined; // Solid
+    }
+  };
+
   const getOpacity = () => {
+    if (showMasteryIndicator && masteryData) {
+      return getMasteryOpacity();
+    }
     switch (state) {
       case 'dimmed':
         return 0.3;
@@ -83,6 +124,12 @@ export function GraphNodeComponent({
   };
 
   const getStrokeColor = () => {
+    // If in mastery mode and we have mastery-based color, use it
+    const masteryBorderColor = getMasteryBorderColor();
+    if (masteryBorderColor && state === 'default') {
+      return masteryBorderColor;
+    }
+    
     switch (state) {
       case 'selected':
         return 'hsl(45, 93%, 47%)';
@@ -93,7 +140,7 @@ export function GraphNodeComponent({
       case 'connected':
         return 'hsl(199, 89%, 48%)';
       default:
-        return 'hsl(214, 32%, 91%)';
+        return masteryBorderColor || 'hsl(214, 32%, 91%)';
     }
   };
 
@@ -227,8 +274,9 @@ export function GraphNodeComponent({
         cy={0}
         r={nodeRadius}
         fill={`url(#gradient-${node.id})`}
-        stroke={state === 'default' ? nodeColor : getStrokeColor()}
+        stroke={state === 'default' ? (getMasteryBorderColor() || nodeColor) : getStrokeColor()}
         strokeWidth={getStrokeWidth()}
+        strokeDasharray={getRetentionBorderStyle()}
         className="transition-all duration-200"
         filter="drop-shadow(0 2px 4px rgba(0,0,0,0.1))"
       />
@@ -279,6 +327,70 @@ export function GraphNodeComponent({
             <Check className="h-4 w-4" />
           </div>
         </foreignObject>
+      )}
+
+      {/* Mastery percentage badge (when in mastery mode) */}
+      {showMasteryIndicator && masteryData && (
+        <foreignObject
+          x={-24}
+          y={nodeRadius + 36}
+          width={48}
+          height={20}
+        >
+          <div className={cn(
+            "flex items-center justify-center h-5 rounded text-[10px] font-bold shadow-sm",
+            masteryData.effectiveMastery >= 0.8 
+              ? "bg-green-100 text-green-700"
+              : masteryData.effectiveMastery >= 0.6 
+                ? "bg-yellow-100 text-yellow-700"
+                : masteryData.effectiveMastery >= 0.4
+                  ? "bg-orange-100 text-orange-700"
+                  : "bg-red-100 text-red-700"
+          )}>
+            {Math.round(masteryData.effectiveMastery * 100)}%
+          </div>
+        </foreignObject>
+      )}
+
+      {/* Retention warning icons */}
+      {showMasteryIndicator && masteryData && masteryData.retentionStatus === 'aging' && (
+        <foreignObject
+          x={nodeRadius - 8}
+          y={nodeRadius - 8}
+          width={16}
+          height={16}
+        >
+          <div className="flex items-center justify-center w-4 h-4 rounded-full bg-amber-100 shadow">
+            <Clock className="h-2.5 w-2.5 text-amber-600" />
+          </div>
+        </foreignObject>
+      )}
+
+      {showMasteryIndicator && masteryData && masteryData.retentionStatus === 'expired' && (
+        <foreignObject
+          x={nodeRadius - 8}
+          y={nodeRadius - 8}
+          width={16}
+          height={16}
+        >
+          <div className="flex items-center justify-center w-4 h-4 rounded-full bg-red-100 shadow">
+            <AlertTriangle className="h-2.5 w-2.5 text-red-600" />
+          </div>
+        </foreignObject>
+      )}
+
+      {/* Mastered skill glow (90%+ mastery) */}
+      {showMasteryIndicator && masteryData && masteryData.effectiveMastery >= 0.9 && masteryData.retentionStatus === 'current' && (
+        <circle
+          cx={0}
+          cy={0}
+          r={nodeRadius + 6}
+          fill="none"
+          stroke="hsl(142, 76%, 36%)"
+          strokeWidth={2}
+          opacity={0.4}
+          className="animate-pulse-soft"
+        />
       )}
     </g>
   );

@@ -1,9 +1,11 @@
 import { GraphNode, GraphEdge } from '@/types/graph';
-import { X, Brain, Clock, TrendingUp, ArrowRight, Link, Activity, Target, Shield, Timer } from 'lucide-react';
+import { X, Brain, Clock, TrendingUp, ArrowRight, Link, Activity, Target, Shield, Timer, User, BarChart3, RefreshCw } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Separator } from '@/components/ui/separator';
 import { Badge } from '@/components/ui/badge';
 import { Progress } from '@/components/ui/progress';
+import { cn } from '@/lib/utils';
+import type { KPMastery } from '@/types/mastery';
 
 interface NodeDetailPanelProps {
   node: GraphNode;
@@ -11,6 +13,10 @@ interface NodeDetailPanelProps {
   allNodes: GraphNode[];
   onClose: () => void;
   onNodeSelect: (nodeId: string) => void;
+  // Mastery mode props
+  masteryMode?: boolean;
+  studentMastery?: KPMastery;
+  studentName?: string | null;
 }
 
 // Concept level descriptions from the framework
@@ -62,6 +68,9 @@ export function NodeDetailPanel({
   allNodes,
   onClose,
   onNodeSelect,
+  masteryMode = false,
+  studentMastery,
+  studentName,
 }: NodeDetailPanelProps) {
   const prerequisites = edges
     .filter((e) => e.to === node.id)
@@ -139,6 +148,125 @@ export function NodeDetailPanel({
 
         {/* Scrollable Content */}
         <div className="flex-1 overflow-y-auto p-6 space-y-6">
+          {/* Student Mastery Section (when in mastery mode with student selected) */}
+          {masteryMode && studentName && (
+            <section className="space-y-3">
+              <div className="flex items-center gap-2 text-base font-semibold text-foreground">
+                <User className="h-5 w-5 text-accent" />
+                Student Mastery
+                <Badge variant="secondary" className="text-xs ml-auto">
+                  {studentName}
+                </Badge>
+              </div>
+
+              {studentMastery ? (
+                <div className="bg-muted/30 rounded-lg p-4 space-y-4">
+                  {/* Effective Mastery */}
+                  <div className="space-y-2">
+                    <div className="flex items-center justify-between">
+                      <span className="text-sm text-muted-foreground flex items-center gap-1">
+                        <BarChart3 className="h-4 w-4" />
+                        Effective Mastery
+                      </span>
+                      <span className={cn(
+                        "text-lg font-bold",
+                        (studentMastery.effectiveMastery ?? studentMastery.rawMastery) >= 0.8 
+                          ? "text-green-600" 
+                          : (studentMastery.effectiveMastery ?? studentMastery.rawMastery) >= 0.5 
+                            ? "text-amber-600" 
+                            : "text-red-600"
+                      )}>
+                        {Math.round((studentMastery.effectiveMastery ?? studentMastery.rawMastery) * 100)}%
+                      </span>
+                    </div>
+                    <Progress 
+                      value={(studentMastery.effectiveMastery ?? studentMastery.rawMastery) * 100} 
+                      className="h-2.5" 
+                    />
+                  </div>
+
+                  <Separator />
+
+                  {/* Raw Mastery & Retention */}
+                  <div className="grid grid-cols-2 gap-4 text-sm">
+                    <div className="space-y-1">
+                      <span className="text-muted-foreground">Raw Mastery</span>
+                      <div className="font-medium">{Math.round(studentMastery.rawMastery * 100)}%</div>
+                    </div>
+                    <div className="space-y-1">
+                      <span className="text-muted-foreground">Retention Factor</span>
+                      <div className="font-medium">
+                        {studentMastery.retentionFactor != null 
+                          ? `${Math.round(studentMastery.retentionFactor * 100)}%` 
+                          : '--'}
+                      </div>
+                    </div>
+                  </div>
+
+                  <Separator />
+
+                  {/* Retention Status & Stability */}
+                  <div className="grid grid-cols-2 gap-4">
+                    <div className="space-y-2">
+                      <span className="text-sm text-muted-foreground flex items-center gap-1">
+                        <Clock className="h-4 w-4" />
+                        Retention Status
+                      </span>
+                      <Badge className={cn(
+                        "text-sm",
+                        studentMastery.retentionStatus === 'current' 
+                          ? "bg-green-100 text-green-700 hover:bg-green-100"
+                          : studentMastery.retentionStatus === 'aging'
+                            ? "bg-amber-100 text-amber-700 hover:bg-amber-100"
+                            : "bg-red-100 text-red-700 hover:bg-red-100"
+                      )}>
+                        {studentMastery.retentionStatus === 'current' ? 'Current' 
+                          : studentMastery.retentionStatus === 'aging' ? 'Aging' 
+                          : 'Expired'}
+                      </Badge>
+                    </div>
+                    <div className="space-y-2">
+                      <span className="text-sm text-muted-foreground flex items-center gap-1">
+                        <RefreshCw className="h-4 w-4" />
+                        Stability
+                      </span>
+                      <div className="text-base font-medium">{studentMastery.stability.toFixed(2)}</div>
+                    </div>
+                  </div>
+
+                  <Separator />
+
+                  {/* Practice Stats */}
+                  <div className="grid grid-cols-2 gap-4 text-sm">
+                    <div className="flex justify-between">
+                      <span className="text-muted-foreground">Successful Recalls:</span>
+                      <span className="font-medium">{studentMastery.retrievalCount}</span>
+                    </div>
+                    <div className="flex justify-between">
+                      <span className="text-muted-foreground">Points:</span>
+                      <span className="font-medium">
+                        {studentMastery.earnedPoints.toFixed(1)}/{studentMastery.maxPoints.toFixed(1)}
+                      </span>
+                    </div>
+                  </div>
+
+                  {studentMastery.lastReviewedAt && (
+                    <div className="text-xs text-muted-foreground">
+                      Last reviewed: {new Date(studentMastery.lastReviewedAt).toLocaleDateString()}
+                    </div>
+                  )}
+                </div>
+              ) : (
+                <div className="bg-muted/30 rounded-lg p-4 text-center text-muted-foreground">
+                  <p className="text-sm">No attempts recorded yet</p>
+                  <p className="text-xs mt-1">Log attempts to track mastery</p>
+                </div>
+              )}
+            </section>
+          )}
+
+          {masteryMode && studentName && <Separator />}
+
           {/* Learning Effort (LE) Section */}
           <section className="space-y-3">
             <div className="flex items-center gap-2 text-base font-semibold text-foreground">

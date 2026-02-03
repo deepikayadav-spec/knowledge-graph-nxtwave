@@ -12,6 +12,7 @@ import { useGraphPersistence } from '@/hooks/useGraphPersistence';
 import { useBatchGeneration } from '@/hooks/useBatchGeneration';
 import { useAutosave } from '@/hooks/useAutosave';
 import { useSkillGrouping } from '@/hooks/useSkillGrouping';
+import { useStudentMastery } from '@/hooks/useStudentMastery';
 import { Network, Sparkles, Trash2, GraduationCap } from 'lucide-react';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
@@ -65,6 +66,13 @@ export function KnowledgeGraphApp() {
   const groupingHook = useSkillGrouping({
     graphId: currentGraphId || '',
     autoLoad: !!currentGraphId,
+  });
+
+  // Student mastery hook - lifted up to share with GraphCanvas and NodeDetailPanel
+  const studentMasteryHook = useStudentMastery({
+    graphId: currentGraphId || '',
+    studentId: selectedStudentId || '',
+    autoLoad: !!currentGraphId && !!selectedStudentId,
   });
 
   // Get current graph name for autosave
@@ -444,6 +452,8 @@ export function KnowledgeGraphApp() {
             onCreateSubtopic={handleCreateSubtopic}
             subtopics={groupingHook.subtopics}
             skillSubtopicMap={groupingHook.skillSubtopicMap}
+            studentMastery={masteryMode && selectedStudentId ? studentMasteryHook.mastery : undefined}
+            showMasteryVisuals={masteryMode && !!selectedStudentId}
           />
 
           {/* Floating question input and progress */}
@@ -506,6 +516,8 @@ export function KnowledgeGraphApp() {
             skills={graph.globalNodes}
             isEditMode={isGroupingEditMode}
             onToggleEditMode={handleToggleGroupingEditMode}
+            studentMastery={studentMasteryHook.mastery}
+            onMasteryRefresh={studentMasteryHook.loadMastery}
           />
         )}
       </div>
@@ -518,6 +530,9 @@ export function KnowledgeGraphApp() {
           allNodes={graph.globalNodes}
           onClose={() => setSelectedNodeId(null)}
           onNodeSelect={setSelectedNodeId}
+          masteryMode={masteryMode}
+          studentMastery={selectedStudentId ? studentMasteryHook.mastery.get(selectedNode.id) : undefined}
+          studentName={selectedStudentName}
         />
       )}
     </div>

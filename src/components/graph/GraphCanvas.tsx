@@ -6,6 +6,7 @@ import { ZoomControls } from './ZoomControls';
 import { LassoSelector } from './LassoSelector';
 import { GroupingToolbar } from './GroupingToolbar';
 import type { SkillSubtopic } from '@/types/grouping';
+import type { KPMastery } from '@/types/mastery';
 
 interface GraphCanvasProps {
   nodes: GraphNode[];
@@ -21,6 +22,9 @@ interface GraphCanvasProps {
   onCreateSubtopic?: (name: string, color: string) => void;
   subtopics?: SkillSubtopic[];
   skillSubtopicMap?: Map<string, string>;
+  // Mastery visualization props
+  studentMastery?: Map<string, KPMastery>;
+  showMasteryVisuals?: boolean;
 }
 
 interface NodePosition {
@@ -52,6 +56,8 @@ export function GraphCanvas({
   onCreateSubtopic,
   subtopics = [],
   skillSubtopicMap = new Map(),
+  studentMastery,
+  showMasteryVisuals = false,
 }: GraphCanvasProps) {
   const [hoveredNodeId, setHoveredNodeId] = useState<string | null>(null);
   const [transform, setTransform] = useState<Transform>({ x: 0, y: 0, scale: 1 });
@@ -468,6 +474,13 @@ export function GraphCanvas({
               const pos = nodePositions[node.id];
               if (!pos) return null;
 
+              // Get mastery data for this node if in mastery mode
+              const nodeMastery = showMasteryVisuals && studentMastery ? studentMastery.get(node.id) : undefined;
+              const masteryData = nodeMastery ? {
+                effectiveMastery: nodeMastery.effectiveMastery ?? nodeMastery.rawMastery ?? 0,
+                retentionStatus: nodeMastery.retentionStatus ?? 'current' as const,
+              } : undefined;
+
               return (
                 <GraphNodeComponent
                   key={node.id}
@@ -483,6 +496,8 @@ export function GraphCanvas({
                   isEditMode={isEditMode}
                   isSelected={selectedGroupingNodeIds.has(node.id)}
                   subtopicColor={getSubtopicColor(node.id)}
+                  masteryData={masteryData}
+                  showMasteryIndicator={showMasteryVisuals}
                 />
               );
             })}
