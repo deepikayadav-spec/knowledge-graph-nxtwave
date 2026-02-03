@@ -3,6 +3,9 @@ import { GraphNode, GraphEdge, NodeType } from '@/types/graph';
 import { GraphNodeComponent } from './GraphNode';
 import { GraphEdgeComponent } from './GraphEdge';
 import { ZoomControls } from './ZoomControls';
+import { LassoSelector } from './LassoSelector';
+import { GroupingToolbar } from './GroupingToolbar';
+import type { SkillSubtopic } from '@/types/grouping';
 
 interface GraphCanvasProps {
   nodes: GraphNode[];
@@ -11,6 +14,13 @@ interface GraphCanvasProps {
   selectedNodeId: string | null;
   onNodeSelect: (nodeId: string | null) => void;
   highlightedPath?: string[];
+  // Edit mode props
+  isEditMode?: boolean;
+  selectedGroupingNodeIds?: Set<string>;
+  onNodeSelectionChange?: (nodeIds: Set<string>) => void;
+  onCreateSubtopic?: (name: string, color: string) => void;
+  subtopics?: SkillSubtopic[];
+  skillSubtopicMap?: Map<string, string>;
 }
 
 interface NodePosition {
@@ -36,11 +46,20 @@ export function GraphCanvas({
   selectedNodeId,
   onNodeSelect,
   highlightedPath,
+  isEditMode = false,
+  selectedGroupingNodeIds = new Set(),
+  onNodeSelectionChange,
+  onCreateSubtopic,
+  subtopics = [],
+  skillSubtopicMap = new Map(),
 }: GraphCanvasProps) {
   const [hoveredNodeId, setHoveredNodeId] = useState<string | null>(null);
   const [transform, setTransform] = useState<Transform>({ x: 0, y: 0, scale: 1 });
   const [isDragging, setIsDragging] = useState(false);
   const [dragStart, setDragStart] = useState({ x: 0, y: 0 });
+  const [isShiftPressed, setIsShiftPressed] = useState(false);
+  const [lassoStart, setLassoStart] = useState<{ x: number; y: number } | null>(null);
+  const [lassoEnd, setLassoEnd] = useState<{ x: number; y: number } | null>(null);
   const containerRef = useRef<HTMLDivElement>(null);
   const svgRef = useRef<SVGSVGElement>(null);
 
@@ -246,20 +265,56 @@ export function GraphCanvas({
     }));
   }, []);
 
-  // Pan handlers - allow dragging from anywhere except nodes
+  // Track shift key for multi-select
+  useEffect(() => {
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if (e.key === 'Shift') setIsShiftPressed(true);
+    };
+    const handleKeyUp = (e: KeyboardEvent) => {
+      if (e.key === 'Shift') setIsShiftPressed(false);
+    };
+    window.addEventListener('keydown', handleKeyDown);
+    window.addEventListener('keyup', handleKeyUp);
+    return () => {
+      window.removeEventListener('keydown', handleKeyDown);
+      window.removeEventListener('keyup', handleKeyUp);
+    };
+  }, []);
+
+  // Convert screen coordinates to SVG coordinates
+  const screenToSvg = useCallback((clientX: number, clientY: number) => {
+    if (!containerRef.current) return { x: 0, y: 0 };
+    const rect = containerRef.current.getBoundingClientRect();
+    const x = (clientX - rect.left - transform.x) / transform.scale;
+    const y = (clientY - rect.top - transform.y) / transform.scale;
+    return { x, y };
+  }, [transform]);
+
+  // Pan handlers - allow dragging from anywhere except nodes (or lasso in edit mode)
   const handleMouseDown = useCallback((e: React.MouseEvent) => {
     const target = e.target as SVGElement;
     const isNode = target.closest('[data-node-id]');
     
     if (e.button === 0 && !isNode) {
-      setIsDragging(true);
-      setDragStart({ x: e.clientX - transform.x, y: e.clientY - transform.y });
+      if (isEditMode) {
+        // Start lasso selection in edit mode
+        const svgCoords = screenToSvg(e.clientX, e.clientY);
+        setLassoStart(svgCoords);
+        setLassoEnd(svgCoords);
+      } else {
+        setIsDragging(true);
+        setDragStart({ x: e.clientX - transform.x, y: e.clientY - transform.y });
+      }
     }
-  }, [transform]);
+  }, [transform, isEditMode, screenToSvg]);
 
   const handleMouseMove = useCallback(
     (e: React.MouseEvent) => {
-      if (isDragging) {
+      if (lassoStart && isEditMode) {
+        // Update lasso end
+        const svgCoords = screenToSvg(e.clientX, e.clientY);
+        setLassoEnd(svgCoords);
+      } else if (isDragging) {
         setTransform((prev) => ({
           ...prev,
           x: e.clientX - dragStart.x,
@@ -267,12 +322,34 @@ export function GraphCanvas({
         }));
       }
     },
-    [isDragging, dragStart]
+    [isDragging, dragStart, lassoStart, isEditMode, screenToSvg]
   );
 
   const handleMouseUp = useCallback(() => {
+    if (lassoStart && lassoEnd && isEditMode) {
+      // Complete lasso selection
+      const minX = Math.min(lassoStart.x, lassoEnd.x);
+      const maxX = Math.max(lassoStart.x, lassoEnd.x);
+      const minY = Math.min(lassoStart.y, lassoEnd.y);
+      const maxY = Math.max(lassoStart.y, lassoEnd.y);
+
+      // Find nodes within lasso
+      const nodesInLasso = nodes.filter(node => {
+        const pos = nodePositions[node.id];
+        return pos && pos.x >= minX && pos.x <= maxX && pos.y >= minY && pos.y <= maxY;
+      });
+
+      if (onNodeSelectionChange && nodesInLasso.length > 0) {
+        const newSelection = new Set(isShiftPressed ? selectedGroupingNodeIds : []);
+        nodesInLasso.forEach(n => newSelection.add(n.id));
+        onNodeSelectionChange(newSelection);
+      }
+
+      setLassoStart(null);
+      setLassoEnd(null);
+    }
     setIsDragging(false);
-  }, []);
+  }, [lassoStart, lassoEnd, isEditMode, nodes, nodePositions, isShiftPressed, selectedGroupingNodeIds, onNodeSelectionChange]);
 
   // Attach wheel event listener
   useEffect(() => {
@@ -283,11 +360,49 @@ export function GraphCanvas({
     }
   }, [handleWheel]);
 
-  // Removed focusLevel effect - levels are no longer displayed
+  // Handle node click in edit mode
+  const handleNodeClick = useCallback((nodeId: string) => {
+    if (isEditMode && onNodeSelectionChange) {
+      const newSelection = new Set(isShiftPressed ? selectedGroupingNodeIds : []);
+      if (selectedGroupingNodeIds.has(nodeId) && isShiftPressed) {
+        newSelection.delete(nodeId);
+      } else {
+        newSelection.add(nodeId);
+      }
+      onNodeSelectionChange(newSelection);
+    } else {
+      onNodeSelect(nodeId);
+    }
+  }, [isEditMode, isShiftPressed, selectedGroupingNodeIds, onNodeSelectionChange, onNodeSelect]);
+
+  // Clear grouping selection
+  const handleClearSelection = useCallback(() => {
+    onNodeSelectionChange?.(new Set());
+  }, [onNodeSelectionChange]);
+
+  // Get subtopic color for a node
+  const getSubtopicColor = useCallback((nodeId: string): string | null => {
+    const subtopicId = skillSubtopicMap.get(nodeId);
+    if (!subtopicId) return null;
+    const subtopic = subtopics.find(st => st.id === subtopicId);
+    return subtopic?.color || null;
+  }, [skillSubtopicMap, subtopics]);
+
+  // Calculate lasso rect for rendering
+  const lassoRect = useMemo(() => {
+    if (!lassoStart || !lassoEnd) return null;
+    return {
+      x: Math.min(lassoStart.x, lassoEnd.x),
+      y: Math.min(lassoStart.y, lassoEnd.y),
+      width: Math.abs(lassoEnd.x - lassoStart.x),
+      height: Math.abs(lassoEnd.y - lassoStart.y),
+    };
+  }, [lassoStart, lassoEnd]);
 
   // Double-click to focus on node
   const handleNodeDoubleClick = useCallback(
     (nodeId: string) => {
+      if (isEditMode) return; // Disable in edit mode
       const pos = nodePositions[nodeId];
       if (pos && containerRef.current) {
         const containerRect = containerRef.current.getBoundingClientRect();
@@ -300,7 +415,7 @@ export function GraphCanvas({
         onNodeSelect(nodeId);
       }
     },
-    [nodePositions, onNodeSelect]
+    [nodePositions, onNodeSelect, isEditMode]
   );
 
   return (
@@ -314,7 +429,7 @@ export function GraphCanvas({
       <svg
         ref={svgRef}
         className="w-full h-full"
-        style={{ cursor: isDragging ? 'grabbing' : 'grab' }}
+        style={{ cursor: isEditMode ? (lassoStart ? 'crosshair' : 'default') : (isDragging ? 'grabbing' : 'grab') }}
         onMouseDown={handleMouseDown}
         onMouseMove={handleMouseMove}
       >
@@ -361,14 +476,22 @@ export function GraphCanvas({
                   y={pos.y}
                   state={getNodeState(node.id)}
                   nodeType={nodeTypes[node.id] || 'intermediate'}
-                  onClick={() => onNodeSelect(node.id)}
+                  onClick={() => handleNodeClick(node.id)}
                   onDoubleClick={() => handleNodeDoubleClick(node.id)}
                   onMouseEnter={() => setHoveredNodeId(node.id)}
                   onMouseLeave={() => setHoveredNodeId(null)}
+                  isEditMode={isEditMode}
+                  isSelected={selectedGroupingNodeIds.has(node.id)}
+                  subtopicColor={getSubtopicColor(node.id)}
                 />
               );
             })}
           </g>
+
+          {/* Lasso selection rectangle */}
+          {isEditMode && lassoRect && (
+            <LassoSelector rect={lassoRect} />
+          )}
         </g>
       </svg>
 
@@ -382,6 +505,15 @@ export function GraphCanvas({
           onReset={handleReset}
         />
       </div>
+
+      {/* Grouping Toolbar (edit mode) */}
+      {isEditMode && onCreateSubtopic && (
+        <GroupingToolbar
+          selectedCount={selectedGroupingNodeIds.size}
+          onCreateSubtopic={onCreateSubtopic}
+          onClearSelection={handleClearSelection}
+        />
+      )}
     </div>
   );
 }
