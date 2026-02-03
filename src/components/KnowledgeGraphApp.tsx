@@ -342,6 +342,7 @@ export function KnowledgeGraphApp() {
                 onGenerate={handleGenerate}
                 isLoading={isGenerating}
                 isLandingMode={true}
+                graphId={currentGraphId}
               />
             )}
           </div>
@@ -481,6 +482,7 @@ export function KnowledgeGraphApp() {
                 onGenerate={handleGenerate}
                 isLoading={isGenerating}
                 isLandingMode={false}
+                graphId={currentGraphId}
               />
             )}
           </div>

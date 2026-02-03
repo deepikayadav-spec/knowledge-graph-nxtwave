@@ -1,15 +1,18 @@
-import { useState, useRef, ChangeEvent } from 'react';
-import { Send, Loader2, Plus, ChevronDown, Upload } from 'lucide-react';
+import { useState, useRef, useEffect, ChangeEvent } from 'react';
+import { Send, Loader2, Plus, ChevronDown, Upload, Check, AlertCircle } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Textarea } from '@/components/ui/textarea';
 import { cn } from '@/lib/utils';
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from '@/components/ui/collapsible';
 import { toast } from '@/hooks/use-toast';
+import { supabase } from '@/integrations/supabase/client';
+import { Badge } from '@/components/ui/badge';
 
 interface QuickQuestionInputProps {
   onGenerate: (questions: string[]) => void;
   isLoading: boolean;
   isLandingMode?: boolean;
+  graphId?: string | null;
 }
 
 function parseQuestionsFromText(text: string): string[] {
@@ -50,11 +53,75 @@ function parseCSV(text: string): string[] {
   return questions;
 }
 
-export function QuickQuestionInput({ onGenerate, isLoading, isLandingMode = false }: QuickQuestionInputProps) {
+interface DuplicateCheck {
+  newCount: number;
+  duplicateCount: number;
+  isChecking: boolean;
+}
+
+export function QuickQuestionInput({ onGenerate, isLoading, isLandingMode = false, graphId }: QuickQuestionInputProps) {
   const [questionsText, setQuestionsText] = useState('');
   const [isOpen, setIsOpen] = useState(false);
+  const [duplicateCheck, setDuplicateCheck] = useState<DuplicateCheck>({ newCount: 0, duplicateCount: 0, isChecking: false });
   const containerRef = useRef<HTMLDivElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
+  const checkTimeoutRef = useRef<NodeJS.Timeout | null>(null);
+
+  // Debounced duplicate checking
+  useEffect(() => {
+    if (checkTimeoutRef.current) {
+      clearTimeout(checkTimeoutRef.current);
+    }
+
+    const questions = parseQuestionsFromText(questionsText);
+    
+    if (questions.length === 0 || !graphId) {
+      setDuplicateCheck({ newCount: 0, duplicateCount: 0, isChecking: false });
+      return;
+    }
+
+    setDuplicateCheck(prev => ({ ...prev, isChecking: true }));
+
+    checkTimeoutRef.current = setTimeout(async () => {
+      try {
+        const { data: existingQuestions, error } = await supabase
+          .from('questions')
+          .select('question_text')
+          .eq('graph_id', graphId);
+
+        if (error) {
+          console.warn('Failed to check for duplicates:', error);
+          setDuplicateCheck({ newCount: questions.length, duplicateCount: 0, isChecking: false });
+          return;
+        }
+
+        const existingTexts = new Set(
+          (existingQuestions || []).map(q => q.question_text.trim().toLowerCase())
+        );
+
+        let duplicateCount = 0;
+        for (const question of questions) {
+          if (existingTexts.has(question.trim().toLowerCase())) {
+            duplicateCount++;
+          }
+        }
+
+        setDuplicateCheck({
+          newCount: questions.length - duplicateCount,
+          duplicateCount,
+          isChecking: false,
+        });
+      } catch {
+        setDuplicateCheck({ newCount: questions.length, duplicateCount: 0, isChecking: false });
+      }
+    }, 500); // 500ms debounce
+
+    return () => {
+      if (checkTimeoutRef.current) {
+        clearTimeout(checkTimeoutRef.current);
+      }
+    };
+  }, [questionsText, graphId]);
 
   const handleSubmit = () => {
     if (!questionsText.trim()) return;
@@ -171,9 +238,31 @@ Split by spaces, iterate and count using a dictionary.`}
           
           <div className="flex items-center justify-between">
             <div className="flex items-center gap-3">
-              <span className="text-sm text-muted-foreground">
-                {questionCount} question(s)
-              </span>
+              <div className="flex items-center gap-2">
+                {duplicateCheck.isChecking ? (
+                  <span className="text-sm text-muted-foreground flex items-center gap-1">
+                    <Loader2 className="h-3 w-3 animate-spin" />
+                    Checking...
+                  </span>
+                ) : questionCount > 0 && graphId ? (
+                  <>
+                    <Badge variant="default" className="gap-1">
+                      <Check className="h-3 w-3" />
+                      {duplicateCheck.newCount} new
+                    </Badge>
+                    {duplicateCheck.duplicateCount > 0 && (
+                      <Badge variant="secondary" className="gap-1">
+                        <AlertCircle className="h-3 w-3" />
+                        {duplicateCheck.duplicateCount} duplicate
+                      </Badge>
+                    )}
+                  </>
+                ) : (
+                  <span className="text-sm text-muted-foreground">
+                    {questionCount} question(s)
+                  </span>
+                )}
+              </div>
               <Button
                 variant="outline"
                 size="sm"
@@ -249,9 +338,30 @@ Split by spaces, iterate and count using a dictionary.`}
             
             <div className="flex items-center justify-between">
               <div className="flex items-center gap-2">
-                <span className="text-xs text-muted-foreground">
-                  {questionCount} question(s) · ⌘+Enter
-                </span>
+                {duplicateCheck.isChecking ? (
+                  <span className="text-xs text-muted-foreground flex items-center gap-1">
+                    <Loader2 className="h-3 w-3 animate-spin" />
+                    Checking...
+                  </span>
+                ) : questionCount > 0 && graphId ? (
+                  <>
+                    <Badge variant="default" className="text-xs h-5 gap-1">
+                      <Check className="h-2.5 w-2.5" />
+                      {duplicateCheck.newCount} new
+                    </Badge>
+                    {duplicateCheck.duplicateCount > 0 && (
+                      <Badge variant="secondary" className="text-xs h-5 gap-1">
+                        <AlertCircle className="h-2.5 w-2.5" />
+                        {duplicateCheck.duplicateCount} dup
+                      </Badge>
+                    )}
+                  </>
+                ) : (
+                  <span className="text-xs text-muted-foreground">
+                    {questionCount} question(s)
+                  </span>
+                )}
+                <span className="text-xs text-muted-foreground">⌘+Enter</span>
                 <Button
                   variant="ghost"
                   size="sm"
