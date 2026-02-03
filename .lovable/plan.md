@@ -1,409 +1,235 @@
 
-# Visual Node Grouping System - Implementation Plan
+# Per-Student Mastery Display System
 
 ## Overview
 
-This plan implements a teacher-friendly visual grouping system where users can select multiple Knowledge Points (KPs) on the graph canvas to create subtopics, then group subtopics into topics. The hierarchy enables meaningful mastery aggregation at multiple levels.
+This plan implements student-specific mastery visualization throughout the application. When a teacher selects a student from the dropdown, all mastery displays (graph nodes, sidebar hierarchy, and node details) will reflect that specific student's mastery data.
 
 ---
 
-## User Experience Flow
+## Current State Analysis
+
+The system already tracks per-student mastery in the database (`student_kp_mastery` table with unique constraint on `graph_id, student_id, skill_id`). However, the UI doesn't fully leverage this:
+
+- The **HierarchicalMasteryView** receives `skillMastery` from `useStudentMastery` but only when a student is selected
+- The **GraphNode** component doesn't visualize mastery levels
+- The **NodeDetailPanel** doesn't show student-specific mastery when viewing a skill
+
+---
+
+## User Flow
 
 ```text
-Step 1: Enter Edit Mode
-  User clicks "Edit Groups" toggle in the graph header
-  
-Step 2: Multi-Select KPs  
-  Shift+Click on individual nodes to select multiple
-  OR drag a lasso rectangle to select a region
-  Selected nodes show checkmark overlay
-  
-Step 3: Create Subtopic
-  Click "Create Subtopic" button in floating toolbar
-  Enter subtopic name in dialog
-  Selected KPs are assigned to this subtopic
-  Nodes visually show colored border matching subtopic
-  
-Step 4: Create Topic (optional)
-  In sidebar, select multiple subtopics
-  Click "Group into Topic"
-  Enter topic name
-  Topic becomes the highest-level aggregation unit
-  
-Step 5: Exit Edit Mode
-  Click "Done Editing"
-  Groupings are persisted to database
+1. Teacher enables Mastery Mode
+2. Teacher selects a Class from dropdown
+3. Teacher selects a Student from dropdown
+   → Graph nodes update to show that student's mastery (via opacity/color)
+   → Sidebar hierarchy shows that student's aggregated mastery
+4. Teacher clicks on a Knowledge Point node
+   → Detail panel shows that student's mastery for that specific KP
+   → Includes: raw mastery, retention factor, effective mastery, attempt count
+5. Sidebar "Groups" tab shows rolled-up mastery:
+   → Each KP shows student's effective mastery percentage
+   → Each Subtopic shows weighted average of student's KP masteries
+   → Each Topic shows weighted average of student's subtopic masteries
 ```
 
 ---
 
-## Database Schema Changes
+## Implementation Changes
 
-### New Table: `skill_subtopics`
+### 1. Pass Student Mastery Data to Graph Canvas
 
-| Column | Type | Description |
-|--------|------|-------------|
-| id | uuid | Primary key |
-| graph_id | uuid | FK to knowledge_graphs |
-| name | text | Subtopic display name |
-| color | text | Hex color for visual grouping |
-| topic_id | uuid (nullable) | FK to skill_topics |
-| display_order | integer | For custom ordering |
-| created_at | timestamp | Auto-generated |
+**File: `src/components/KnowledgeGraphApp.tsx`**
 
-### New Table: `skill_topics`
+Currently the `useStudentMastery` hook is used inside `MasterySidebar`. We need to lift this state up so it can be passed to `GraphCanvas` for visual display.
 
-| Column | Type | Description |
-|--------|------|-------------|
-| id | uuid | Primary key |
-| graph_id | uuid | FK to knowledge_graphs |
-| name | text | Topic display name |
-| color | text | Hex color for visual grouping |
-| display_order | integer | For custom ordering |
-| created_at | timestamp | Auto-generated |
-
-### Modify Table: `skills`
-
-Add new column:
-| Column | Type | Description |
-|--------|------|-------------|
-| subtopic_id | uuid (nullable) | FK to skill_subtopics |
+Changes:
+- Move `useStudentMastery` hook call to `KnowledgeGraphApp`
+- Pass the mastery Map to both `GraphCanvas` and `MasterySidebar`
+- Add `studentMastery` prop to `GraphCanvas`
 
 ---
 
-## Architecture
+### 2. Visualize Mastery on Graph Nodes
+
+**File: `src/components/graph/GraphNode.tsx`**
+
+Add visual mastery indicators when in mastery mode:
+
+- **Node fill opacity**: Scale with effective mastery (0% = 30% opacity, 100% = 100% opacity)
+- **Border color**: 
+  - Green border for mastered skills (80%+ effective mastery)
+  - Orange border for aging skills
+  - Red dashed border for expired skills
+- **Mastery percentage badge**: Small badge below the node name showing percentage
+
+New props:
+```typescript
+masteryData?: {
+  effectiveMastery: number;
+  retentionStatus: 'current' | 'aging' | 'expired';
+};
+showMasteryIndicator?: boolean;
+```
+
+---
+
+### 3. Update GraphCanvas to Apply Mastery Visuals
+
+**File: `src/components/graph/GraphCanvas.tsx`**
+
+Changes:
+- Accept new prop: `studentMastery: Map<string, KPMastery>`
+- Accept new prop: `showMasteryVisuals: boolean` (true when student is selected in mastery mode)
+- When rendering each node, look up the student's mastery for that skill ID
+- Pass mastery data to `GraphNodeComponent`
+
+---
+
+### 4. Show Student Mastery in Node Detail Panel
+
+**File: `src/components/panels/NodeDetailPanel.tsx`**
+
+When mastery mode is active and a student is selected:
+- Add a "Student Mastery" section to the panel
+- Display:
+  - Student name
+  - Effective Mastery percentage with progress bar
+  - Raw Mastery (before retention decay)
+  - Retention Factor percentage
+  - Retention Status badge (Current/Aging/Expired)
+  - Last reviewed date
+  - Successful retrieval count
+  - Stability score
+
+New props:
+```typescript
+masteryMode?: boolean;
+studentMastery?: KPMastery;
+studentName?: string;
+```
+
+---
+
+### 5. Ensure Hierarchy View Uses Student-Specific Data
+
+**File: `src/components/mastery/HierarchicalMasteryView.tsx`**
+
+The component already receives `skillMastery` as a prop. Verify that:
+- When a student is selected, the mastery Map contains only that student's data
+- Aggregation functions correctly calculate weighted averages per-student
+- Clear indication when showing "Class Average" vs individual student
+
+---
+
+### 6. Update MasterySidebar to Receive External Mastery
+
+**File: `src/components/mastery/MasterySidebar.tsx`**
+
+Changes:
+- Accept `studentMastery` as a prop instead of calling `useStudentMastery` internally
+- This allows the parent component to share the same mastery data with the graph
+
+---
+
+## Technical Details
+
+### Data Flow Architecture
 
 ```text
-+------------------------------------------+
-|              GraphCanvas                  |
-|  +------------------------------------+  |
-|  |  Edit Mode State                   |  |
-|  |  - isEditMode: boolean             |  |
-|  |  - selectedNodeIds: Set<string>    |  |
-|  |  - lassoRect: {x,y,w,h} | null     |  |
-|  +------------------------------------+  |
-|                                          |
-|  +------------------------------------+  |
-|  |  Visual Overlays                   |  |
-|  |  - Subtopic border colors          |  |
-|  |  - Selection checkmarks            |  |
-|  |  - Lasso selection rectangle       |  |
-|  +------------------------------------+  |
-+------------------------------------------+
-
-+------------------------------------------+
-|           Grouping Sidebar                |
-|  (replaces/augments MasterySidebar)       |
-|  +------------------------------------+  |
-|  |  Topic Tree View                   |  |
-|  |  - Collapsible topics              |  |
-|  |  - Draggable subtopics             |  |
-|  |  - KP count per group              |  |
-|  +------------------------------------+  |
-|                                          |
-|  +------------------------------------+  |
-|  |  Mastery Aggregation View          |  |
-|  |  - Topic mastery (rolled up)       |  |
-|  |  - Subtopic mastery                |  |
-|  |  - Individual KP mastery           |  |
-|  +------------------------------------+  |
-+------------------------------------------+
+KnowledgeGraphApp (root)
+├── useStudentMastery(graphId, studentId)  ← Hook called here
+│   └── Returns: Map<skillId, KPMastery>
+│
+├── GraphCanvas
+│   ├── studentMastery: Map<skillId, KPMastery>  ← Passed down
+│   └── GraphNodeComponent
+│       └── masteryData: { effectiveMastery, retentionStatus }
+│
+├── NodeDetailPanel
+│   └── studentMastery: KPMastery | undefined  ← For selected node
+│
+└── MasterySidebar
+    └── HierarchicalMasteryView
+        └── skillMastery: Map<skillId, KPMastery>  ← Same data
 ```
 
----
+### Mastery Calculation Flow
 
-## File Changes Summary
+1. **KP Level**: Direct lookup from `student_kp_mastery` table
+   - `effectiveMastery = rawMastery * retentionFactor`
 
-### New Files
+2. **Subtopic Level**: Weighted average of child KPs
+   - `subtopicMastery = Σ(kp.effectiveMastery × kp.maxPoints) / Σ(kp.maxPoints)`
 
-| File | Purpose |
-|------|---------|
-| `src/types/grouping.ts` | TypeScript types for Topic, Subtopic, and grouping state |
-| `src/hooks/useSkillGrouping.ts` | CRUD operations for subtopics and topics |
-| `src/hooks/useGroupingEditMode.ts` | Multi-select, lasso, and edit mode state |
-| `src/components/graph/GroupingToolbar.tsx` | Floating toolbar for create subtopic/topic actions |
-| `src/components/graph/LassoSelector.tsx` | SVG rectangle for lasso selection |
-| `src/components/graph/SubtopicBorder.tsx` | Visual border/background for grouped nodes |
-| `src/components/mastery/HierarchicalMasteryView.tsx` | Topic > Subtopic > KP mastery display |
-| `src/lib/mastery/aggregateMastery.ts` | Utility functions for rolling up mastery |
-
-### Modified Files
-
-| File | Changes |
-|------|---------|
-| `src/components/graph/GraphCanvas.tsx` | Add edit mode, multi-select, lasso, and visual grouping |
-| `src/components/graph/GraphNode.tsx` | Add selection checkbox overlay and subtopic color indicator |
-| `src/components/KnowledgeGraphApp.tsx` | Add edit mode toggle, pass grouping props |
-| `src/components/mastery/MasterySidebar.tsx` | Add new "Groups" tab with hierarchical view |
-| `src/components/mastery/MasteryOverview.tsx` | Show grouped mastery when groupings exist |
-| `src/hooks/useGraphPersistence.ts` | Include subtopic_id when loading/saving skills |
-
----
-
-## Detailed Implementation
-
-### Phase 1: Database Schema
-
-Migration SQL:
-```sql
--- Create topics table
-CREATE TABLE public.skill_topics (
-  id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
-  graph_id uuid NOT NULL REFERENCES knowledge_graphs(id) ON DELETE CASCADE,
-  name text NOT NULL,
-  color text NOT NULL DEFAULT '#6366f1',
-  display_order integer NOT NULL DEFAULT 0,
-  created_at timestamp with time zone DEFAULT now()
-);
-
--- Create subtopics table
-CREATE TABLE public.skill_subtopics (
-  id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
-  graph_id uuid NOT NULL REFERENCES knowledge_graphs(id) ON DELETE CASCADE,
-  topic_id uuid REFERENCES skill_topics(id) ON DELETE SET NULL,
-  name text NOT NULL,
-  color text NOT NULL DEFAULT '#8b5cf6',
-  display_order integer NOT NULL DEFAULT 0,
-  created_at timestamp with time zone DEFAULT now()
-);
-
--- Add subtopic reference to skills
-ALTER TABLE public.skills 
-ADD COLUMN subtopic_id uuid REFERENCES skill_subtopics(id) ON DELETE SET NULL;
-
--- Enable RLS
-ALTER TABLE skill_topics ENABLE ROW LEVEL SECURITY;
-ALTER TABLE skill_subtopics ENABLE ROW LEVEL SECURITY;
-
-CREATE POLICY "Allow all on skill_topics" ON skill_topics FOR ALL USING (true) WITH CHECK (true);
-CREATE POLICY "Allow all on skill_subtopics" ON skill_subtopics FOR ALL USING (true) WITH CHECK (true);
-
--- Create indexes
-CREATE INDEX idx_skill_topics_graph ON skill_topics(graph_id);
-CREATE INDEX idx_skill_subtopics_graph ON skill_subtopics(graph_id);
-CREATE INDEX idx_skills_subtopic ON skills(subtopic_id);
-```
-
----
-
-### Phase 2: Types and Hooks
-
-**src/types/grouping.ts**
-```typescript
-export interface SkillTopic {
-  id: string;
-  graphId: string;
-  name: string;
-  color: string;
-  displayOrder: number;
-  subtopics?: SkillSubtopic[];
-}
-
-export interface SkillSubtopic {
-  id: string;
-  graphId: string;
-  topicId: string | null;
-  name: string;
-  color: string;
-  displayOrder: number;
-  skillIds?: string[];
-}
-
-export interface GroupingEditState {
-  isEditMode: boolean;
-  selectedNodeIds: Set<string>;
-  lassoStart: { x: number; y: number } | null;
-  lassoEnd: { x: number; y: number } | null;
-}
-```
-
-**src/hooks/useSkillGrouping.ts**
-- `loadGroupings(graphId)`: Load all topics and subtopics
-- `createSubtopic(graphId, name, color, skillIds)`: Create subtopic and assign skills
-- `createTopic(graphId, name, color)`: Create topic
-- `assignSubtopicToTopic(subtopicId, topicId)`: Move subtopic under topic
-- `assignSkillToSubtopic(skillId, subtopicId)`: Assign individual skill
-- `removeSkillFromSubtopic(skillId)`: Unassign skill
-- `deleteSubtopic(subtopicId)`: Delete subtopic (skills become ungrouped)
-- `deleteTopic(topicId)`: Delete topic (subtopics become ungrouped)
-- `updateSubtopic(subtopicId, updates)`: Update name/color
-- `updateTopic(topicId, updates)`: Update name/color
-
-**src/hooks/useGroupingEditMode.ts**
-- Manages multi-select state
-- Handles Shift+Click logic
-- Handles lasso rectangle drawing and hit detection
-- Provides `toggleNodeSelection`, `selectNodesInRect`, `clearSelection`
-
----
-
-### Phase 3: Canvas Updates
-
-**GraphCanvas.tsx Changes**
-1. Accept new props: `isEditMode`, `selectedNodeIds`, `onNodeSelectionChange`, `subtopics`, `topics`
-2. Add keyboard listener for Shift key state
-3. Add lasso selection logic in mousedown/mousemove/mouseup
-4. Render lasso rectangle SVG overlay
-5. Render subtopic visual groups (colored convex hulls or bounding boxes around grouped nodes)
-
-**GraphNode.tsx Changes**
-1. Accept new props: `isEditMode`, `isSelected`, `subtopicColor`
-2. When in edit mode and node is selected, show checkmark overlay
-3. Show subtle colored ring or border when node has a subtopic assigned
-4. Modify click handler: in edit mode, toggle selection instead of opening detail panel
-
-**GroupingToolbar.tsx (Floating)**
-- Appears when `isEditMode && selectedNodeIds.size > 0`
-- Shows: "Create Subtopic from X selected" button
-- When clicked, opens dialog for name/color input
-
----
-
-### Phase 4: Sidebar Integration
-
-**MasterySidebar.tsx Changes**
-1. Add new "Groups" tab alongside Log, Upload, Overview
-2. When in Groups tab, show hierarchical topic tree
-3. Add "Edit Groups" button that toggles canvas edit mode
-
-**HierarchicalMasteryView.tsx (New)**
-- Renders collapsible tree: Topic > Subtopic > KP
-- Each level shows aggregated mastery percentage
-- Topic mastery = weighted average of subtopic masteries
-- Subtopic mastery = weighted average of KP masteries
-- Clicking on any item expands/collapses or navigates
-
----
-
-### Phase 5: Mastery Aggregation
-
-**src/lib/mastery/aggregateMastery.ts**
-```typescript
-// Aggregate mastery for a subtopic
-export function calculateSubtopicMastery(
-  subtopicId: string,
-  skillMastery: Map<string, KPMastery>,
-  skillToSubtopic: Map<string, string>
-): AggregatedMastery {
-  const skills = [...skillToSubtopic.entries()]
-    .filter(([_, stId]) => stId === subtopicId)
-    .map(([skillId]) => skillId);
-  
-  let totalWeight = 0;
-  let weightedSum = 0;
-  
-  for (const skillId of skills) {
-    const mastery = skillMastery.get(skillId);
-    if (mastery) {
-      const weight = mastery.maxPoints || 1;
-      weightedSum += (mastery.effectiveMastery ?? mastery.rawMastery) * weight;
-      totalWeight += weight;
-    }
-  }
-  
-  return {
-    mastery: totalWeight > 0 ? weightedSum / totalWeight : 0,
-    skillCount: skills.length,
-    masteredCount: skills.filter(id => {
-      const m = skillMastery.get(id);
-      return m && (m.effectiveMastery ?? m.rawMastery) >= 0.8;
-    }).length,
-  };
-}
-
-// Aggregate mastery for a topic
-export function calculateTopicMastery(
-  topicId: string,
-  subtopicMastery: Map<string, AggregatedMastery>,
-  subtopicToTopic: Map<string, string>
-): AggregatedMastery {
-  // Similar weighted aggregation over subtopics
-}
-```
-
----
-
-### Phase 6: Graph Persistence Updates
-
-**useGraphPersistence.ts Changes**
-1. When loading graph, also fetch subtopics and topics
-2. When loading skills, include `subtopic_id`
-3. When saving graph, preserve subtopic assignments
-4. Add methods: `loadGroupings`, `saveGroupings`
+3. **Topic Level**: Weighted average of child subtopics
+   - `topicMastery = Σ(subtopic.totalEarnedPoints) / Σ(subtopic.totalMaxPoints)`
 
 ---
 
 ## Visual Design
 
-### Edit Mode Indicators
-- Canvas header shows "Editing Groups" badge
-- Nodes show subtle checkbox in top-right corner
-- Selected nodes have checkmark + blue highlight
-- Cursor changes to crosshair for lasso
+### Node Mastery Indicators (when student selected)
 
-### Subtopic Visualization
-- Grouped nodes share a subtle colored underlay (rounded rect behind group)
-- Node border shows thin colored ring matching subtopic
-- Ungrouped nodes have no special indicator
+| Mastery Range | Visual Treatment |
+|--------------|------------------|
+| 90-100% | Green glow ring, full opacity |
+| 80-89% | Light green border, full opacity |
+| 60-79% | Normal border, 80% opacity |
+| 40-59% | Orange border, 60% opacity |
+| 0-39% | Red border, 40% opacity |
 
-### Hierarchy in Sidebar
-```text
-[Topic: Loops & Iteration] 85%
-  ├─ [Subtopic: Basic Loops] 92%
-  │    ├─ for_loop_syntax    100%
-  │    ├─ while_loop_basics   88%
-  │    └─ loop_counter        90%
-  └─ [Subtopic: Loop Patterns] 78%
-       ├─ accumulator_pattern  82%
-       └─ nested_loops         74%
+### Retention Status Overlays
 
-[Ungrouped] 
-  ├─ variable_assignment  95%
-  └─ print_output         100%
-```
+| Status | Visual |
+|--------|--------|
+| Current | Solid border |
+| Aging | Dashed border + clock icon |
+| Expired | Dotted red border + warning icon |
+
+---
+
+## Files to Create/Modify
+
+### Modified Files
+
+| File | Changes |
+|------|---------|
+| `src/components/KnowledgeGraphApp.tsx` | Lift useStudentMastery hook, pass mastery to children |
+| `src/components/graph/GraphCanvas.tsx` | Accept studentMastery prop, pass to nodes |
+| `src/components/graph/GraphNode.tsx` | Add mastery visualization (opacity, border, badge) |
+| `src/components/panels/NodeDetailPanel.tsx` | Add student mastery section |
+| `src/components/mastery/MasterySidebar.tsx` | Accept mastery as prop instead of internal hook |
 
 ---
 
 ## Implementation Order
 
-1. **Database migration** - Add tables and columns
-2. **Types and hooks** - `useSkillGrouping`, `useGroupingEditMode`
-3. **Canvas multi-select** - Shift+click and lasso
-4. **Create subtopic flow** - Dialog and database persistence
-5. **Visual grouping on canvas** - Colored borders/backgrounds
-6. **Sidebar groups tab** - Hierarchical tree view
-7. **Topic creation** - Group subtopics into topics
-8. **Mastery aggregation** - Roll up mastery at each level
-9. **Persistence integration** - Save/load groupings with graph
+1. **Lift mastery hook to KnowledgeGraphApp** - Move `useStudentMastery` call up
+2. **Update MasterySidebar** - Accept mastery as prop
+3. **Add mastery props to GraphCanvas** - Pass mastery data through
+4. **Visualize mastery on GraphNode** - Add opacity/border/badge indicators
+5. **Update NodeDetailPanel** - Show student mastery section
+6. **Test end-to-end** - Verify student selection updates all views
 
 ---
 
-## Technical Considerations
+## Edge Cases
 
-### Performance
-- Use `useMemo` for computing node positions within subtopic groups
-- Virtualize the hierarchy tree if many topics/subtopics exist
-- Batch database operations when assigning multiple skills
-
-### Edge Cases
-- Skill without subtopic: Show in "Ungrouped" section
-- Subtopic without topic: Show at root level of hierarchy
-- Deleting subtopic: Skills become ungrouped (not deleted)
-- Deleting topic: Subtopics become ungrouped (not deleted)
-
-### Accessibility
-- Keyboard navigation for multi-select (Shift+Arrow keys)
-- Screen reader announcements for selection changes
-- Focus management in dialogs
+- **No student selected**: Show class average (existing behavior) or hide mastery indicators on nodes
+- **Student with no attempts**: Show 0% mastery, "No data yet" message
+- **Skill not practiced by student**: Show "--" or "Not attempted" 
+- **Switching students**: Clear and reload mastery data
+- **Switching classes**: Clear student selection, reset mastery view
 
 ---
 
 ## Summary
 
-This implementation provides:
-1. Visual multi-select on the graph canvas (Shift+click or lasso)
-2. Create subtopics from selected KPs with custom name/color
-3. Group subtopics into topics for higher-level organization
-4. Aggregated mastery at topic and subtopic levels
-5. Collapsible hierarchy view in the mastery sidebar
-6. Persistent storage of groupings linked to the graph
+This implementation ensures that:
+1. Each student's mastery is tracked independently per KP
+2. Selecting a student updates the entire UI to show their specific data
+3. Subtopic and Topic mastery are calculated as weighted averages specific to that student
+4. Visual cues on the graph make it easy to identify strong and weak areas
+5. The node detail panel provides deep-dive mastery information for the selected student
