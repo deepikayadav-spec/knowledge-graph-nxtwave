@@ -11,10 +11,10 @@ import { BulkUploadPanel } from './BulkUploadPanel';
 import { MasteryOverview } from './MasteryOverview';
 import { ClassAnalyticsPanel } from './ClassAnalyticsPanel';
 import { HierarchicalMasteryView } from './HierarchicalMasteryView';
-import { useStudentMastery } from '@/hooks/useStudentMastery';
 import { useClassAnalytics } from '@/hooks/useClassAnalytics';
 import { useSkillGrouping } from '@/hooks/useSkillGrouping';
 import type { GraphNode } from '@/types/graph';
+import type { KPMastery } from '@/types/mastery';
 
 interface MasterySidebarProps {
   graphId: string;
@@ -26,6 +26,9 @@ interface MasterySidebarProps {
   // Edit mode props
   isEditMode?: boolean;
   onToggleEditMode?: () => void;
+  // Mastery from parent (lifted hook)
+  studentMastery: Map<string, KPMastery>;
+  onMasteryRefresh: () => void;
 }
 
 export function MasterySidebar({
@@ -37,6 +40,8 @@ export function MasterySidebar({
   skills,
   isEditMode = false,
   onToggleEditMode,
+  studentMastery,
+  onMasteryRefresh,
 }: MasterySidebarProps) {
   const [isOpen, setIsOpen] = useState(true);
   const [activeTab, setActiveTab] = useState<string>('log');
@@ -48,15 +53,10 @@ export function MasterySidebar({
     return map;
   }, [skills]);
 
-  // Fetch student mastery data
-  const studentMasteryHook = useStudentMastery({
-    graphId,
-    studentId: studentId || '',
-    autoLoad: !!studentId,
-  });
+  // Create mastery records array from the map passed from parent
   const masteryRecords = useMemo(
-    () => Array.from(studentMasteryHook.mastery.values()),
-    [studentMasteryHook.mastery]
+    () => Array.from(studentMastery.values()),
+    [studentMastery]
   );
 
   // Fetch class analytics
@@ -73,7 +73,7 @@ export function MasterySidebar({
 
   // Refetch on attempt recorded
   const handleAttemptRecorded = () => {
-    studentMasteryHook.loadMastery();
+    onMasteryRefresh();
     classAnalyticsHook.loadAnalytics();
   };
 
@@ -176,7 +176,7 @@ export function MasterySidebar({
                 <HierarchicalMasteryView
                   topics={groupingHook.topics}
                   subtopics={groupingHook.subtopics}
-                  skillMastery={studentId ? studentMasteryHook.mastery : new Map()}
+                  skillMastery={studentId ? studentMastery : new Map()}
                   skillToSubtopic={groupingHook.skillSubtopicMap}
                   skillNames={skillNames}
                   onCreateTopic={handleCreateTopic}
