@@ -267,121 +267,126 @@ export function NodeDetailPanel({
 
           {masteryMode && studentName && <Separator />}
 
-          {/* Learning Effort (LE) Section */}
-          <section className="space-y-3">
-            <div className="flex items-center gap-2 text-base font-semibold text-foreground">
-              <Timer className="h-5 w-5 text-accent" />
-              Learning Effort (LE)
-            </div>
-
-            <div className="bg-muted/30 rounded-lg p-4 space-y-3">
-              <div className="grid grid-cols-2 gap-4 text-sm">
-                <div className="flex justify-between">
-                  <span className="text-muted-foreground">Passive Time:</span>
-                  <span className="font-medium">{leData.passiveTime} min</span>
+          {/* Learning Effort & CME Sections - Only in mastery mode with student selected */}
+          {masteryMode && studentName && (
+            <>
+              {/* Learning Effort (LE) Section */}
+              <section className="space-y-3">
+                <div className="flex items-center gap-2 text-base font-semibold text-foreground">
+                  <Timer className="h-5 w-5 text-accent" />
+                  Learning Effort (LE)
                 </div>
-                <div className="flex justify-between">
-                  <span className="text-muted-foreground">Active Time:</span>
-                  <span className="font-medium">{leData.activeTime} min</span>
-                </div>
-              </div>
-              
-              <Separator />
-              
-              <div className="flex justify-between text-sm">
-                <span className="text-muted-foreground">Weighted Engagement (WET):</span>
-                <span className="font-medium">{leData.wet} min</span>
-              </div>
-              
-              <div className="flex justify-between text-sm">
-                <span className="text-muted-foreground">Persistence Factor:</span>
-                <span className="font-medium">+{leData.persistence}</span>
-              </div>
-              
-              <Separator />
-              
-              <div className="flex justify-between items-center">
-                <span className="text-base font-medium text-foreground">Final LE:</span>
-                <span className="text-xl font-bold text-accent">{leData.finalLE} min</span>
-              </div>
-            </div>
-          </section>
 
-          <Separator />
-
-          {/* Concept Mastery Evidence (CME) Section */}
-          <section className="space-y-3">
-            <div className="flex items-center gap-2 text-base font-semibold text-foreground">
-              <Brain className="h-5 w-5 text-accent" />
-              Concept Mastery Evidence (CME)
-            </div>
-
-            <div className="bg-muted/30 rounded-lg p-4 space-y-4">
-              {/* Highest Concept Level */}
-              <div className="space-y-2">
-                <div className="flex items-center justify-between">
-                  <span className="text-sm text-muted-foreground flex items-center gap-1">
-                    <Target className="h-4 w-4" />
-                    Highest Level
-                  </span>
-                  <Badge variant="secondary" className="text-sm">
-                    L{cmeData.highestLevel}
-                  </Badge>
-                </div>
-                <div className="text-base font-medium">
-                  {CONCEPT_LEVELS[cmeData.highestLevel - 1]?.name}
-                </div>
-                <div className="text-sm text-muted-foreground">
-                  {CONCEPT_LEVELS[cmeData.highestLevel - 1]?.description}
-                </div>
-              </div>
-
-              <Separator />
-
-              {/* Independence & Retention Status */}
-              <div className="grid grid-cols-2 gap-4">
-                <div className="space-y-2">
-                  <span className="text-sm text-muted-foreground flex items-center gap-1">
-                    <Shield className="h-4 w-4" />
-                    Independence
-                  </span>
-                  <Badge className={`text-sm ${getIndependenceColor(cmeData.independence)}`}>
-                    {cmeData.independence}
-                  </Badge>
-                </div>
-                <div className="space-y-2">
-                  <span className="text-sm text-muted-foreground flex items-center gap-1">
-                    <Clock className="h-4 w-4" />
-                    Retention
-                  </span>
-                  <Badge className={`text-sm ${getRetentionColor(cmeData.retention)}`}>
-                    {cmeData.retention}
-                  </Badge>
-                </div>
-              </div>
-
-              <Separator />
-
-              {/* Level Breakdown */}
-              <div className="space-y-3">
-                <span className="text-sm text-muted-foreground flex items-center gap-1">
-                  <Activity className="h-4 w-4" />
-                  Level Breakdown
-                </span>
-                <div className="space-y-2">
-                  {Object.entries(cmeData.levelBreakdown).map(([level, pct]) => (
-                    <div key={level} className="flex items-center gap-3">
-                      <span className="text-sm w-8 text-muted-foreground">L{level}</span>
-                      <Progress value={pct} className="h-2.5 flex-1" />
-                      <span className="text-sm w-10 text-right font-medium">{pct}%</span>
+                <div className="bg-muted/30 rounded-lg p-4 space-y-3">
+                  <div className="grid grid-cols-2 gap-4 text-sm">
+                    <div className="flex justify-between">
+                      <span className="text-muted-foreground">Passive Time:</span>
+                      <span className="font-medium">{leData.passiveTime} min</span>
                     </div>
-                  ))}
+                    <div className="flex justify-between">
+                      <span className="text-muted-foreground">Active Time:</span>
+                      <span className="font-medium">{leData.activeTime} min</span>
+                    </div>
+                  </div>
+                  
+                  <Separator />
+                  
+                  <div className="flex justify-between text-sm">
+                    <span className="text-muted-foreground">Weighted Engagement (WET):</span>
+                    <span className="font-medium">{leData.wet} min</span>
+                  </div>
+                  
+                  <div className="flex justify-between text-sm">
+                    <span className="text-muted-foreground">Persistence Factor:</span>
+                    <span className="font-medium">+{leData.persistence}</span>
+                  </div>
+                  
+                  <Separator />
+                  
+                  <div className="flex justify-between items-center">
+                    <span className="text-base font-medium text-foreground">Final LE:</span>
+                    <span className="text-xl font-bold text-accent">{leData.finalLE} min</span>
+                  </div>
                 </div>
-              </div>
-            </div>
-          </section>
+              </section>
 
-          <Separator />
+              <Separator />
+
+              {/* Concept Mastery Evidence (CME) Section */}
+              <section className="space-y-3">
+                <div className="flex items-center gap-2 text-base font-semibold text-foreground">
+                  <Brain className="h-5 w-5 text-accent" />
+                  Concept Mastery Evidence (CME)
+                </div>
+
+                <div className="bg-muted/30 rounded-lg p-4 space-y-4">
+                  {/* Highest Concept Level */}
+                  <div className="space-y-2">
+                    <div className="flex items-center justify-between">
+                      <span className="text-sm text-muted-foreground flex items-center gap-1">
+                        <Target className="h-4 w-4" />
+                        Highest Level
+                      </span>
+                      <Badge variant="secondary" className="text-sm">
+                        L{cmeData.highestLevel}
+                      </Badge>
+                    </div>
+                    <div className="text-base font-medium">
+                      {CONCEPT_LEVELS[cmeData.highestLevel - 1]?.name}
+                    </div>
+                    <div className="text-sm text-muted-foreground">
+                      {CONCEPT_LEVELS[cmeData.highestLevel - 1]?.description}
+                    </div>
+                  </div>
+
+                  <Separator />
+
+                  {/* Independence & Retention Status */}
+                  <div className="grid grid-cols-2 gap-4">
+                    <div className="space-y-2">
+                      <span className="text-sm text-muted-foreground flex items-center gap-1">
+                        <Shield className="h-4 w-4" />
+                        Independence
+                      </span>
+                      <Badge className={`text-sm ${getIndependenceColor(cmeData.independence)}`}>
+                        {cmeData.independence}
+                      </Badge>
+                    </div>
+                    <div className="space-y-2">
+                      <span className="text-sm text-muted-foreground flex items-center gap-1">
+                        <Clock className="h-4 w-4" />
+                        Retention
+                      </span>
+                      <Badge className={`text-sm ${getRetentionColor(cmeData.retention)}`}>
+                        {cmeData.retention}
+                      </Badge>
+                    </div>
+                  </div>
+
+                  <Separator />
+
+                  {/* Level Breakdown */}
+                  <div className="space-y-3">
+                    <span className="text-sm text-muted-foreground flex items-center gap-1">
+                      <Activity className="h-4 w-4" />
+                      Level Breakdown
+                    </span>
+                    <div className="space-y-2">
+                      {Object.entries(cmeData.levelBreakdown).map(([level, pct]) => (
+                        <div key={level} className="flex items-center gap-3">
+                          <span className="text-sm w-8 text-muted-foreground">L{level}</span>
+                          <Progress value={pct} className="h-2.5 flex-1" />
+                          <span className="text-sm w-10 text-right font-medium">{pct}%</span>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                </div>
+              </section>
+
+              <Separator />
+            </>
+          )}
 
           {/* Prerequisites */}
           {prerequisites.length > 0 && (
