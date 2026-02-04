@@ -1,167 +1,154 @@
 
-# Fix Duplicate Detection - Core Issue
+# Hide Learning Metrics in Normal Mode
 
-## Problem Summary
+## Overview
 
-The duplicate detection is fundamentally broken due to a **format mismatch** between:
+Modify the NodeDetailPanel to only display Learning Effort (LE) and Concept Mastery Evidence (CME) sections when in Mastery Mode with a student selected. In normal mode (non-mastery), only show basic node details: name, description, prerequisites, and unlocks.
 
-1. **User Input**: Multi-line structured blocks with headers
-2. **Database Storage**: Single-line full text (sometimes with HTML `<br/>` tags)
+## Current Behavior
 
-The current `extractCoreQuestion` function only extracts the first meaningful line from user input, but the database comparison uses the **full stored text**. These will never match.
+| Section | Currently Visible | Normal Mode | Mastery Mode (No Student) | Mastery Mode (Student Selected) |
+|---------|------------------|-------------|---------------------------|--------------------------------|
+| Node Name/Description | Always | Yes | Yes | Yes |
+| Student Mastery | When student selected | No | No | Yes |
+| Learning Effort (LE) | Always | **Yes** | **Yes** | Yes |
+| Concept Mastery Evidence (CME) | Always | **Yes** | **Yes** | Yes |
+| Prerequisites | Always | Yes | Yes | Yes |
+| Unlocks | Always | Yes | Yes | Yes |
 
-## Example of the Mismatch
+## Proposed Behavior
 
-| Source | Value |
-|--------|-------|
-| User pastes | `Question\nWrite a function with the name get_discount...\n- If the bill amount is less than 500...` |
-| `extractCoreQuestion()` returns | `"write a function with the name get_discount that takes the bill amount as an argument."` |
-| Database stores | `"Write a function with the name get_discount...<br/> - If the bill amount is less than 500..."` (full text) |
-| Comparison | **NO MATCH** - first line vs full text |
+| Section | Normal Mode | Mastery Mode (No Student) | Mastery Mode (Student Selected) |
+|---------|-------------|---------------------------|--------------------------------|
+| Node Name/Description | Yes | Yes | Yes |
+| Student Mastery | No | No | Yes |
+| Learning Effort (LE) | **No** | **No** | Yes |
+| Concept Mastery Evidence (CME) | **No** | **No** | Yes |
+| Prerequisites | Yes | Yes | Yes |
+| Unlocks | Yes | Yes | Yes |
 
-## Root Cause
+## File Changes
 
-```typescript
-// Current code in useBatchGeneration.ts and QuickQuestionInput.tsx:
-const existingTexts = new Set(
-  (existingQuestions || []).map(q => q.question_text.trim().toLowerCase()) // <-- Full text!
-);
+### NodeDetailPanel.tsx
 
-for (const question of questions) {
-  const coreQuestion = extractCoreQuestion(question); // <-- First line only!
-  if (existingTexts.has(coreQuestion)) { // <-- Never matches
-    duplicateCount++;
-  }
-}
+Wrap the LE and CME sections with a conditional that checks for both mastery mode AND student selection:
+
+**Current code (lines 270-384):**
+```tsx
+{/* Learning Effort (LE) Section */}
+<section className="space-y-3">
+  <div className="flex items-center gap-2 text-base font-semibold text-foreground">
+    <Timer className="h-5 w-5 text-accent" />
+    Learning Effort (LE)
+  </div>
+  {/* ... LE content ... */}
+</section>
+
+<Separator />
+
+{/* Concept Mastery Evidence (CME) Section */}
+<section className="space-y-3">
+  <div className="flex items-center gap-2 text-base font-semibold text-foreground">
+    <Brain className="h-5 w-5 text-accent" />
+    Concept Mastery Evidence (CME)
+  </div>
+  {/* ... CME content ... */}
+</section>
+
+<Separator />
 ```
 
-## Solution
+**Updated code:**
+```tsx
+{/* Learning Effort & CME Sections - Only in mastery mode with student selected */}
+{masteryMode && studentName && (
+  <>
+    {/* Learning Effort (LE) Section */}
+    <section className="space-y-3">
+      <div className="flex items-center gap-2 text-base font-semibold text-foreground">
+        <Timer className="h-5 w-5 text-accent" />
+        Learning Effort (LE)
+      </div>
+      {/* ... LE content ... */}
+    </section>
 
-Apply `extractCoreQuestion` to **BOTH** the user input AND the database stored questions:
+    <Separator />
 
-```typescript
-// Create a set of normalized existing question texts for fast lookup
-const existingTexts = new Set(
-  (existingQuestions || []).map(q => extractCoreQuestion(q.question_text)) // Apply same extraction
-);
+    {/* Concept Mastery Evidence (CME) Section */}
+    <section className="space-y-3">
+      <div className="flex items-center gap-2 text-base font-semibold text-foreground">
+        <Brain className="h-5 w-5 text-accent" />
+        Concept Mastery Evidence (CME)
+      </div>
+      {/* ... CME content ... */}
+    </section>
 
-for (const question of questions) {
-  const coreQuestion = extractCoreQuestion(question);
-  if (existingTexts.has(coreQuestion)) {
-    duplicateCount++;
-  }
-}
+    <Separator />
+  </>
+)}
 ```
 
-This ensures both sides are compared using the same normalization logic.
+## Visual Summary
 
----
-
-## Technical Implementation
-
-### Changes Required
-
-#### 1. Update `src/hooks/useBatchGeneration.ts`
-
-Lines 195-197: Apply `extractCoreQuestion` to database records
-
-```typescript
-// Before:
-const existingTexts = new Set(
-  (existingQuestions || []).map(q => q.question_text.trim().toLowerCase())
-);
-
-// After:
-const existingTexts = new Set(
-  (existingQuestions || []).map(q => extractCoreQuestion(q.question_text))
-);
+**Normal Mode (clicking any node):**
+```
++----------------------------------+
+| Node Name                    [X] |
+| Description text                 |
++----------------------------------+
+| Prerequisites (3)                |
+|   • Prereq 1                     |
+|   • Prereq 2                     |
+|   • Prereq 3                     |
++----------------------------------+
+| Unlocks (2)                      |
+|   • Unlock 1                     |
+|   • Unlock 2                     |
++----------------------------------+
 ```
 
-#### 2. Update `src/components/panels/QuickQuestionInput.tsx`
-
-Lines 98-100: Apply `extractCoreQuestion` to database records
-
-```typescript
-// Before:
-const existingTexts = new Set(
-  (existingQuestions || []).map(q => q.question_text.trim().toLowerCase())
-);
-
-// After:
-const existingTexts = new Set(
-  (existingQuestions || []).map(q => extractCoreQuestion(q.question_text))
-);
+**Mastery Mode with Student Selected:**
+```
++----------------------------------+
+| Node Name                    [X] |
+| Description text                 |
++----------------------------------+
+| Student Mastery    [Jane Doe]    |
+|   Effective Mastery: 78%         |
+|   Raw Mastery: 85%               |
+|   Retention: Current             |
+|   ...                            |
++----------------------------------+
+| Learning Effort (LE)             |
+|   Passive Time: 12 min           |
+|   Active Time: 8 min             |
+|   Final LE: 15.6 min             |
++----------------------------------+
+| Concept Mastery Evidence (CME)   |
+|   Highest Level: L3              |
+|   Independence: Lightly Scaff... |
+|   Retention: Current             |
+|   Level Breakdown: ...           |
++----------------------------------+
+| Prerequisites (3)                |
+|   ...                            |
++----------------------------------+
+| Unlocks (2)                      |
+|   ...                            |
++----------------------------------+
 ```
 
-#### 3. Update `src/lib/question/extractCore.ts`
+## Technical Notes
 
-Improve the extraction to handle edge cases:
-- Strip HTML `<br/>` tags before processing
-- Handle questions stored as single lines without "Question" header
+- The condition `masteryMode && studentName` ensures both conditions are met
+- This aligns with the existing Student Mastery section's visibility logic
+- The dummy data generation functions (generateDummyCME, generateDummyLE) will still be called but their output won't be rendered - this is fine for now, but could be optimized later to only generate when needed
+- Prerequisites and Unlocks sections remain visible in all modes as they are structural graph information
 
-```typescript
-export function extractCoreQuestion(fullBlock: string): string {
-  // Strip HTML tags first
-  const cleaned = fullBlock.replace(/<br\s*\/?>/gi, '\n');
-  const lines = cleaned.split('\n').map(l => l.trim()).filter(l => l);
-  
-  // If no "Question" header found, the question might be stored as plain text
-  // In that case, just return the first line lowercased
-  let questionStartIdx = -1;
-  for (let i = 0; i < lines.length; i++) {
-    if (/^Question\s*:?\s*$/i.test(lines[i])) {
-      questionStartIdx = i + 1;
-      break;
-    }
-    const match = lines[i].match(/^Question\s*:\s*(.+)/i);
-    if (match) {
-      return match[1].trim().toLowerCase();
-    }
-  }
-  
-  if (questionStartIdx >= 0 && questionStartIdx < lines.length) {
-    for (let i = questionStartIdx; i < lines.length; i++) {
-      const line = lines[i];
-      if (/^(Input|Output|Explanation)\s*:?\s*$/i.test(line)) break;
-      if (line.length > 0) return line.toLowerCase();
-    }
-  }
-  
-  // Fallback for plain text questions (no headers)
-  // Return first non-empty line that isn't a header
-  return lines.find(l => 
-    !/^(Question|Input|Output|Explanation)\s*:?\s*$/i.test(l)
-  )?.toLowerCase() || fullBlock.trim().toLowerCase();
-}
-```
+## Summary
 
----
-
-## Files to Modify
-
-| File | Change |
-|------|--------|
-| `src/lib/question/extractCore.ts` | Add HTML stripping before processing |
-| `src/hooks/useBatchGeneration.ts` | Apply `extractCoreQuestion` to database records |
-| `src/components/panels/QuickQuestionInput.tsx` | Apply `extractCoreQuestion` to database records |
-
----
-
-## Expected Behavior After Fix
-
-| Scenario | Before Fix | After Fix |
-|----------|------------|-----------|
-| User pastes 70 structured questions | "16 new, 54 duplicates" (wrong) | "4 new, 66 duplicates" (correct) |
-| Database with HTML `<br/>` tags | Never matches | Correctly strips and matches |
-| Plain text questions in DB | Never matches | Correctly extracts and matches |
-
----
-
-## Why Only 4 Questions Added?
-
-Looking at the database, I see that many of the 70 questions you provided already exist in slightly different formats:
-- Some have `<br/>` HTML tags in the database
-- Some are stored as plain text without "Question" header
-- The current extraction only works one-way (user input → first line) but not for database records
-
-After this fix, the duplicate detection will correctly identify ~66 duplicates and ~4 truly new questions.
+| Change | File | Lines Affected |
+|--------|------|----------------|
+| Wrap LE section in conditional | NodeDetailPanel.tsx | ~270-310 |
+| Wrap CME section in conditional | NodeDetailPanel.tsx | ~312-384 |
+| Update separator logic | NodeDetailPanel.tsx | ~310, ~384 |
