@@ -141,12 +141,26 @@ export function useGraphPersistence() {
       if (questions.length > 0) {
         const questionsToInsert = questions.map(([text, path]) => {
           const skills = Array.isArray(path) ? path : path.requiredNodes || [];
-          const primarySkill = Array.isArray(path) ? skills[0] : (path as any).primarySkill || skills[0];
+          // Handle both legacy single primarySkill and new primarySkills array
+          let primarySkills: string[] = [];
+          if (Array.isArray(path)) {
+            primarySkills = skills.length > 0 ? [skills[0]] : [];
+          } else {
+            const pathObj = path as any;
+            if (Array.isArray(pathObj.primarySkills)) {
+              primarySkills = pathObj.primarySkills;
+            } else if (pathObj.primarySkill) {
+              primarySkills = [pathObj.primarySkill];
+            } else if (skills.length > 0) {
+              primarySkills = [skills[0]];
+            }
+          }
           return {
             graph_id: graphId,
             question_text: text,
             skills,
-            primary_skill: primarySkill || null,
+            primary_skills: primarySkills.slice(0, 2), // Ensure max 2
+            skill_weights: (path as any).skillWeights || {},
           };
         });
 
@@ -237,7 +251,8 @@ export function useGraphPersistence() {
           requiredNodes: q.skills || [],
           executionOrder: q.skills || [],
           validationStatus: 'valid',
-          primarySkill: q.primary_skill,
+          primarySkills: q.primary_skills || [],
+          skillWeights: q.skill_weights || {},
         };
         // Update appearsInQuestions for each skill
         (q.skills || []).forEach((skillId: string) => {
@@ -385,7 +400,8 @@ export function useGraphPersistence() {
           graph_id: newGraphId,
           question_text: q.question_text,
           skills: q.skills,
-          primary_skill: q.primary_skill,
+          primary_skills: q.primary_skills || [],
+          skill_weights: q.skill_weights || {},
         }));
 
         const { error: questionsError } = await supabase

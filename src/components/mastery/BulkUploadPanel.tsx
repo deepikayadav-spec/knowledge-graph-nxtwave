@@ -248,7 +248,7 @@ export function BulkUploadPanel({
       // Load questions with all fields needed for matching and mastery calculation
       const { data: questionsData } = await supabase
         .from('questions')
-        .select('id, graph_id, question_text, skills, primary_skill, skill_weights')
+        .select('id, graph_id, question_text, skills, primary_skills, skill_weights')
         .eq('graph_id', graphId);
 
       const qMap = new Map<string, string>();

@@ -113,7 +113,7 @@ export type Database = {
           created_at: string | null
           graph_id: string
           id: string
-          primary_skill: string | null
+          primary_skills: string[] | null
           question_text: string
           skill_weights: Json | null
           skills: string[]
@@ -122,7 +122,7 @@ export type Database = {
           created_at?: string | null
           graph_id: string
           id?: string
-          primary_skill?: string | null
+          primary_skills?: string[] | null
           question_text: string
           skill_weights?: Json | null
           skills?: string[]
@@ -131,7 +131,7 @@ export type Database = {
           created_at?: string | null
           graph_id?: string
           id?: string
-          primary_skill?: string | null
+          primary_skills?: string[] | null
           question_text?: string
           skill_weights?: Json | null
           skills?: string[]

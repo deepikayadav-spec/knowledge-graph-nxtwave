@@ -3,3 +3,7 @@ project_id = "bnhjwunylcjguqqdwjwr"
 [functions.generate-graph]
 enabled = true
 verify_jwt = false
+
+[functions.regenerate-weights]
+enabled = true
+verify_jwt = false
