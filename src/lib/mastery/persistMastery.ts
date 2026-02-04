@@ -76,7 +76,7 @@ export function buildQuestionsMap(
     graph_id: string;
     question_text: string;
     skills: string[];
-    primary_skill: string | null;
+    primary_skills: string[];
     skill_weights: unknown;
   }>
 ): Map<string, QuestionWithWeights> {
@@ -88,7 +88,7 @@ export function buildQuestionsMap(
       graphId: q.graph_id,
       questionText: q.question_text,
       skills: q.skills || [],
-      primarySkill: q.primary_skill,
+      primarySkills: q.primary_skills || [],
       skillWeights: (q.skill_weights as Record<string, number>) || {},
     });
   }

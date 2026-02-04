@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { Save, FolderOpen, Plus, Trash2, Loader2, Copy } from 'lucide-react';
+import { Save, FolderOpen, Plus, Trash2, Loader2, Copy, RefreshCw } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import {
@@ -29,7 +29,9 @@ import {
   AlertDialogHeader,
   AlertDialogTitle,
 } from '@/components/ui/alert-dialog';
+import { Progress } from '@/components/ui/progress';
 import { SavedGraphMeta } from '@/hooks/useGraphPersistence';
+import { useRegenerateWeights } from '@/hooks/useRegenerateWeights';
 import { formatDistanceToNow } from 'date-fns';
 
 interface GraphManagerPanelProps {
@@ -43,6 +45,7 @@ interface GraphManagerPanelProps {
   onDelete: (graphId: string) => void;
   onNew: () => void;
   onCopy?: (graphId: string, newName: string) => void;
+  onGraphRegenerated?: () => void;
 }
 
 export function GraphManagerPanel({
@@ -56,14 +59,18 @@ export function GraphManagerPanel({
   onDelete,
   onNew,
   onCopy,
+  onGraphRegenerated,
 }: GraphManagerPanelProps) {
   const [saveDialogOpen, setSaveDialogOpen] = useState(false);
   const [copyDialogOpen, setCopyDialogOpen] = useState(false);
+  const [regenerateDialogOpen, setRegenerateDialogOpen] = useState(false);
   const [copySourceId, setCopySourceId] = useState<string | null>(null);
   const [graphName, setGraphName] = useState('');
   const [graphDescription, setGraphDescription] = useState('');
   const [copyName, setCopyName] = useState('');
   const [deleteConfirmId, setDeleteConfirmId] = useState<string | null>(null);
+  
+  const { progress, regenerate, isRegenerating } = useRegenerateWeights();
 
   const currentGraph = savedGraphs.find(g => g.id === currentGraphId);
 
@@ -94,6 +101,15 @@ export function GraphManagerPanel({
       setCopyDialogOpen(false);
       setCopySourceId(null);
       setCopyName('');
+    }
+  };
+
+  const handleRegenerate = async () => {
+    if (!currentGraphId) return;
+    const success = await regenerate(currentGraphId);
+    if (success) {
+      setRegenerateDialogOpen(false);
+      onGraphRegenerated?.();
     }
   };
 
@@ -227,6 +243,67 @@ export function GraphManagerPanel({
             </Button>
             <Button onClick={handleSave} disabled={!graphName.trim()}>
               Save Graph
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* Regenerate Button/Dialog */}
+      <Dialog open={regenerateDialogOpen} onOpenChange={setRegenerateDialogOpen}>
+        <DialogTrigger asChild>
+          <Button
+            variant="outline"
+            size="sm"
+            className="gap-1.5"
+            disabled={!currentGraphId || isRegenerating}
+          >
+            {isRegenerating ? (
+              <Loader2 className="h-3.5 w-3.5 animate-spin" />
+            ) : (
+              <RefreshCw className="h-3.5 w-3.5" />
+            )}
+            Regenerate
+          </Button>
+        </DialogTrigger>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Regenerate Knowledge Point Weights</DialogTitle>
+            <DialogDescription>
+              Re-analyze all questions to identify up to 2 primary knowledge points per question and update skill weights. This uses AI to improve mastery tracking accuracy.
+            </DialogDescription>
+          </DialogHeader>
+          
+          {isRegenerating && progress.total > 0 && (
+            <div className="space-y-2 py-4">
+              <Progress value={(progress.current / progress.total) * 100} className="h-2" />
+              <p className="text-sm text-muted-foreground text-center">{progress.message}</p>
+            </div>
+          )}
+          
+          <DialogFooter>
+            <Button 
+              variant="outline" 
+              onClick={() => setRegenerateDialogOpen(false)}
+              disabled={isRegenerating}
+            >
+              Cancel
+            </Button>
+            <Button 
+              onClick={handleRegenerate} 
+              disabled={isRegenerating}
+              className="gap-2"
+            >
+              {isRegenerating ? (
+                <>
+                  <Loader2 className="h-4 w-4 animate-spin" />
+                  Regenerating...
+                </>
+              ) : (
+                <>
+                  <RefreshCw className="h-4 w-4" />
+                  Regenerate Weights
+                </>
+              )}
             </Button>
           </DialogFooter>
         </DialogContent>

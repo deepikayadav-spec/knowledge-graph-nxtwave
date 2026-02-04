@@ -51,7 +51,7 @@ export function processAttempt(
   // Get weights (AI-generated or calculated defaults)
   const weights = mergeWeights(
     question.skills,
-    question.primarySkill,
+    question.primarySkills,
     question.skillWeights
   );
   

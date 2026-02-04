@@ -60,7 +60,7 @@ export interface QuestionWithWeights {
   graphId: string;
   questionText: string;
   skills: string[];
-  primarySkill: string | null;
+  primarySkills: string[];  // Up to 2 primary knowledge points
   skillWeights: Record<string, number>;
 }
 

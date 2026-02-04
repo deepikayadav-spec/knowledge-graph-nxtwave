@@ -226,7 +226,7 @@ IMPORTANT: Do NOT include "ipaByQuestion" in your output. Output ONLY these fiel
       "requiredNodes": ["skill1", "skill2"],
       "executionOrder": ["skill1", "skill2"],
       "validationStatus": "valid",
-      "primarySkill": "skill2",
+      "primarySkills": ["skill2"],
       "skillWeights": {"skill2": 0.6, "skill1": 0.4}
     }
   },
@@ -244,23 +244,30 @@ NOTE: cme and le fields will be auto-populated by the client. Do NOT include the
 
 For EACH question, estimate the cognitive load distribution across its required skills:
 
-1. IDENTIFY PRIMARY SKILL: The skill that is the main differentiator/challenge
-   - This is the skill that requires the most cognitive effort
-   - Usually the highest-level or most complex skill in the path
+1. IDENTIFY PRIMARY SKILLS (1-2): The skill(s) that are the main differentiator/challenge
+   - Maximum 2 primary skills per question
+   - Use 2 primaries when question has TWO equally-important cognitive focuses
+   - Most questions should still have just 1 primary
+   - This is typically the highest-level or most complex skill(s) in the path
    
 2. IDENTIFY SECONDARY SKILLS: Supporting/prerequisite knowledge applied passively
    - These are skills needed but not the focus of the question
    
 3. ASSIGN WEIGHTS (must sum to 1.0):
-   - PRIMARY skill: 0.5-0.7 (typically 0.6)
-   - SECONDARY skills: Split remaining weight equally
+   - If 1 primary: PRIMARY skill gets 0.6, SECONDARY skills split remaining 0.4
+   - If 2 primaries: Each PRIMARY gets 0.3 (0.6 total), SECONDARY skills split 0.4
    
-4. EXAMPLE:
+4. EXAMPLE (1 primary):
    Question testing: [loop_iteration, dictionary_operations, accumulator_pattern]
-   Primary skill: accumulator_pattern (the strategic challenge)
+   Primary skills: ["accumulator_pattern"] (the strategic challenge)
    Weights: { "accumulator_pattern": 0.6, "loop_iteration": 0.2, "dictionary_operations": 0.2 }
+
+5. EXAMPLE (2 primaries):
+   Question testing: [loop_iteration, dictionary_operations, accumulator_pattern, conditional_branching]
+   Primary skills: ["accumulator_pattern", "dictionary_operations"] (both are core challenges)
+   Weights: { "accumulator_pattern": 0.3, "dictionary_operations": 0.3, "loop_iteration": 0.2, "conditional_branching": 0.2 }
    
-5. ALWAYS include skillWeights in questionPaths output
+6. ALWAYS output primarySkills as an ARRAY in questionPaths (e.g., ["skill1"] or ["skill1", "skill2"])
 
 === QUALITY VALIDATION (MANDATORY - FAIL = REDO) ===
 

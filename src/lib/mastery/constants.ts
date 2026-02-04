@@ -10,6 +10,7 @@ export const INDEPENDENCE_MULTIPLIERS = {
 // Weight distribution for skills in a question
 export const PRIMARY_SKILL_WEIGHT = 0.6;
 export const REMAINING_WEIGHT = 0.4;
+export const MAX_PRIMARY_SKILLS = 2;
 
 // Wrong answer penalty factor (20% of weight)
 export const WRONG_ANSWER_PENALTY = 0.2;
