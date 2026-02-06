@@ -70,6 +70,8 @@ export function useRegenerateDifficulty(): UseRegenerateDifficultyReturn {
 
       const allResults: Record<string, DifficultyResult> = {};
 
+      let failedBatches = 0;
+      
       for (let batchIdx = 0; batchIdx < batches.length; batchIdx++) {
         const batch = batches[batchIdx];
         const processed = batchIdx * BATCH_SIZE;
@@ -81,26 +83,51 @@ export function useRegenerateDifficulty(): UseRegenerateDifficultyReturn {
           message: `Analyzing batch ${batchIdx + 1}/${batches.length} (${batch.length} questions)...`,
         });
 
-        // Call edge function
-        const { data, error } = await supabase.functions.invoke('analyze-difficulty', {
-          body: {
-            questions: batch.map(q => ({
-              id: q.id,
-              questionText: q.question_text,
-            })),
-          },
-        });
+        try {
+          // Call edge function
+          const { data, error } = await supabase.functions.invoke('analyze-difficulty', {
+            body: {
+              questions: batch.map(q => ({
+                id: q.id,
+                questionText: q.question_text,
+              })),
+            },
+          });
 
-        if (error) throw error;
-        if (data.error) throw new Error(data.error);
+          if (error) {
+            console.error(`Batch ${batchIdx + 1} failed:`, error);
+            failedBatches++;
+            // Continue with next batch instead of failing entirely
+            continue;
+          }
+          
+          if (data.error) {
+            console.error(`Batch ${batchIdx + 1} returned error:`, data.error);
+            failedBatches++;
+            continue;
+          }
 
-        // Merge results
-        Object.assign(allResults, data);
+          // Merge results
+          Object.assign(allResults, data);
+        } catch (batchError) {
+          console.error(`Batch ${batchIdx + 1} exception:`, batchError);
+          failedBatches++;
+          // Continue with next batch
+        }
 
         // Small delay between batches to avoid rate limits
         if (batchIdx < batches.length - 1) {
           await new Promise(resolve => setTimeout(resolve, 1500));
         }
+      }
+      
+      // Check if we got any results
+      if (Object.keys(allResults).length === 0) {
+        throw new Error(`All ${batches.length} batches failed. Check logs for details.`);
+      }
+      
+      if (failedBatches > 0) {
+        console.warn(`[useRegenerateDifficulty] ${failedBatches}/${batches.length} batches failed, continuing with partial results`);
       }
 
       // Phase 3: Update database
@@ -144,9 +171,12 @@ export function useRegenerateDifficulty(): UseRegenerateDifficultyReturn {
         else distribution.expert++;
       }
 
+      const skipped = total - Object.keys(allResults).length;
+      const skippedMsg = skipped > 0 ? ` (${skipped} skipped due to errors)` : '';
+      
       toast({
         title: 'Difficulty analysis complete',
-        description: `Updated ${updated} questions: ${distribution.basic} Basic, ${distribution.intermediate} Intermediate, ${distribution.advanced} Advanced, ${distribution.expert} Expert`,
+        description: `Updated ${updated} questions: ${distribution.basic} Basic, ${distribution.intermediate} Intermediate, ${distribution.advanced} Advanced, ${distribution.expert} Expert${skippedMsg}`,
       });
 
       // Reset after a delay
