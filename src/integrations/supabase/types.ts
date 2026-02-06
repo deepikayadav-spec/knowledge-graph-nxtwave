@@ -110,31 +110,46 @@ export type Database = {
       }
       questions: {
         Row: {
+          algorithmic_demands: number | null
+          cognitive_complexity: number | null
           created_at: string | null
           graph_id: string
           id: string
           primary_skills: string[] | null
           question_text: string
+          scope_integration: number | null
           skill_weights: Json | null
           skills: string[]
+          task_structure: number | null
+          weightage_multiplier: number | null
         }
         Insert: {
+          algorithmic_demands?: number | null
+          cognitive_complexity?: number | null
           created_at?: string | null
           graph_id: string
           id?: string
           primary_skills?: string[] | null
           question_text: string
+          scope_integration?: number | null
           skill_weights?: Json | null
           skills?: string[]
+          task_structure?: number | null
+          weightage_multiplier?: number | null
         }
         Update: {
+          algorithmic_demands?: number | null
+          cognitive_complexity?: number | null
           created_at?: string | null
           graph_id?: string
           id?: string
           primary_skills?: string[] | null
           question_text?: string
+          scope_integration?: number | null
           skill_weights?: Json | null
           skills?: string[]
+          task_structure?: number | null
+          weightage_multiplier?: number | null
         }
         Relationships: [
           {

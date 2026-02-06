@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { Save, FolderOpen, Plus, Trash2, Loader2, Copy, RefreshCw } from 'lucide-react';
+import { Save, FolderOpen, Plus, Trash2, Loader2, Copy, RefreshCw, Gauge } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import {
@@ -32,6 +32,7 @@ import {
 import { Progress } from '@/components/ui/progress';
 import { SavedGraphMeta } from '@/hooks/useGraphPersistence';
 import { useRegenerateWeights } from '@/hooks/useRegenerateWeights';
+import { useRegenerateDifficulty } from '@/hooks/useRegenerateDifficulty';
 import { formatDistanceToNow } from 'date-fns';
 
 interface GraphManagerPanelProps {
@@ -63,14 +64,16 @@ export function GraphManagerPanel({
 }: GraphManagerPanelProps) {
   const [saveDialogOpen, setSaveDialogOpen] = useState(false);
   const [copyDialogOpen, setCopyDialogOpen] = useState(false);
-  const [regenerateDialogOpen, setRegenerateDialogOpen] = useState(false);
+  const [regenerateWeightsDialogOpen, setRegenerateWeightsDialogOpen] = useState(false);
+  const [regenerateDifficultyDialogOpen, setRegenerateDifficultyDialogOpen] = useState(false);
   const [copySourceId, setCopySourceId] = useState<string | null>(null);
   const [graphName, setGraphName] = useState('');
   const [graphDescription, setGraphDescription] = useState('');
   const [copyName, setCopyName] = useState('');
   const [deleteConfirmId, setDeleteConfirmId] = useState<string | null>(null);
   
-  const { progress, regenerate, isRegenerating } = useRegenerateWeights();
+  const { progress: weightsProgress, regenerate: regenerateWeights, isRegenerating: isRegeneratingWeights } = useRegenerateWeights();
+  const { progress: difficultyProgress, regenerate: regenerateDifficulty, isRegenerating: isRegeneratingDifficulty } = useRegenerateDifficulty();
 
   const currentGraph = savedGraphs.find(g => g.id === currentGraphId);
 
@@ -104,11 +107,20 @@ export function GraphManagerPanel({
     }
   };
 
-  const handleRegenerate = async () => {
+  const handleRegenerateWeights = async () => {
     if (!currentGraphId) return;
-    const success = await regenerate(currentGraphId);
+    const success = await regenerateWeights(currentGraphId);
     if (success) {
-      setRegenerateDialogOpen(false);
+      setRegenerateWeightsDialogOpen(false);
+      onGraphRegenerated?.();
+    }
+  };
+
+  const handleRegenerateDifficulty = async () => {
+    if (!currentGraphId) return;
+    const success = await regenerateDifficulty(currentGraphId);
+    if (success) {
+      setRegenerateDifficultyDialogOpen(false);
       onGraphRegenerated?.();
     }
   };
@@ -248,21 +260,21 @@ export function GraphManagerPanel({
         </DialogContent>
       </Dialog>
 
-      {/* Regenerate Button/Dialog */}
-      <Dialog open={regenerateDialogOpen} onOpenChange={setRegenerateDialogOpen}>
+      {/* Regenerate Weights Button/Dialog */}
+      <Dialog open={regenerateWeightsDialogOpen} onOpenChange={setRegenerateWeightsDialogOpen}>
         <DialogTrigger asChild>
           <Button
             variant="outline"
             size="sm"
             className="gap-1.5"
-            disabled={!currentGraphId || isRegenerating}
+            disabled={!currentGraphId || isRegeneratingWeights || isRegeneratingDifficulty}
           >
-            {isRegenerating ? (
+            {isRegeneratingWeights ? (
               <Loader2 className="h-3.5 w-3.5 animate-spin" />
             ) : (
               <RefreshCw className="h-3.5 w-3.5" />
             )}
-            Regenerate
+            Weights
           </Button>
         </DialogTrigger>
         <DialogContent>
@@ -273,27 +285,27 @@ export function GraphManagerPanel({
             </DialogDescription>
           </DialogHeader>
           
-          {isRegenerating && progress.total > 0 && (
+          {isRegeneratingWeights && weightsProgress.total > 0 && (
             <div className="space-y-2 py-4">
-              <Progress value={(progress.current / progress.total) * 100} className="h-2" />
-              <p className="text-sm text-muted-foreground text-center">{progress.message}</p>
+              <Progress value={(weightsProgress.current / weightsProgress.total) * 100} className="h-2" />
+              <p className="text-sm text-muted-foreground text-center">{weightsProgress.message}</p>
             </div>
           )}
           
           <DialogFooter>
             <Button 
               variant="outline" 
-              onClick={() => setRegenerateDialogOpen(false)}
-              disabled={isRegenerating}
+              onClick={() => setRegenerateWeightsDialogOpen(false)}
+              disabled={isRegeneratingWeights}
             >
               Cancel
             </Button>
             <Button 
-              onClick={handleRegenerate} 
-              disabled={isRegenerating}
+              onClick={handleRegenerateWeights} 
+              disabled={isRegeneratingWeights}
               className="gap-2"
             >
-              {isRegenerating ? (
+              {isRegeneratingWeights ? (
                 <>
                   <Loader2 className="h-4 w-4 animate-spin" />
                   Regenerating...
@@ -302,6 +314,67 @@ export function GraphManagerPanel({
                 <>
                   <RefreshCw className="h-4 w-4" />
                   Regenerate Weights
+                </>
+              )}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* Regenerate Difficulty Button/Dialog */}
+      <Dialog open={regenerateDifficultyDialogOpen} onOpenChange={setRegenerateDifficultyDialogOpen}>
+        <DialogTrigger asChild>
+          <Button
+            variant="outline"
+            size="sm"
+            className="gap-1.5"
+            disabled={!currentGraphId || isRegeneratingWeights || isRegeneratingDifficulty}
+          >
+            {isRegeneratingDifficulty ? (
+              <Loader2 className="h-3.5 w-3.5 animate-spin" />
+            ) : (
+              <Gauge className="h-3.5 w-3.5" />
+            )}
+            Difficulty
+          </Button>
+        </DialogTrigger>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Regenerate Question Difficulty</DialogTitle>
+            <DialogDescription>
+              Analyze all questions using a 4-dimension rubric (Cognitive Complexity, Task Structure, Algorithmic Demands, Scope) to calculate difficulty multipliers. Harder questions will have more impact on mastery scores.
+            </DialogDescription>
+          </DialogHeader>
+          
+          {isRegeneratingDifficulty && difficultyProgress.total > 0 && (
+            <div className="space-y-2 py-4">
+              <Progress value={(difficultyProgress.current / difficultyProgress.total) * 100} className="h-2" />
+              <p className="text-sm text-muted-foreground text-center">{difficultyProgress.message}</p>
+            </div>
+          )}
+          
+          <DialogFooter>
+            <Button 
+              variant="outline" 
+              onClick={() => setRegenerateDifficultyDialogOpen(false)}
+              disabled={isRegeneratingDifficulty}
+            >
+              Cancel
+            </Button>
+            <Button 
+              onClick={handleRegenerateDifficulty} 
+              disabled={isRegeneratingDifficulty}
+              className="gap-2"
+            >
+              {isRegeneratingDifficulty ? (
+                <>
+                  <Loader2 className="h-4 w-4 animate-spin" />
+                  Analyzing...
+                </>
+              ) : (
+                <>
+                  <Gauge className="h-4 w-4" />
+                  Analyze Difficulty
                 </>
               )}
             </Button>

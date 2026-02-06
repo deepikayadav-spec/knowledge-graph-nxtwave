@@ -57,23 +57,30 @@ export function processAttempt(
   
   const independenceMultiplier = INDEPENDENCE_MULTIPLIERS[attempt.independenceLevel];
   
+  // Get weightage multiplier from question difficulty (defaults to 1.0)
+  const weightageMultiplier = question.weightageMultiplier || 1.0;
+  
   for (const [skillId, weight] of Object.entries(weights)) {
     // Get or create mastery record
     let mastery = currentMastery.get(skillId) || 
       createEmptyMastery(attempt.graphId, attempt.studentId, skillId);
     
+    // Apply weightage multiplier to scale the impact of this question
+    // Harder questions (higher multiplier) contribute more to mastery
+    const scaledWeight = weight * weightageMultiplier;
+    
     // Always add to max points (what they could have earned)
-    mastery.maxPoints += weight;
+    mastery.maxPoints += scaledWeight;
     
     if (attempt.isCorrect) {
       // Correct: add weighted points with independence multiplier
-      mastery.earnedPoints += weight * independenceMultiplier;
+      mastery.earnedPoints += scaledWeight * independenceMultiplier;
       mastery.retrievalCount += 1;
       mastery.stability = updateStability(mastery.stability, mastery.retrievalCount);
       mastery.lastReviewedAt = attempt.attemptedAt;
     } else {
       // Wrong: apply penalty (but never go below 0)
-      mastery.earnedPoints -= weight * WRONG_ANSWER_PENALTY;
+      mastery.earnedPoints -= scaledWeight * WRONG_ANSWER_PENALTY;
       mastery.earnedPoints = Math.max(0, mastery.earnedPoints);
     }
     

@@ -50,7 +50,7 @@ export function AttemptLoggerPanel({
       try {
         const { data, error } = await supabase
           .from('questions')
-          .select('id, graph_id, question_text, skills, primary_skills, skill_weights')
+          .select('id, graph_id, question_text, skills, primary_skills, skill_weights, weightage_multiplier')
           .eq('graph_id', graphId);
 
         if (error) throw error;
@@ -63,6 +63,7 @@ export function AttemptLoggerPanel({
             skills: q.skills || [],
             primarySkills: q.primary_skills || [],
             skillWeights: (q.skill_weights as Record<string, number>) || {},
+            weightageMultiplier: q.weightage_multiplier ?? 1.0,
           }))
         );
       } catch (err) {
