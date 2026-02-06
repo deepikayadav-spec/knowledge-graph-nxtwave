@@ -112,6 +112,125 @@ function calculateMultiplier(rawPoints: number): number {
   return 3.0;
 }
 
+// ============= ROBUST JSON PARSING UTILITIES =============
+
+/**
+ * Sanitize question text to prevent JSON corruption
+ */
+function sanitizeQuestionText(text: string): string {
+  return text
+    // Remove control characters
+    .replace(/[\x00-\x08\x0B\x0C\x0E-\x1F\x7F]/g, '')
+    // Normalize whitespace
+    .replace(/\s+/g, ' ')
+    .trim();
+}
+
+/**
+ * Detect if JSON is likely truncated (unbalanced brackets)
+ */
+function isLikelyTruncatedJson(text: string): boolean {
+  const openCurly = (text.match(/\{/g) || []).length;
+  const closeCurly = (text.match(/\}/g) || []).length;
+  const openSquare = (text.match(/\[/g) || []).length;
+  const closeSquare = (text.match(/\]/g) || []).length;
+  return openCurly !== closeCurly || openSquare !== closeSquare;
+}
+
+/**
+ * Attempt to repair truncated JSON by finding last valid position and closing brackets
+ */
+function attemptJsonRepair(text: string): any | null {
+  let repaired = text.trim();
+  let openCurly = 0;
+  let openSquare = 0;
+  let lastValidPos = 0;
+  let inString = false;
+  let escapeNext = false;
+
+  for (let i = 0; i < repaired.length; i++) {
+    const char = repaired[i];
+
+    if (escapeNext) {
+      escapeNext = false;
+      continue;
+    }
+
+    if (char === '\\') {
+      escapeNext = true;
+      continue;
+    }
+
+    if (char === '"') {
+      inString = !inString;
+      continue;
+    }
+
+    if (inString) continue;
+
+    if (char === '{') {
+      openCurly++;
+    } else if (char === '}') {
+      openCurly--;
+      if (openCurly >= 0 && openSquare >= 0) {
+        lastValidPos = i + 1;
+      }
+    } else if (char === '[') {
+      openSquare++;
+    } else if (char === ']') {
+      openSquare--;
+      if (openCurly >= 0 && openSquare >= 0) {
+        lastValidPos = i + 1;
+      }
+    }
+  }
+
+  // If we found a valid position before the end, truncate there
+  if (lastValidPos > 0 && lastValidPos < repaired.length) {
+    repaired = repaired.substring(0, lastValidPos);
+  }
+
+  // Recount brackets after potential truncation
+  openCurly = (repaired.match(/\{/g) || []).length - (repaired.match(/\}/g) || []).length;
+  openSquare = (repaired.match(/\[/g) || []).length - (repaired.match(/\]/g) || []).length;
+
+  // Close any remaining open brackets
+  while (openSquare > 0) {
+    repaired += ']';
+    openSquare--;
+  }
+  while (openCurly > 0) {
+    repaired += '}';
+    openCurly--;
+  }
+
+  // Clean up trailing commas
+  repaired = repaired.replace(/,\s*}/g, '}').replace(/,\s*]/g, ']');
+
+  try {
+    return JSON.parse(repaired);
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * Get default difficulty result for questions that fail to parse
+ */
+function getDefaultDifficultyResult(): DifficultyResult {
+  return {
+    cognitiveComplexity: 2,  // Apply level
+    taskStructure: 1,        // Well-defined
+    algorithmicDemands: 1,   // Any solution
+    scopeIntegration: 1,     // Single concept
+    rawPoints: 5,
+    weightageMultiplier: 1.0, // Basic default
+  };
+}
+
+/**
+ * Extract and parse JSON from AI response with multiple fallback strategies
+ */
 function extractJsonFromResponse(response: string): any {
   let cleaned = response
     .replace(/```json\s*/gi, "")
@@ -133,18 +252,50 @@ function extractJsonFromResponse(response: string): any {
     .replace(/\t+/g, " ")
     .trim();
 
+  // First attempt: direct parse
   try {
     return JSON.parse(cleaned);
   } catch (e) {
+    console.log("[analyze-difficulty] First parse failed, attempting cleanup...");
+    
+    // Second attempt: cleanup trailing commas and control chars
     cleaned = cleaned
       .replace(/,\s*}/g, "}")
       .replace(/,\s*]/g, "]")
       .replace(/[\x00-\x1F\x7F]/g, "");
-    return JSON.parse(cleaned);
+
+    try {
+      return JSON.parse(cleaned);
+    } catch (secondError) {
+      // Debug logging for troubleshooting
+      console.error("[analyze-difficulty] Parse failed. First 500 chars:", 
+        cleaned.substring(0, 500));
+      console.error("[analyze-difficulty] Last 500 chars:", 
+        cleaned.substring(Math.max(0, cleaned.length - 500)));
+
+      // Third attempt: repair truncated JSON
+      if (isLikelyTruncatedJson(cleaned)) {
+        console.log("[analyze-difficulty] Detected truncated JSON, attempting repair...");
+        const repaired = attemptJsonRepair(cleaned);
+        if (repaired) {
+          console.log("[analyze-difficulty] JSON repair successful");
+          return repaired;
+        }
+        throw new Error("AI response truncated - try smaller batch size");
+      }
+
+      throw new Error(`JSON parse failed: ${(secondError as Error).message}`);
+    }
   }
 }
 
 function validateAndNormalize(result: any, questionId: string): DifficultyResult {
+  // If result is invalid or missing, return default
+  if (!result || typeof result !== 'object') {
+    console.warn(`[analyze-difficulty] Invalid result for ${questionId}, using default`);
+    return getDefaultDifficultyResult();
+  }
+  
   // Ensure values are within valid ranges
   const cognitiveComplexity = Math.min(4, Math.max(1, Math.round(result.cognitiveComplexity || 1)));
   const taskStructure = Math.min(3, Math.max(1, Math.round(result.taskStructure || 1)));
@@ -205,8 +356,14 @@ serve(async (req) => {
 
     console.log(`[analyze-difficulty] Analyzing ${questions.length} questions for difficulty`);
 
-    // Build user prompt with questions
-    const questionsList = questions.map((q, i) => 
+    // Sanitize question text before sending to AI
+    const sanitizedQuestions = questions.map(q => ({
+      id: q.id,
+      questionText: sanitizeQuestionText(q.questionText),
+    }));
+
+    // Build user prompt with sanitized questions
+    const questionsList = sanitizedQuestions.map((q, i) => 
       `${i + 1}. ID: ${q.id}\n   Question: ${q.questionText.substring(0, 500)}${q.questionText.length > 500 ? '...' : ''}`
     ).join('\n\n');
 
@@ -268,15 +425,33 @@ Return JSON with question IDs as keys.`;
       throw new Error("No content in AI response");
     }
 
-    const rawResults = extractJsonFromResponse(content);
+    let rawResults: Record<string, any>;
+    let usedFallbacks = 0;
     
-    // Validate and normalize all results
-    const normalizedResults: Record<string, DifficultyResult> = {};
-    for (const [questionId, result] of Object.entries(rawResults)) {
-      normalizedResults[questionId] = validateAndNormalize(result, questionId);
+    try {
+      rawResults = extractJsonFromResponse(content);
+    } catch (parseError) {
+      // If complete parsing fails, return defaults for all questions
+      console.error("[analyze-difficulty] Complete parse failure, using defaults for all questions:", parseError);
+      rawResults = {};
+      for (const q of questions) {
+        rawResults[q.id] = null; // Will trigger default in validateAndNormalize
+      }
+      usedFallbacks = questions.length;
     }
     
-    console.log(`[analyze-difficulty] Generated difficulty scores for ${Object.keys(normalizedResults).length} questions`);
+    // Validate and normalize all results, filling in missing questions with defaults
+    const normalizedResults: Record<string, DifficultyResult> = {};
+    for (const q of questions) {
+      const result = rawResults[q.id];
+      if (!result) {
+        console.warn(`[analyze-difficulty] No result for question ${q.id}, using default`);
+        usedFallbacks++;
+      }
+      normalizedResults[q.id] = validateAndNormalize(result, q.id);
+    }
+    
+    console.log(`[analyze-difficulty] Generated difficulty scores for ${Object.keys(normalizedResults).length} questions (${usedFallbacks} used fallback defaults)`);
 
     return new Response(JSON.stringify(normalizedResults), {
       headers: { ...corsHeaders, "Content-Type": "application/json" },
