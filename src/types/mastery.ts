@@ -54,7 +54,7 @@ export interface ClassStudent {
   enrolledAt: Date;
 }
 
-// Question with skill weights
+// Question with skill weights and difficulty scoring
 export interface QuestionWithWeights {
   id: string;
   graphId: string;
@@ -62,6 +62,12 @@ export interface QuestionWithWeights {
   skills: string[];
   primarySkills: string[];  // Up to 2 primary knowledge points
   skillWeights: Record<string, number>;
+  // Difficulty dimension scores (from rubric)
+  cognitiveComplexity?: number;  // 1-4: Bloom's taxonomy level
+  taskStructure?: number;        // 1-3: Problem definition clarity
+  algorithmicDemands?: number;   // 1-3: Efficiency requirements
+  scopeIntegration?: number;     // 1-3: Concept integration level
+  weightageMultiplier: number;   // 1.0-3.0: Calculated from dimension scores
 }
 
 // Bulk upload row from CSV

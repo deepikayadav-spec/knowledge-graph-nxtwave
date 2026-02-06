@@ -78,6 +78,11 @@ export function buildQuestionsMap(
     skills: string[];
     primary_skills: string[];
     skill_weights: unknown;
+    cognitive_complexity?: number | null;
+    task_structure?: number | null;
+    algorithmic_demands?: number | null;
+    scope_integration?: number | null;
+    weightage_multiplier?: number | null;
   }>
 ): Map<string, QuestionWithWeights> {
   const map = new Map<string, QuestionWithWeights>();
@@ -90,6 +95,11 @@ export function buildQuestionsMap(
       skills: q.skills || [],
       primarySkills: q.primary_skills || [],
       skillWeights: (q.skill_weights as Record<string, number>) || {},
+      cognitiveComplexity: q.cognitive_complexity ?? undefined,
+      taskStructure: q.task_structure ?? undefined,
+      algorithmicDemands: q.algorithmic_demands ?? undefined,
+      scopeIntegration: q.scope_integration ?? undefined,
+      weightageMultiplier: q.weightage_multiplier ?? 1.0,
     });
   }
   

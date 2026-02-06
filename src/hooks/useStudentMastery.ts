@@ -74,7 +74,7 @@ export function useStudentMastery({
       // Load questions for this graph
       const { data: questionsData, error: questionsError } = await supabase
         .from('questions')
-        .select('id, graph_id, question_text, skills, primary_skills, skill_weights')
+        .select('id, graph_id, question_text, skills, primary_skills, skill_weights, weightage_multiplier')
         .eq('graph_id', graphId);
       
       if (questionsError) throw questionsError;
@@ -89,6 +89,7 @@ export function useStudentMastery({
           skills: q.skills || [],
           primarySkills: q.primary_skills || [],
           skillWeights: (q.skill_weights as Record<string, number>) || {},
+          weightageMultiplier: q.weightage_multiplier ?? 1.0,
         });
       });
       setQuestionsMap(qMap);
