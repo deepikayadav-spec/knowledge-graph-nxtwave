@@ -1,154 +1,209 @@
 
-# Hide Learning Metrics in Normal Mode
+
+# Question Weightage Multiplier System
 
 ## Overview
 
-Modify the NodeDetailPanel to only display Learning Effort (LE) and Concept Mastery Evidence (CME) sections when in Mastery Mode with a student selected. In normal mode (non-mastery), only show basic node details: name, description, prerequisites, and unlocks.
+Implement a **difficulty-based weightage multiplier** for questions based on your rubric document. This will scale the impact of questions on KP mastery calculations - harder questions contribute more to a student's mastery score.
 
-## Current Behavior
+## Rubric Summary
 
-| Section | Currently Visible | Normal Mode | Mastery Mode (No Student) | Mastery Mode (Student Selected) |
-|---------|------------------|-------------|---------------------------|--------------------------------|
-| Node Name/Description | Always | Yes | Yes | Yes |
-| Student Mastery | When student selected | No | No | Yes |
-| Learning Effort (LE) | Always | **Yes** | **Yes** | Yes |
-| Concept Mastery Evidence (CME) | Always | **Yes** | **Yes** | Yes |
-| Prerequisites | Always | Yes | Yes | Yes |
-| Unlocks | Always | Yes | Yes | Yes |
+Your rubric has 4 dimensions, each scored with points:
 
-## Proposed Behavior
+| Dimension | Description | Points Range |
+|-----------|-------------|--------------|
+| **Cognitive Complexity** | Bloom's taxonomy level | 1-4 |
+| **Task Structure** | How well-defined the problem is | 1-3 |
+| **Algorithmic Demands** | Efficiency requirements | 1-3 |
+| **Scope & Integration** | Single concept vs system | 1-3 |
 
-| Section | Normal Mode | Mastery Mode (No Student) | Mastery Mode (Student Selected) |
-|---------|-------------|---------------------------|--------------------------------|
-| Node Name/Description | Yes | Yes | Yes |
-| Student Mastery | No | No | Yes |
-| Learning Effort (LE) | **No** | **No** | Yes |
-| Concept Mastery Evidence (CME) | **No** | **No** | Yes |
-| Prerequisites | Yes | Yes | Yes |
-| Unlocks | Yes | Yes | Yes |
+**Total Points Range:** 4-13
 
-## File Changes
+**Multiplier Mapping:**
 
-### NodeDetailPanel.tsx
+| Raw Points | Difficulty | Multiplier |
+|------------|------------|------------|
+| 4-6 | Basic/Novice | 1.0x |
+| 7-9 | Intermediate | 1.5x |
+| 10-11 | Advanced | 2.0x |
+| 12-13 | Expert | 3.0x |
 
-Wrap the LE and CME sections with a conditional that checks for both mastery mode AND student selection:
+## How Weightage Affects Mastery
 
-**Current code (lines 270-384):**
-```tsx
-{/* Learning Effort (LE) Section */}
-<section className="space-y-3">
-  <div className="flex items-center gap-2 text-base font-semibold text-foreground">
-    <Timer className="h-5 w-5 text-accent" />
-    Learning Effort (LE)
-  </div>
-  {/* ... LE content ... */}
-</section>
-
-<Separator />
-
-{/* Concept Mastery Evidence (CME) Section */}
-<section className="space-y-3">
-  <div className="flex items-center gap-2 text-base font-semibold text-foreground">
-    <Brain className="h-5 w-5 text-accent" />
-    Concept Mastery Evidence (CME)
-  </div>
-  {/* ... CME content ... */}
-</section>
-
-<Separator />
+Currently, when a student answers a question:
+```
+For each KP in question:
+  maxPoints += KP_weight           // e.g., 0.3 for a primary
+  earnedPoints += KP_weight * independence_multiplier  // if correct
 ```
 
-**Updated code:**
-```tsx
-{/* Learning Effort & CME Sections - Only in mastery mode with student selected */}
-{masteryMode && studentName && (
-  <>
-    {/* Learning Effort (LE) Section */}
-    <section className="space-y-3">
-      <div className="flex items-center gap-2 text-base font-semibold text-foreground">
-        <Timer className="h-5 w-5 text-accent" />
-        Learning Effort (LE)
-      </div>
-      {/* ... LE content ... */}
-    </section>
-
-    <Separator />
-
-    {/* Concept Mastery Evidence (CME) Section */}
-    <section className="space-y-3">
-      <div className="flex items-center gap-2 text-base font-semibold text-foreground">
-        <Brain className="h-5 w-5 text-accent" />
-        Concept Mastery Evidence (CME)
-      </div>
-      {/* ... CME content ... */}
-    </section>
-
-    <Separator />
-  </>
-)}
+With weightage:
+```
+For each KP in question:
+  maxPoints += KP_weight * weightage_multiplier
+  earnedPoints += KP_weight * weightage_multiplier * independence_multiplier
 ```
 
-## Visual Summary
+**Example:**
+- Q1 (Basic, 1.0x): Primary KP weight = 0.6 -> contributes 0.6 max points
+- Q2 (Expert, 3.0x): Primary KP weight = 0.6 -> contributes 1.8 max points
 
-**Normal Mode (clicking any node):**
-```
-+----------------------------------+
-| Node Name                    [X] |
-| Description text                 |
-+----------------------------------+
-| Prerequisites (3)                |
-|   • Prereq 1                     |
-|   • Prereq 2                     |
-|   • Prereq 3                     |
-+----------------------------------+
-| Unlocks (2)                      |
-|   • Unlock 1                     |
-|   • Unlock 2                     |
-+----------------------------------+
+This means:
+- Passing an Expert question proves 3x more mastery than a Basic one
+- Failing an Expert question has 3x more impact on the mastery deficit
+
+## Implementation Plan
+
+### 1. Database Migration
+
+Add columns to the `questions` table:
+
+```sql
+ALTER TABLE questions
+ADD COLUMN cognitive_complexity INTEGER CHECK (cognitive_complexity BETWEEN 1 AND 4),
+ADD COLUMN task_structure INTEGER CHECK (task_structure BETWEEN 1 AND 3),
+ADD COLUMN algorithmic_demands INTEGER CHECK (algorithmic_demands BETWEEN 1 AND 3),
+ADD COLUMN scope_integration INTEGER CHECK (scope_integration BETWEEN 1 AND 3),
+ADD COLUMN weightage_multiplier NUMERIC DEFAULT 1.0;
 ```
 
-**Mastery Mode with Student Selected:**
+### 2. New Edge Function: `analyze-difficulty`
+
+Create a new edge function that uses AI to analyze question difficulty:
+
+**Input:**
+```json
+{
+  "questions": [
+    { "id": "uuid", "questionText": "Write a function..." }
+  ]
+}
 ```
-+----------------------------------+
-| Node Name                    [X] |
-| Description text                 |
-+----------------------------------+
-| Student Mastery    [Jane Doe]    |
-|   Effective Mastery: 78%         |
-|   Raw Mastery: 85%               |
-|   Retention: Current             |
-|   ...                            |
-+----------------------------------+
-| Learning Effort (LE)             |
-|   Passive Time: 12 min           |
-|   Active Time: 8 min             |
-|   Final LE: 15.6 min             |
-+----------------------------------+
-| Concept Mastery Evidence (CME)   |
-|   Highest Level: L3              |
-|   Independence: Lightly Scaff... |
-|   Retention: Current             |
-|   Level Breakdown: ...           |
-+----------------------------------+
-| Prerequisites (3)                |
-|   ...                            |
-+----------------------------------+
-| Unlocks (2)                      |
-|   ...                            |
-+----------------------------------+
+
+**Output:**
+```json
+{
+  "question_id": {
+    "cognitiveComplexity": 3,
+    "taskStructure": 2,
+    "algorithmicDemands": 2,
+    "scopeIntegration": 2,
+    "rawPoints": 9,
+    "weightageMultiplier": 1.5
+  }
+}
 ```
+
+The edge function will include your rubric criteria in the AI prompt to ensure consistent scoring.
+
+### 3. New Hook: `useRegenerateDifficulty`
+
+Similar to `useRegenerateWeights`, this hook will:
+1. Load all questions for a graph
+2. Send them in batches to the `analyze-difficulty` edge function
+3. Update the database with the 4 dimension scores + computed multiplier
+4. Show progress (loading -> analyzing -> updating -> complete)
+
+### 4. Update Mastery Calculation
+
+Modify `src/lib/mastery/calculateMastery.ts`:
+
+```typescript
+// In processAttempt function
+const weightageMultiplier = question.weightageMultiplier || 1.0;
+
+for (const [skillId, weight] of Object.entries(weights)) {
+  // Apply weightage to both max and earned
+  const scaledWeight = weight * weightageMultiplier;
+  
+  mastery.maxPoints += scaledWeight;  // Was: weight
+  
+  if (attempt.isCorrect) {
+    mastery.earnedPoints += scaledWeight * independenceMultiplier;
+    // ...
+  } else {
+    mastery.earnedPoints -= scaledWeight * WRONG_ANSWER_PENALTY;
+    // ...
+  }
+}
+```
+
+### 5. Update Types
+
+Extend `QuestionWithWeights` in `src/types/mastery.ts`:
+
+```typescript
+export interface QuestionWithWeights {
+  id: string;
+  graphId: string;
+  questionText: string;
+  skills: string[];
+  primarySkills: string[];
+  skillWeights: Record<string, number>;
+  // New fields
+  cognitiveComplexity?: number;
+  taskStructure?: number;
+  algorithmicDemands?: number;
+  scopeIntegration?: number;
+  weightageMultiplier: number;  // Defaults to 1.0
+}
+```
+
+### 6. UI Updates
+
+**GraphManagerPanel** - Add "Regenerate Difficulty" button alongside "Regenerate Weights":
+- Opens a confirmation dialog explaining what it does
+- Shows progress during regeneration
+- Triggers refresh after completion
+
+**Optional NodeDetailPanel enhancement** - Show difficulty badge/indicator when viewing a question's details.
+
+## File Changes Summary
+
+| File | Change |
+|------|--------|
+| `supabase/migrations/xxx_add_question_difficulty.sql` | Add 5 new columns |
+| `supabase/functions/analyze-difficulty/index.ts` | **NEW** - AI difficulty analyzer |
+| `supabase/config.toml` | Register new edge function |
+| `src/hooks/useRegenerateDifficulty.ts` | **NEW** - Hook for regeneration UI |
+| `src/types/mastery.ts` | Add difficulty fields to `QuestionWithWeights` |
+| `src/lib/mastery/calculateMastery.ts` | Apply weightage multiplier |
+| `src/lib/mastery/persistMastery.ts` | Include new fields in questions map |
+| `src/components/panels/GraphManagerPanel.tsx` | Add "Regenerate Difficulty" button |
+
+## Data Flow Diagram
+
+```text
++------------------+       +----------------------+       +------------------+
+| GraphManagerPanel|       | analyze-difficulty   |       | questions table  |
+| [Regen Difficulty]------>| Edge Function        |------>| cognitive_...    |
++------------------+       | (AI Analysis)        |       | task_...         |
+                           +----------------------+       | algorithmic_...  |
+                                                          | scope_...        |
+                                                          | weightage_mult.  |
+                                                          +--------+---------+
+                                                                   |
+                                                                   v
++------------------+       +----------------------+       +------------------+
+| Student Attempt  |------>| calculateMastery.ts  |------>| student_kp_mastery|
+| (CSV Upload)     |       | scaledWeight = weight|       | earnedPoints     |
+|                  |       |   * weightageMultiplier|     | maxPoints        |
++------------------+       +----------------------+       +------------------+
+```
+
+## Rollout Strategy
+
+1. **Phase 1**: Database migration + edge function + regeneration hook
+2. **Phase 2**: UI button in GraphManagerPanel
+3. **Phase 3**: Run "Regenerate Difficulty" on Programming Foundations graph
+4. **Phase 4**: Verify mastery calculations now use weightage
 
 ## Technical Notes
 
-- The condition `masteryMode && studentName` ensures both conditions are met
-- This aligns with the existing Student Mastery section's visibility logic
-- The dummy data generation functions (generateDummyCME, generateDummyLE) will still be called but their output won't be rendered - this is fine for now, but could be optimized later to only generate when needed
-- Prerequisites and Unlocks sections remain visible in all modes as they are structural graph information
+- Default `weightage_multiplier = 1.0` ensures backward compatibility
+- Existing mastery records don't need recalculation - multiplier only applies to new attempts
+- To recalculate existing mastery with new multipliers, you would need to:
+  1. Clear `student_kp_mastery` for the graph
+  2. Re-process all attempts from `student_attempts`
+- The 4 dimension scores are stored for future analytics (e.g., "students struggle with high-algorithmic-demand questions")
 
-## Summary
-
-| Change | File | Lines Affected |
-|--------|------|----------------|
-| Wrap LE section in conditional | NodeDetailPanel.tsx | ~270-310 |
-| Wrap CME section in conditional | NodeDetailPanel.tsx | ~312-384 |
-| Update separator logic | NodeDetailPanel.tsx | ~310, ~384 |
