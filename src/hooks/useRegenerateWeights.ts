@@ -31,6 +31,8 @@ export function useRegenerateWeights(): UseRegenerateWeightsReturn {
   const regenerate = useCallback(async (graphId: string): Promise<boolean> => {
     if (!graphId) return false;
 
+    console.log(`[useRegenerateWeights] ===== Starting regeneration for graph: ${graphId} =====`);
+
     try {
       // Phase 1: Load questions
       setProgress({ phase: 'loading', current: 0, total: 0, message: 'Loading questions...' });
@@ -63,6 +65,7 @@ export function useRegenerateWeights(): UseRegenerateWeightsReturn {
 
       const allResults: Record<string, { primarySkills: string[]; skillWeights: Record<string, number> }> = {};
       let failedBatches = 0;
+      let lastError = '';
 
       for (let batchIdx = 0; batchIdx < batches.length; batchIdx++) {
         const batch = batches[batchIdx];
@@ -76,6 +79,7 @@ export function useRegenerateWeights(): UseRegenerateWeightsReturn {
         });
 
         try {
+          console.log(`[useRegenerateWeights] Sending batch ${batchIdx + 1}/${batches.length} with ${batch.length} questions`);
           const { data, error } = await supabase.functions.invoke('regenerate-weights', {
             body: {
               questions: batch.map(q => ({
@@ -89,20 +93,33 @@ export function useRegenerateWeights(): UseRegenerateWeightsReturn {
           if (error) {
             console.error(`[useRegenerateWeights] Batch ${batchIdx + 1} invoke error:`, error);
             failedBatches++;
+            lastError = error.message || String(error);
             continue;
           }
           if (data?.error) {
             console.error(`[useRegenerateWeights] Batch ${batchIdx + 1} returned error:`, data.error);
             failedBatches++;
+            lastError = data.error;
             continue;
           }
 
-          const resultsCount = Object.keys(data || {}).length;
+          // Log version marker and raw response shape
+          if (data?._version) {
+            console.log(`[useRegenerateWeights] Function version: ${data._version}`);
+          }
+          console.log(`[useRegenerateWeights] Batch ${batchIdx + 1} raw response keys:`, Object.keys(data || {}));
+
+          // Remove version marker before processing
+          const batchResults = { ...data };
+          delete batchResults._version;
+
+          const resultsCount = Object.keys(batchResults).length;
           console.log(`[useRegenerateWeights] Batch ${batchIdx + 1}/${batches.length}: got ${resultsCount} results`);
-          Object.assign(allResults, data);
+          Object.assign(allResults, batchResults);
         } catch (batchError) {
           console.error(`[useRegenerateWeights] Batch ${batchIdx + 1} exception:`, batchError);
           failedBatches++;
+          lastError = batchError instanceof Error ? batchError.message : String(batchError);
         }
 
         // Delay between AI batches
@@ -116,7 +133,7 @@ export function useRegenerateWeights(): UseRegenerateWeightsReturn {
       console.log(`[useRegenerateWeights] AI analysis complete: ${totalResults} results from ${batches.length} batches (${failedBatches} failed)`);
 
       if (totalResults === 0) {
-        throw new Error(`All ${batches.length} batches failed. Check logs for details.`);
+        throw new Error(`All ${batches.length} batches failed. Last error: ${lastError || 'Unknown'}`);
       }
 
       // Phase 3: Batch database updates
@@ -140,9 +157,10 @@ export function useRegenerateWeights(): UseRegenerateWeightsReturn {
               .eq('id', questionId)
               .then(({ error }) => {
                 if (error) {
-                  console.error(`[useRegenerateWeights] Failed to update ${questionId}:`, error.message);
+                  console.error(`[useRegenerateWeights] DB update FAILED for ${questionId}:`, error.message);
                   return false;
                 }
+                console.log(`[useRegenerateWeights] DB update OK: ${questionId}`);
                 return true;
               })
           )

@@ -189,6 +189,9 @@ Return JSON with question IDs as keys.`;
     
     console.log(`[regenerate-weights] Generated weights for ${Object.keys(weightData).length} questions`);
 
+    // Add version marker so we can confirm latest deployment is being used
+    weightData._version = "2026-02-09-v2";
+
     return new Response(JSON.stringify(weightData), {
       headers: { ...corsHeaders, "Content-Type": "application/json" },
     });
