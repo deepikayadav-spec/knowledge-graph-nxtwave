@@ -17,7 +17,8 @@ interface UseRegenerateWeightsReturn {
   isRegenerating: boolean;
 }
 
-const BATCH_SIZE = 20; // Process questions in batches
+const AI_BATCH_SIZE = 20; // Questions per AI call
+const DB_BATCH_SIZE = 10; // Parallel DB updates
 
 export function useRegenerateWeights(): UseRegenerateWeightsReturn {
   const [progress, setProgress] = useState<RegenerateProgress>({
@@ -51,20 +52,22 @@ export function useRegenerateWeights(): UseRegenerateWeightsReturn {
       }
 
       const total = questions.length;
+      console.log(`[useRegenerateWeights] Loaded ${total} questions for graph ${graphId}`);
       setProgress({ phase: 'analyzing', current: 0, total, message: `Analyzing ${total} questions...` });
 
-      // Process in batches
+      // Phase 2: Process in AI batches
       const batches: Array<typeof questions> = [];
-      for (let i = 0; i < questions.length; i += BATCH_SIZE) {
-        batches.push(questions.slice(i, i + BATCH_SIZE));
+      for (let i = 0; i < questions.length; i += AI_BATCH_SIZE) {
+        batches.push(questions.slice(i, i + AI_BATCH_SIZE));
       }
 
       const allResults: Record<string, { primarySkills: string[]; skillWeights: Record<string, number> }> = {};
+      let failedBatches = 0;
 
       for (let batchIdx = 0; batchIdx < batches.length; batchIdx++) {
         const batch = batches[batchIdx];
-        const processed = batchIdx * BATCH_SIZE;
-        
+        const processed = batchIdx * AI_BATCH_SIZE;
+
         setProgress({
           phase: 'analyzing',
           current: processed,
@@ -72,71 +75,111 @@ export function useRegenerateWeights(): UseRegenerateWeightsReturn {
           message: `Analyzing batch ${batchIdx + 1}/${batches.length} (${batch.length} questions)...`,
         });
 
-        // Call edge function
-        const { data, error } = await supabase.functions.invoke('regenerate-weights', {
-          body: {
-            questions: batch.map(q => ({
-              id: q.id,
-              questionText: q.question_text,
-              skills: q.skills || [],
-            })),
-          },
-        });
+        try {
+          const { data, error } = await supabase.functions.invoke('regenerate-weights', {
+            body: {
+              questions: batch.map(q => ({
+                id: q.id,
+                questionText: q.question_text,
+                skills: q.skills || [],
+              })),
+            },
+          });
 
-        if (error) throw error;
-        if (data.error) throw new Error(data.error);
+          if (error) {
+            console.error(`[useRegenerateWeights] Batch ${batchIdx + 1} invoke error:`, error);
+            failedBatches++;
+            continue;
+          }
+          if (data?.error) {
+            console.error(`[useRegenerateWeights] Batch ${batchIdx + 1} returned error:`, data.error);
+            failedBatches++;
+            continue;
+          }
 
-        // Merge results
-        Object.assign(allResults, data);
+          const resultsCount = Object.keys(data || {}).length;
+          console.log(`[useRegenerateWeights] Batch ${batchIdx + 1}/${batches.length}: got ${resultsCount} results`);
+          Object.assign(allResults, data);
+        } catch (batchError) {
+          console.error(`[useRegenerateWeights] Batch ${batchIdx + 1} exception:`, batchError);
+          failedBatches++;
+        }
 
-        // Small delay between batches to avoid rate limits
+        // Delay between AI batches
         if (batchIdx < batches.length - 1) {
           await new Promise(resolve => setTimeout(resolve, 1000));
         }
       }
 
-      // Phase 3: Update database
-      setProgress({ phase: 'updating', current: 0, total, message: 'Updating database...' });
+      // Check results
+      const totalResults = Object.keys(allResults).length;
+      console.log(`[useRegenerateWeights] AI analysis complete: ${totalResults} results from ${batches.length} batches (${failedBatches} failed)`);
 
+      if (totalResults === 0) {
+        throw new Error(`All ${batches.length} batches failed. Check logs for details.`);
+      }
+
+      // Phase 3: Batch database updates
+      setProgress({ phase: 'updating', current: 0, total: totalResults, message: 'Updating database...' });
+
+      const entries = Object.entries(allResults);
       let updated = 0;
-      for (const [questionId, weights] of Object.entries(allResults)) {
-        const { error: updateError } = await supabase
-          .from('questions')
-          .update({
-            primary_skills: weights.primarySkills?.slice(0, 2) || [],
-            skill_weights: weights.skillWeights || {},
-          })
-          .eq('id', questionId);
+      let updateErrors = 0;
 
-        if (updateError) {
-          console.error(`Failed to update question ${questionId}:`, updateError);
-        } else {
-          updated++;
-        }
+      for (let i = 0; i < entries.length; i += DB_BATCH_SIZE) {
+        const dbBatch = entries.slice(i, i + DB_BATCH_SIZE);
+
+        const results = await Promise.all(
+          dbBatch.map(([questionId, weights]) =>
+            supabase
+              .from('questions')
+              .update({
+                primary_skills: weights.primarySkills?.slice(0, 2) || [],
+                skill_weights: weights.skillWeights || {},
+              })
+              .eq('id', questionId)
+              .then(({ error }) => {
+                if (error) {
+                  console.error(`[useRegenerateWeights] Failed to update ${questionId}:`, error.message);
+                  return false;
+                }
+                return true;
+              })
+          )
+        );
+
+        const batchSuccess = results.filter(Boolean).length;
+        updated += batchSuccess;
+        updateErrors += results.length - batchSuccess;
 
         setProgress({
           phase: 'updating',
           current: updated,
-          total,
-          message: `Updated ${updated}/${total} questions...`,
+          total: totalResults,
+          message: `Updated ${updated}/${totalResults} questions...`,
         });
       }
 
-      setProgress({ phase: 'complete', current: total, total, message: 'Regeneration complete!' });
+      console.log(`[useRegenerateWeights] DB update complete: ${updated} succeeded, ${updateErrors} failed`);
+
+      setProgress({ phase: 'complete', current: totalResults, total: totalResults, message: 'Regeneration complete!' });
+
+      const skipped = total - totalResults;
+      const skippedMsg = skipped > 0 ? ` (${skipped} skipped due to AI errors)` : '';
+      const errorMsg = updateErrors > 0 ? `, ${updateErrors} DB update failures` : '';
 
       toast({
         title: 'Weights regenerated',
-        description: `Updated primary skills and weights for ${updated} questions.`,
+        description: `Updated primary skills and weights for ${updated} questions${skippedMsg}${errorMsg}.`,
       });
 
-      // Reset after a delay
       setTimeout(() => {
         setProgress({ phase: 'idle', current: 0, total: 0, message: '' });
       }, 2000);
 
       return true;
     } catch (error) {
-      console.error('Regeneration error:', error);
+      console.error('[useRegenerateWeights] Fatal error:', error);
       setProgress({
         phase: 'error',
         current: 0,
