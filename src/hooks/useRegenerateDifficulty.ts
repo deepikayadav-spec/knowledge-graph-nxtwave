@@ -26,7 +26,8 @@ interface UseRegenerateDifficultyReturn {
   isRegenerating: boolean;
 }
 
-const BATCH_SIZE = 15; // Slightly smaller batches for more detailed analysis
+const AI_BATCH_SIZE = 15; // Questions per AI call
+const DB_BATCH_SIZE = 10; // Parallel DB updates
 
 export function useRegenerateDifficulty(): UseRegenerateDifficultyReturn {
   const [progress, setProgress] = useState<RegenerateProgress>({
@@ -60,22 +61,22 @@ export function useRegenerateDifficulty(): UseRegenerateDifficultyReturn {
       }
 
       const total = questions.length;
+      console.log(`[useRegenerateDifficulty] Loaded ${total} questions for graph ${graphId}`);
       setProgress({ phase: 'analyzing', current: 0, total, message: `Analyzing ${total} questions...` });
 
-      // Process in batches
+      // Phase 2: Process in AI batches
       const batches: Array<typeof questions> = [];
-      for (let i = 0; i < questions.length; i += BATCH_SIZE) {
-        batches.push(questions.slice(i, i + BATCH_SIZE));
+      for (let i = 0; i < questions.length; i += AI_BATCH_SIZE) {
+        batches.push(questions.slice(i, i + AI_BATCH_SIZE));
       }
 
       const allResults: Record<string, DifficultyResult> = {};
-
       let failedBatches = 0;
-      
+
       for (let batchIdx = 0; batchIdx < batches.length; batchIdx++) {
         const batch = batches[batchIdx];
-        const processed = batchIdx * BATCH_SIZE;
-        
+        const processed = batchIdx * AI_BATCH_SIZE;
+
         setProgress({
           phase: 'analyzing',
           current: processed,
@@ -84,7 +85,6 @@ export function useRegenerateDifficulty(): UseRegenerateDifficultyReturn {
         });
 
         try {
-          // Call edge function
           const { data, error } = await supabase.functions.invoke('analyze-difficulty', {
             body: {
               questions: batch.map(q => ({
@@ -95,74 +95,88 @@ export function useRegenerateDifficulty(): UseRegenerateDifficultyReturn {
           });
 
           if (error) {
-            console.error(`Batch ${batchIdx + 1} failed:`, error);
-            failedBatches++;
-            // Continue with next batch instead of failing entirely
-            continue;
-          }
-          
-          if (data.error) {
-            console.error(`Batch ${batchIdx + 1} returned error:`, data.error);
+            console.error(`[useRegenerateDifficulty] Batch ${batchIdx + 1} invoke error:`, error);
             failedBatches++;
             continue;
           }
 
-          // Merge results
+          if (data?.error) {
+            console.error(`[useRegenerateDifficulty] Batch ${batchIdx + 1} returned error:`, data.error);
+            failedBatches++;
+            continue;
+          }
+
+          const resultsCount = Object.keys(data || {}).length;
+          console.log(`[useRegenerateDifficulty] Batch ${batchIdx + 1}/${batches.length}: got ${resultsCount} results`);
           Object.assign(allResults, data);
         } catch (batchError) {
-          console.error(`Batch ${batchIdx + 1} exception:`, batchError);
+          console.error(`[useRegenerateDifficulty] Batch ${batchIdx + 1} exception:`, batchError);
           failedBatches++;
-          // Continue with next batch
         }
 
-        // Small delay between batches to avoid rate limits
+        // Delay between AI batches
         if (batchIdx < batches.length - 1) {
           await new Promise(resolve => setTimeout(resolve, 1500));
         }
       }
-      
-      // Check if we got any results
-      if (Object.keys(allResults).length === 0) {
+
+      // Check results
+      const totalResults = Object.keys(allResults).length;
+      console.log(`[useRegenerateDifficulty] AI analysis complete: ${totalResults} results from ${batches.length} batches (${failedBatches} failed)`);
+
+      if (totalResults === 0) {
         throw new Error(`All ${batches.length} batches failed. Check logs for details.`);
       }
-      
-      if (failedBatches > 0) {
-        console.warn(`[useRegenerateDifficulty] ${failedBatches}/${batches.length} batches failed, continuing with partial results`);
-      }
 
-      // Phase 3: Update database
-      setProgress({ phase: 'updating', current: 0, total, message: 'Updating database...' });
+      // Phase 3: Batch database updates
+      setProgress({ phase: 'updating', current: 0, total: totalResults, message: 'Updating database...' });
 
+      const entries = Object.entries(allResults);
       let updated = 0;
-      for (const [questionId, difficulty] of Object.entries(allResults)) {
-        const { error: updateError } = await supabase
-          .from('questions')
-          .update({
-            cognitive_complexity: difficulty.cognitiveComplexity,
-            task_structure: difficulty.taskStructure,
-            algorithmic_demands: difficulty.algorithmicDemands,
-            scope_integration: difficulty.scopeIntegration,
-            weightage_multiplier: difficulty.weightageMultiplier,
-          })
-          .eq('id', questionId);
+      let updateErrors = 0;
 
-        if (updateError) {
-          console.error(`Failed to update question ${questionId}:`, updateError);
-        } else {
-          updated++;
-        }
+      for (let i = 0; i < entries.length; i += DB_BATCH_SIZE) {
+        const dbBatch = entries.slice(i, i + DB_BATCH_SIZE);
+
+        const results = await Promise.all(
+          dbBatch.map(([questionId, difficulty]) =>
+            supabase
+              .from('questions')
+              .update({
+                cognitive_complexity: difficulty.cognitiveComplexity,
+                task_structure: difficulty.taskStructure,
+                algorithmic_demands: difficulty.algorithmicDemands,
+                scope_integration: difficulty.scopeIntegration,
+                weightage_multiplier: difficulty.weightageMultiplier,
+              })
+              .eq('id', questionId)
+              .then(({ error }) => {
+                if (error) {
+                  console.error(`[useRegenerateDifficulty] Failed to update ${questionId}:`, error.message);
+                  return false;
+                }
+                return true;
+              })
+          )
+        );
+
+        const batchSuccess = results.filter(Boolean).length;
+        updated += batchSuccess;
+        updateErrors += results.length - batchSuccess;
 
         setProgress({
           phase: 'updating',
           current: updated,
-          total,
-          message: `Updated ${updated}/${total} questions...`,
+          total: totalResults,
+          message: `Updated ${updated}/${totalResults} questions...`,
         });
       }
 
-      setProgress({ phase: 'complete', current: total, total, message: 'Analysis complete!' });
+      console.log(`[useRegenerateDifficulty] DB update complete: ${updated} succeeded, ${updateErrors} failed`);
 
-      // Calculate distribution for toast message
+      setProgress({ phase: 'complete', current: totalResults, total: totalResults, message: 'Analysis complete!' });
+
+      // Calculate distribution for toast
       const distribution = { basic: 0, intermediate: 0, advanced: 0, expert: 0 };
       for (const result of Object.values(allResults)) {
         if (result.weightageMultiplier === 1.0) distribution.basic++;
@@ -171,22 +185,22 @@ export function useRegenerateDifficulty(): UseRegenerateDifficultyReturn {
         else distribution.expert++;
       }
 
-      const skipped = total - Object.keys(allResults).length;
-      const skippedMsg = skipped > 0 ? ` (${skipped} skipped due to errors)` : '';
-      
+      const skipped = total - totalResults;
+      const skippedMsg = skipped > 0 ? ` (${skipped} skipped due to AI errors)` : '';
+      const errorMsg = updateErrors > 0 ? `, ${updateErrors} DB failures` : '';
+
       toast({
         title: 'Difficulty analysis complete',
-        description: `Updated ${updated} questions: ${distribution.basic} Basic, ${distribution.intermediate} Intermediate, ${distribution.advanced} Advanced, ${distribution.expert} Expert${skippedMsg}`,
+        description: `Updated ${updated} questions: ${distribution.basic} Basic, ${distribution.intermediate} Intermediate, ${distribution.advanced} Advanced, ${distribution.expert} Expert${skippedMsg}${errorMsg}`,
       });
 
-      // Reset after a delay
       setTimeout(() => {
         setProgress({ phase: 'idle', current: 0, total: 0, message: '' });
       }, 2000);
 
       return true;
     } catch (error) {
-      console.error('Difficulty regeneration error:', error);
+      console.error('[useRegenerateDifficulty] Fatal error:', error);
       setProgress({
         phase: 'error',
         current: 0,
