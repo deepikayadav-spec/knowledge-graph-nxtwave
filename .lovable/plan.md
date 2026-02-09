@@ -1,74 +1,64 @@
 
 
-# Fix Regeneration: Deploy Missing Function and Improve Reliability
+# Fix Skill Weights Not Updating
 
-## Problem Summary
+## What's Happening
 
-Two issues are preventing skill weights and difficulty values from being populated:
+The difficulty regeneration worked perfectly (all 951 questions updated), but skill weights are only populated for 269 out of 951 questions.
 
-1. The "Regenerate Weights" backend function is NOT deployed (returns a "not found" error). This is why all `skill_weights` are empty.
-2. The "Regenerate Difficulty" function works correctly when called directly, but the frontend process that runs it (processing 951 questions in 64 batches, then updating them one-by-one) is unreliable -- it either errors out or gets interrupted before completing all database updates.
+The root cause: the "Regenerate Weights" backend function was only deployed moments ago in the previous conversation. Any prior attempts to regenerate weights would have silently failed because the function didn't exist yet. The 269 questions that do have weights likely got them during the original graph generation, not from regeneration.
 
-## Current Database State
+I verified the function works correctly by calling it directly -- it returns proper data in the expected format. The hook code also looks correct. The remaining issue is that weights regeneration needs to be run again now that the function is actually deployed.
 
-| Metric | Count |
-|--------|-------|
-| Total questions | 951 |
-| Questions with skill_weights | 269 (from a previous partial run) |
-| Questions with difficulty scores | 0 |
+## What I Will Fix
 
-## Fixes
+To make sure this works reliably and we can diagnose any issues:
 
-### 1. Redeploy Both Backend Functions
+### 1. Add a version marker to the regenerate-weights function
 
-The `regenerate-weights` function exists in code but was never deployed. Both functions will be redeployed to ensure they are live:
-- `regenerate-weights` -- currently returning "not found"
-- `analyze-difficulty` -- redeployed for consistency
+Add a `_version` field to the response so we can confirm the latest deployed code is being used.
 
-### 2. Add Batch Database Updates
+### 2. Improve error visibility in the hook
 
-Instead of updating questions one at a time (951 individual calls), update them in parallel batches of 10. This reduces the update phase from ~5 minutes to ~30 seconds and makes it far less likely to be interrupted.
+- Add a first-line log (`[useRegenerateWeights] Starting regeneration for graph: ...`) so we can confirm the function was actually triggered
+- Log the raw response from each batch before processing it, to catch any format mismatches
+- Log each successful DB update with the question ID
+- If all batches fail, include the specific error message in the toast (not just "Check logs")
 
-**Before (sequential):**
-```text
-Update question 1 -> wait -> Update question 2 -> wait -> ... -> Update question 951
-Total: ~5 minutes
-```
+### 3. Redeploy the function
 
-**After (parallel batches of 10):**
-```text
-Update questions 1-10 simultaneously -> Update questions 11-20 simultaneously -> ...
-Total: ~30 seconds
-```
+Redeploy `regenerate-weights` to ensure the latest version with the version marker is live.
 
-### 3. Add Verbose Console Logging
+### 4. Re-run instructions
 
-Both hooks will log:
-- Number of questions loaded
-- Each batch sent and received
-- Number of results returned per batch
-- Each database update success/failure
-- Final summary of what was updated
-
-This makes it easy to diagnose any remaining issues by checking the browser console.
-
-### 4. Attach Missing Validation Trigger
-
-The database migration created a validation function but the trigger was never attached. A new migration will attach it so that invalid difficulty scores are caught at the database level.
+After implementation, you will need to:
+1. Open the Programming Foundations graph
+2. Click "Weights" and confirm regeneration
+3. Watch the progress bar -- it should process ~48 batches of 20 questions each
+4. When complete, all 951 questions should have `skill_weights` populated
 
 ## Files to Change
 
-| File | Change |
-|------|--------|
-| `src/hooks/useRegenerateWeights.ts` | Add batch DB updates, verbose logging, batch-level error handling |
-| `src/hooks/useRegenerateDifficulty.ts` | Add batch DB updates, verbose logging |
-| Database migration | Attach the validation trigger if missing |
+| File | Changes |
+|------|---------|
+| `supabase/functions/regenerate-weights/index.ts` | Add `_version` field to response |
+| `src/hooks/useRegenerateWeights.ts` | Add verbose logging for start, raw responses, and individual DB updates |
 
-Both edge functions will also be redeployed.
+## Technical Details
 
-## After Implementation
+The regenerate-weights edge function response format is confirmed correct:
+```text
+{
+  "question-id": {
+    "primarySkills": ["skill_a"],
+    "skillWeights": {"skill_a": 0.6, "skill_b": 0.4}
+  }
+}
+```
 
-1. Load the Programming Foundations graph
-2. Click "Weights" to regenerate skill weights for all 951 questions
-3. Click "Difficulty" to analyze difficulty for all 951 questions
-4. Verify in the database that values are populated
+The hook correctly maps this to database columns:
+- `primarySkills` -> `primary_skills` (text array)
+- `skillWeights` -> `skill_weights` (jsonb)
+
+No schema changes are needed. The fix is primarily about ensuring the function is deployed and adding debugging visibility.
+
