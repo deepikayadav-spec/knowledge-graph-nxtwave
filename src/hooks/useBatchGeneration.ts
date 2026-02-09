@@ -10,6 +10,35 @@ const MIN_BATCH_SIZE = 3;  // Minimum for very large existing graphs
 const DELAY_BETWEEN_BATCHES_MS = 2000;
 
 /**
+ * Parse Topic: headers from question list.
+ * Returns cleaned questions (without Topic: lines) and a map of question index -> topic name.
+ */
+function parseTopicHeaders(questions: string[]): {
+  cleanQuestions: string[];
+  topicMap: Record<number, string>;
+} {
+  let currentTopic = 'General';
+  const cleanQuestions: string[] = [];
+  const topicMap: Record<number, string> = {};
+
+  for (const q of questions) {
+    const topicMatch = q.match(/^Topic\s*:\s*(.+)/im);
+    if (topicMatch) {
+      currentTopic = topicMatch[1].trim();
+      const cleaned = q.replace(/^Topic\s*:.+\n?/im, '').trim();
+      if (cleaned) {
+        topicMap[cleanQuestions.length] = currentTopic;
+        cleanQuestions.push(cleaned);
+      }
+    } else {
+      topicMap[cleanQuestions.length] = currentTopic;
+      cleanQuestions.push(q);
+    }
+  }
+  return { cleanQuestions, topicMap };
+}
+
+/**
  * Calculate optimal batch size based on existing skill count
  * Smaller batches when there are many existing skills to reduce context size
  */
@@ -227,11 +256,17 @@ export function useBatchGeneration(
 
     let checkpoint = resumeFromCheckpoint ? getCheckpoint() : null;
     
+    // Parse topic headers from raw questions
+    const { cleanQuestions: parsedQuestions, topicMap: globalTopicMap } = parseTopicHeaders(
+      checkpoint?.questions || questions
+    );
+    
     // Check for duplicate questions (only for new questions, not checkpoint resume)
-    let questionsToProcess = checkpoint?.questions || questions;
+    let questionsToProcess = checkpoint ? parsedQuestions : parsedQuestions;
+    let topicMapToUse = globalTopicMap;
     
     if (!resumeFromCheckpoint && graphId) {
-      const { uniqueQuestions, duplicates } = await checkDuplicateQuestions(questions, graphId);
+      const { uniqueQuestions, duplicates } = await checkDuplicateQuestions(parsedQuestions, graphId);
       
       if (duplicates.length > 0) {
         const truncatedList = duplicates.slice(0, 3).map(q => {
@@ -256,7 +291,18 @@ export function useBatchGeneration(
         return;
       }
       
+      // Rebuild topic map for unique questions only
+      const uniqueSet = new Set(uniqueQuestions);
+      const newTopicMap: Record<number, string> = {};
+      let idx = 0;
+      for (let i = 0; i < parsedQuestions.length; i++) {
+        if (uniqueSet.has(parsedQuestions[i])) {
+          newTopicMap[idx] = globalTopicMap[i] || 'General';
+          idx++;
+        }
+      }
       questionsToProcess = uniqueQuestions;
+      topicMapToUse = newTopicMap;
     }
     
     // Initialize from checkpoint or fresh start
@@ -278,10 +324,20 @@ export function useBatchGeneration(
     const batchSize = getAdaptiveBatchSize(existingNodeCount);
     console.log(`[BatchGeneration] Using batch size ${batchSize} for ${existingNodeCount} existing nodes`);
 
-    // Create batches with adaptive sizing
+    // Create batches with adaptive sizing, tracking topic map per batch
     const batches: string[][] = [];
+    const batchTopicMaps: Record<string, string>[] = [];
     for (let i = 0; i < questionsToProcess.length; i += batchSize) {
       batches.push(questionsToProcess.slice(i, i + batchSize));
+      // Build batch-local topic map (indices 0..batchSize-1)
+      const batchMap: Record<string, string> = {};
+      for (let j = 0; j < batchSize && i + j < questionsToProcess.length; j++) {
+        const globalIdx = i + j;
+        if (topicMapToUse[globalIdx]) {
+          batchMap[String(j)] = topicMapToUse[globalIdx];
+        }
+      }
+      batchTopicMaps.push(batchMap);
     }
 
     const totalBatches = batches.length;
@@ -328,10 +384,13 @@ export function useBatchGeneration(
 
         while (!success && retries < maxRetries) {
           try {
+            const batchTopicMap = batchTopicMaps[i];
+            const hasTopics = Object.values(batchTopicMap).some(t => t !== 'General');
             const response = await supabase.functions.invoke('generate-graph', {
               body: { 
                 questions: batch,
-                existingNodes: accumulatedNodes.length > 0 ? accumulatedNodes : undefined
+                existingNodes: accumulatedNodes.length > 0 ? accumulatedNodes : undefined,
+                ...(hasTopics ? { topicMap: batchTopicMap } : {}),
               },
             });
 

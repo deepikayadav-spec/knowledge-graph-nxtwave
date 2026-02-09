@@ -196,7 +196,7 @@ export function QuickQuestionInput({ onGenerate, isLoading, isLandingMode = fals
           <div className="text-center space-y-2">
             <h2 className="text-2xl font-semibold text-foreground">Build Your Knowledge Graph</h2>
             <p className="text-muted-foreground">
-              Enter structured coding questions or upload a file. Separate multiple questions with "Question:".
+              Enter structured coding questions or upload a file. Use "Topic:" headers to group by topic.
             </p>
           </div>
 
@@ -209,29 +209,31 @@ export function QuickQuestionInput({ onGenerate, isLoading, isLandingMode = fals
           />
           
           <Textarea
-            placeholder={`Question:
-Write a function to check if a key exists in a nested dictionary.
-
-Input:
-A dictionary (may contain nested dicts) and a target key string.
-
-Output:
-True if key exists at any nesting level, False otherwise.
-
-Explanation:
-Use recursion to traverse nested dictionaries, checking each level for the target key.
+            placeholder={`Topic: Loops
 
 Question:
-Count word frequencies in a given text.
+Print numbers from 1 to N.
 
 Input:
-A string of text.
+An integer N.
 
 Output:
-A dictionary with word counts.
+Numbers 1 to N on separate lines.
 
 Explanation:
-Split by spaces, iterate and count using a dictionary.`}
+Use a for loop with range.
+
+Question:
+Print even numbers from 1 to N.
+
+Input:
+An integer N.
+
+Output:
+Even numbers from 1 to N.
+
+Explanation:
+Use a for loop with a condition or step.`}
             value={questionsText}
             onChange={(e) => setQuestionsText(e.target.value)}
             className="min-h-[200px] text-sm resize-none font-mono"
@@ -331,7 +333,7 @@ Split by spaces, iterate and count using a dictionary.`}
         <CollapsibleContent>
           <div className="p-3 pt-0 space-y-2">
             <Textarea
-              placeholder={`Question:\n...\n\nInput:\n...\n\nOutput:\n...\n\nExplanation:\n...`}
+              placeholder={`Topic: Lists\n\nQuestion:\n...\n\nInput:\n...\n\nOutput:\n...\n\nExplanation:\n...`}
               value={questionsText}
               onChange={(e) => setQuestionsText(e.target.value)}
               className="min-h-[80px] text-sm resize-none font-mono"
