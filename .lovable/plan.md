@@ -1,64 +1,97 @@
 
 
-# Fix Skill Weights Not Updating
+# Fix: AI Fabricating Question IDs (The Real Root Cause)
 
-## What's Happening
+## The Problem
 
-The difficulty regeneration worked perfectly (all 951 questions updated), but skill weights are only populated for 269 out of 951 questions.
+Both regeneration functions have been failing silently due to the same bug: **the AI model is inventing new UUIDs** instead of echoing back the real question IDs.
 
-The root cause: the "Regenerate Weights" backend function was only deployed moments ago in the previous conversation. Any prior attempts to regenerate weights would have silently failed because the function didn't exist yet. The 269 questions that do have weights likely got them during the original graph generation, not from regeneration.
+Evidence:
+- Console logs show "DB update OK" for IDs like `72dbf2be-5f92-464c-bf47-d429fe1a8210`
+- **None of these IDs exist in the database** (confirmed: 0 matches out of 14 tested)
+- Supabase's `.update().eq('id', nonExistentId)` returns no error -- it silently updates 0 rows
+- The hook interprets "no error" as success, so it reports "951 succeeded, 0 failed"
 
-I verified the function works correctly by calling it directly -- it returns proper data in the expected format. The hook code also looks correct. The remaining issue is that weights regeneration needs to be run again now that the function is actually deployed.
+This explains why:
+- Weights: Only 269/951 questions have values (from original graph generation, not regeneration)
+- Difficulty: 0/1044 questions have values (every regeneration attempt was writing to phantom IDs)
 
-## What I Will Fix
+## The Fix
 
-To make sure this works reliably and we can diagnose any issues:
+Stop trusting the AI to return correct UUIDs. Instead, use **numeric indices** as keys, then map them back to real IDs.
 
-### 1. Add a version marker to the regenerate-weights function
+### 1. Update `regenerate-weights` edge function
 
-Add a `_version` field to the response so we can confirm the latest deployed code is being used.
+Change the prompt from:
+```text
+1. ID: 3bc578dc-f3ac-45ea-8556-f15d2f410a75
+   Question: Given N, print two number triangles.
+   Skills: [input_parsing, nested_iteration]
+```
 
-### 2. Improve error visibility in the hook
+To:
+```text
+1. Question: Given N, print two number triangles.
+   Skills: [input_parsing, nested_iteration]
+```
 
-- Add a first-line log (`[useRegenerateWeights] Starting regeneration for graph: ...`) so we can confirm the function was actually triggered
-- Log the raw response from each batch before processing it, to catch any format mismatches
-- Log each successful DB update with the question ID
-- If all batches fail, include the specific error message in the toast (not just "Check logs")
+And ask the AI to return results with numeric keys (`"1"`, `"2"`, etc.). After parsing, remap numeric keys back to real UUIDs using the input array order.
 
-### 3. Redeploy the function
+### 2. Update `analyze-difficulty` edge function
 
-Redeploy `regenerate-weights` to ensure the latest version with the version marker is live.
+Apply the same numeric index pattern. Remove UUID exposure from the prompt entirely.
 
-### 4. Re-run instructions
+### 3. Add ID validation in both hooks
 
-After implementation, you will need to:
-1. Open the Programming Foundations graph
-2. Click "Weights" and confirm regeneration
-3. Watch the progress bar -- it should process ~48 batches of 20 questions each
-4. When complete, all 951 questions should have `skill_weights` populated
+After receiving results from the edge function, verify that returned IDs actually exist in the question set. Log warnings for any mismatches so issues are immediately visible.
+
+### 4. Add row-count verification in DB updates
+
+Change the update pattern from:
+```typescript
+// Current: silent failure on 0-row updates
+supabase.from('questions').update({...}).eq('id', questionId)
+  .then(({ error }) => {
+    if (error) return false;  // Only catches DB errors, not "0 rows matched"
+    return true;
+  })
+```
+
+To:
+```typescript
+// Fixed: verify the row was actually updated
+supabase.from('questions').update({...}).eq('id', questionId).select('id')
+  .then(({ data, error }) => {
+    if (error) return false;
+    if (!data || data.length === 0) {
+      console.error(`ID ${questionId} not found in DB`);
+      return false;
+    }
+    return true;
+  })
+```
 
 ## Files to Change
 
 | File | Changes |
 |------|---------|
-| `supabase/functions/regenerate-weights/index.ts` | Add `_version` field to response |
-| `src/hooks/useRegenerateWeights.ts` | Add verbose logging for start, raw responses, and individual DB updates |
+| `supabase/functions/regenerate-weights/index.ts` | Use numeric indices in prompt, remap results back to real UUIDs |
+| `supabase/functions/analyze-difficulty/index.ts` | Use numeric indices in prompt, remap results back to real UUIDs |
+| `src/hooks/useRegenerateWeights.ts` | Add ID validation, use `.select('id')` to verify updates |
+| `src/hooks/useRegenerateDifficulty.ts` | Add ID validation, use `.select('id')` to verify updates |
 
-## Technical Details
+Both edge functions will be redeployed after changes.
 
-The regenerate-weights edge function response format is confirmed correct:
-```text
-{
-  "question-id": {
-    "primarySkills": ["skill_a"],
-    "skillWeights": {"skill_a": 0.6, "skill_b": 0.4}
-  }
-}
-```
+## Why This Will Work
 
-The hook correctly maps this to database columns:
-- `primarySkills` -> `primary_skills` (text array)
-- `skillWeights` -> `skill_weights` (jsonb)
+- Numeric indices ("1", "2", "3") are trivial for the AI to echo back correctly -- unlike 36-character UUIDs
+- The edge function handles the mapping, so the hook receives data with correct real IDs
+- The `.select('id')` check catches any remaining mismatches at the DB level
+- This is the same approach used by production AI pipelines that need deterministic key mapping
 
-No schema changes are needed. The fix is primarily about ensuring the function is deployed and adding debugging visibility.
+## After Implementation
+
+1. Run "Regenerate Weights" -- all 951 questions should get `skill_weights` populated
+2. Run "Regenerate Difficulty" -- all 951 questions should get difficulty scores
+3. Both operations should complete in under 5 minutes with the existing parallel batch updates
 
