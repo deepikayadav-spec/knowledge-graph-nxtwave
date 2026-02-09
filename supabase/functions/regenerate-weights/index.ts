@@ -156,35 +156,55 @@ Return JSON with the NUMERIC INDEX (1, 2, 3, etc.) as keys. Do NOT use any other
     const model = "google/gemini-2.5-flash";
     const maxTokens = Math.min(4000 + questions.length * 200, 16000);
     
-    const response = await fetch("https://ai.gateway.lovable.dev/v1/chat/completions", {
-      method: "POST",
-      headers: {
-        "Authorization": `Bearer ${LOVABLE_API_KEY}`,
-        "Content-Type": "application/json",
-      },
-      body: JSON.stringify({
-        model,
-        messages: [
-          { role: "system", content: systemPrompt },
-          { role: "user", content: userPrompt },
-        ],
-        max_tokens: maxTokens,
-        temperature: 0.1,
-      }),
-    });
+    const MAX_RETRIES = 3;
+    let response: Response | null = null;
 
-    if (!response.ok) {
+    for (let attempt = 1; attempt <= MAX_RETRIES; attempt++) {
+      response = await fetch("https://ai.gateway.lovable.dev/v1/chat/completions", {
+        method: "POST",
+        headers: {
+          "Authorization": `Bearer ${LOVABLE_API_KEY}`,
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({
+          model,
+          messages: [
+            { role: "system", content: systemPrompt },
+            { role: "user", content: userPrompt },
+          ],
+          max_tokens: maxTokens,
+          temperature: 0.1,
+        }),
+      });
+
+      if (response.ok) break;
+
       const errorData = await response.json().catch(() => ({}));
-      console.error("Lovable AI error:", response.status, JSON.stringify(errorData));
-      
+      console.error(`[regenerate-weights] AI error (attempt ${attempt}/${MAX_RETRIES}):`, response.status, JSON.stringify(errorData));
+
       if (response.status === 429) {
         return new Response(JSON.stringify({ error: "Too many requests. Please wait and try again." }), {
           status: 429,
           headers: { ...corsHeaders, "Content-Type": "application/json" },
         });
       }
-      
+
+      // Retry on 5xx errors (transient)
+      if (response.status >= 500 && attempt < MAX_RETRIES) {
+        const delay = attempt * 2000;
+        console.log(`[regenerate-weights] Retrying in ${delay}ms...`);
+        await new Promise(resolve => setTimeout(resolve, delay));
+        continue;
+      }
+
       return new Response(JSON.stringify({ error: errorData.error?.message || "AI processing failed" }), {
+        status: 500,
+        headers: { ...corsHeaders, "Content-Type": "application/json" },
+      });
+    }
+
+    if (!response || !response.ok) {
+      return new Response(JSON.stringify({ error: "AI processing failed after retries" }), {
         status: 500,
         headers: { ...corsHeaders, "Content-Type": "application/json" },
       });
