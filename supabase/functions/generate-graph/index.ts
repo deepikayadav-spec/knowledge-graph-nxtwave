@@ -320,7 +320,61 @@ After normalization, this maps to skills like:
 - loop_iteration (core, procedural)
 - accumulator_pattern (applied, strategic)
 
+=== PROGRAMMING FOUNDATIONS SCOPE CONSTRAINT ===
+
+This is a Programming Foundations course. Students solve problems using 
+bruteforce methods ONLY. Do NOT create skills for advanced algorithmic 
+patterns: Sliding Window, Two Pointers, Greedy Algorithm, Dynamic 
+Programming, Kadane's Algorithm, Divide and Conquer, Binary Search 
+optimization, Backtracking, Graph Algorithms, or Trie structures.
+
+If a problem could be solved with an advanced pattern, map it to the 
+fundamental bruteforce skills (e.g., nested_iteration, accumulator_pattern, 
+search_pattern, filter_pattern).
+
+=== CURRICULUM SEQUENCE ===
+
+Topics are taught in this order. Use this to inform prerequisite edges -- 
+skills from earlier topics should generally be prerequisites for skills 
+in later topics:
+
+1. Introduction to Python
+2. I/O Basics
+3. Operators & Conditional Statements
+4. Nested Conditions
+5. Loops
+6. Loop Control Statements
+7. Comparing Strings & Naming Variables
+8. Lists
+9. Functions
+10. Tuples & Sets
+11. Dictionaries
+12. Introduction to Object Oriented Programming
+13. Miscellaneous Topics
+
 Output ONLY valid JSON, no explanation.`;
+
+const CURRICULUM_TOPICS = [
+  "Introduction to Python",
+  "I/O Basics",
+  "Operators & Conditional Statements",
+  "Nested Conditions",
+  "Loops",
+  "Loop Control Statements",
+  "Comparing Strings & Naming Variables",
+  "Lists",
+  "Functions",
+  "Tuples & Sets",
+  "Dictionaries",
+  "Introduction to Object Oriented Programming",
+  "Miscellaneous Topics",
+];
+
+function getCurriculumPosition(topic: string): number {
+  const lower = topic.toLowerCase();
+  const idx = CURRICULUM_TOPICS.findIndex(t => t.toLowerCase() === lower || lower.includes(t.toLowerCase()) || t.toLowerCase().includes(lower));
+  return idx >= 0 ? idx + 1 : -1;
+}
 
 const incrementalPromptAddition = `
 
@@ -518,7 +572,7 @@ serve(async (req) => {
 
   try {
     // Safely parse request body with error handling
-    let body: { questions?: string[]; existingNodes?: ExistingNode[] };
+    let body: { questions?: string[]; existingNodes?: ExistingNode[]; topicMap?: Record<string, string> };
     try {
       const text = await req.text();
       if (!text || text.trim() === '') {
@@ -536,7 +590,7 @@ serve(async (req) => {
       );
     }
     
-    const { questions, existingNodes } = body;
+    const { questions, existingNodes, topicMap } = body;
     
     if (!questions || !Array.isArray(questions) || questions.length === 0) {
       return new Response(
@@ -568,8 +622,28 @@ serve(async (req) => {
     const targetMinSkills = Math.ceil(questions.length / 15);
     const targetMaxSkills = Math.ceil(questions.length / 5);
 
+    // Format questions with topic context if topicMap is provided
+    let questionsBlock: string;
+    if (topicMap && Object.keys(topicMap).length > 0) {
+      // Group questions by topic for clearer prompt
+      let currentTopic = '';
+      const lines: string[] = [];
+      questions.forEach((q: string, i: number) => {
+        const topic = topicMap[String(i)] || 'General';
+        if (topic !== currentTopic) {
+          currentTopic = topic;
+          const pos = getCurriculumPosition(topic);
+          lines.push(`\n--- Topic: ${topic}${pos > 0 ? ` (Position ${pos} in curriculum)` : ''} ---`);
+        }
+        lines.push(`${i + 1}. ${q}`);
+      });
+      questionsBlock = lines.join('\n');
+    } else {
+      questionsBlock = questions.map((q: string, i: number) => `${i + 1}. ${q}`).join('\n');
+    }
+
     const userPrompt = `Questions to analyze using IPA/LTA methodology:
-${questions.map((q: string, i: number) => `${i + 1}. ${q}`).join('\n')}
+${questionsBlock}
 
 === ANALYSIS INSTRUCTIONS ===
 

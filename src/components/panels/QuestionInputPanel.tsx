@@ -187,36 +187,38 @@ export function QuestionInputPanel({ onGraphGenerated, isOpen, onClose }: Questi
             </label>
             <Textarea
               id="questions"
-              placeholder={`Question:
-Write a function to check if a key exists in a nested dictionary.
-
-Input:
-A dictionary (may contain nested dicts) and a target key string.
-
-Output:
-True if key exists at any nesting level, False otherwise.
-
-Explanation:
-Use recursion to traverse nested dictionaries, checking each level for the target key.
+              placeholder={`Topic: Loops
 
 Question:
-Count word frequencies in a given text.
+Print numbers from 1 to N.
 
 Input:
-A string of text.
+An integer N.
 
 Output:
-A dictionary with word counts.
+Numbers 1 to N on separate lines.
 
 Explanation:
-Split by spaces, iterate and count using a dictionary.`}
+Use a for loop with range.
+
+Question:
+Print even numbers from 1 to N.
+
+Input:
+An integer N.
+
+Output:
+Even numbers from 1 to N.
+
+Explanation:
+Use a for loop with a condition or step.`}
               value={questionsText}
               onChange={(e) => setQuestionsText(e.target.value)}
               disabled={isLoading}
               className="min-h-[200px] font-mono text-sm"
             />
             <p className="text-xs text-muted-foreground">
-              Include Question, Input, Output, and Explanation sections. Start each new question with "Question:".
+              Include Question, Input, Output, and Explanation sections. Use "Topic:" headers to group by topic. Start each new question with "Question:".
               {questionCount > BATCH_SIZE && (
                 <span className="block mt-1 text-primary">
                   {questionCount} questions will be processed in {batchCount} batches.
