@@ -1,97 +1,167 @@
 
 
-# Fix: AI Fabricating Question IDs (The Real Root Cause)
+# Curriculum-Aware Graph Generation
 
-## The Problem
+## Overview
 
-Both regeneration functions have been failing silently due to the same bug: **the AI model is inventing new UUIDs** instead of echoing back the real question IDs.
+Enhance the graph generation pipeline with three changes:
 
-Evidence:
-- Console logs show "DB update OK" for IDs like `72dbf2be-5f92-464c-bf47-d429fe1a8210`
-- **None of these IDs exist in the database** (confirmed: 0 matches out of 14 tested)
-- Supabase's `.update().eq('id', nonExistentId)` returns no error -- it silently updates 0 rows
-- The hook interprets "no error" as success, so it reports "951 succeeded, 0 failed"
+1. **Curriculum sequence context** -- Hardcode the 13-topic Programming Foundations curriculum into the edge function's system prompt so the AI understands the learning progression.
+2. **Topic header parsing** -- Support `Topic: Loops` headers in question input so each question carries its topic label to the AI.
+3. **Scope constraint** -- Add an explicit "bruteforce only, no advanced DS&A patterns" rule to the system prompt.
 
-This explains why:
-- Weights: Only 269/951 questions have values (from original graph generation, not regeneration)
-- Difficulty: 0/1044 questions have values (every regeneration attempt was writing to phantom IDs)
+## Curriculum Sequence (Hardcoded)
 
-## The Fix
+From your screenshots:
 
-Stop trusting the AI to return correct UUIDs. Instead, use **numeric indices** as keys, then map them back to real IDs.
+1. Introduction to Python
+2. I/O Basics
+3. Operators & Conditional Statements
+4. Nested Conditions
+5. Loops
+6. Loop Control Statements
+7. Comparing Strings & Naming Variables
+8. Lists
+9. Functions
+10. Tuples & Sets
+11. Dictionaries
+12. Introduction to Object Oriented Programming
+13. Miscellaneous Topics
 
-### 1. Update `regenerate-weights` edge function
+## How Topic Headers Work
 
-Change the prompt from:
-```text
-1. ID: 3bc578dc-f3ac-45ea-8556-f15d2f410a75
-   Question: Given N, print two number triangles.
-   Skills: [input_parsing, nested_iteration]
+You will format your question input like this:
+
+```
+Topic: Loops
+
+Question:
+Print numbers from 1 to N.
+Input: An integer N
+Output: Numbers 1 to N on separate lines
+Explanation: Use a for loop with range
+
+Question:
+Print even numbers from 1 to N.
+...
+
+Topic: Lists
+
+Question:
+Find the maximum element in a list.
+...
 ```
 
-To:
-```text
-1. Question: Given N, print two number triangles.
-   Skills: [input_parsing, nested_iteration]
-```
+The parser will extract the topic label and attach it to each question sent to the AI.
 
-And ask the AI to return results with numeric keys (`"1"`, `"2"`, etc.). After parsing, remap numeric keys back to real UUIDs using the input array order.
+## What Changes
 
-### 2. Update `analyze-difficulty` edge function
+| File | What |
+|------|------|
+| `supabase/functions/generate-graph/index.ts` | Add curriculum sequence and scope constraint to system prompt. Accept `topicMap` (question index to topic name) in request body. Format questions with their topic labels in the user prompt. |
+| `src/hooks/useBatchGeneration.ts` | Parse `Topic:` headers from question text before batching. Build a `topicMap` mapping each question's batch-local index to its topic name. Pass `topicMap` alongside each batch to the edge function. |
+| `src/components/panels/QuickQuestionInput.tsx` | Update placeholder text to show `Topic:` header format. Pass raw text (including topic headers) through to the generation hook. |
+| `src/components/panels/QuestionInputPanel.tsx` | Same placeholder update as QuickQuestionInput. |
 
-Apply the same numeric index pattern. Remove UUID exposure from the prompt entirely.
+## Technical Details
 
-### 3. Add ID validation in both hooks
+### Parsing Logic (useBatchGeneration)
 
-After receiving results from the edge function, verify that returned IDs actually exist in the question set. Log warnings for any mismatches so issues are immediately visible.
+Before splitting into batches, parse topic headers:
 
-### 4. Add row-count verification in DB updates
-
-Change the update pattern from:
 ```typescript
-// Current: silent failure on 0-row updates
-supabase.from('questions').update({...}).eq('id', questionId)
-  .then(({ error }) => {
-    if (error) return false;  // Only catches DB errors, not "0 rows matched"
-    return true;
-  })
-```
+function parseTopicHeaders(questions: string[]): { 
+  cleanQuestions: string[]; 
+  topicMap: Record<number, string>;  // index -> topic name
+} {
+  let currentTopic = "General";
+  const cleanQuestions: string[] = [];
+  const topicMap: Record<number, string> = {};
 
-To:
-```typescript
-// Fixed: verify the row was actually updated
-supabase.from('questions').update({...}).eq('id', questionId).select('id')
-  .then(({ data, error }) => {
-    if (error) return false;
-    if (!data || data.length === 0) {
-      console.error(`ID ${questionId} not found in DB`);
-      return false;
+  for (const q of questions) {
+    const topicMatch = q.match(/^Topic\s*:\s*(.+)/im);
+    if (topicMatch) {
+      currentTopic = topicMatch[1].trim();
+      // Remove the Topic: line from the question text
+      const cleaned = q.replace(/^Topic\s*:.+\n?/im, '').trim();
+      if (cleaned) {
+        topicMap[cleanQuestions.length] = currentTopic;
+        cleanQuestions.push(cleaned);
+      }
+    } else {
+      topicMap[cleanQuestions.length] = currentTopic;
+      cleanQuestions.push(q);
     }
-    return true;
-  })
+  }
+  return { cleanQuestions, topicMap };
+}
 ```
 
-## Files to Change
+When creating batches, the topic map indices are re-mapped to batch-local indices (0, 1, 2...) and sent to the edge function.
 
-| File | Changes |
-|------|---------|
-| `supabase/functions/regenerate-weights/index.ts` | Use numeric indices in prompt, remap results back to real UUIDs |
-| `supabase/functions/analyze-difficulty/index.ts` | Use numeric indices in prompt, remap results back to real UUIDs |
-| `src/hooks/useRegenerateWeights.ts` | Add ID validation, use `.select('id')` to verify updates |
-| `src/hooks/useRegenerateDifficulty.ts` | Add ID validation, use `.select('id')` to verify updates |
+### Edge Function Prompt Changes
 
-Both edge functions will be redeployed after changes.
+**System prompt additions** (appended before the output format section):
 
-## Why This Will Work
+```
+=== PROGRAMMING FOUNDATIONS SCOPE CONSTRAINT ===
 
-- Numeric indices ("1", "2", "3") are trivial for the AI to echo back correctly -- unlike 36-character UUIDs
-- The edge function handles the mapping, so the hook receives data with correct real IDs
-- The `.select('id')` check catches any remaining mismatches at the DB level
-- This is the same approach used by production AI pipelines that need deterministic key mapping
+This is a Programming Foundations course. Students solve problems using 
+bruteforce methods ONLY. Do NOT create skills for advanced algorithmic 
+patterns: Sliding Window, Two Pointers, Greedy Algorithm, Dynamic 
+Programming, Kadane's Algorithm, Divide and Conquer, Binary Search 
+optimization, Backtracking, Graph Algorithms, or Trie structures.
 
-## After Implementation
+If a problem could be solved with an advanced pattern, map it to the 
+fundamental bruteforce skills (e.g., nested_iteration, accumulator_pattern, 
+search_pattern, filter_pattern).
 
-1. Run "Regenerate Weights" -- all 951 questions should get `skill_weights` populated
-2. Run "Regenerate Difficulty" -- all 951 questions should get difficulty scores
-3. Both operations should complete in under 5 minutes with the existing parallel batch updates
+=== CURRICULUM SEQUENCE ===
+
+Topics are taught in this order. Use this to inform prerequisite edges -- 
+skills from earlier topics should generally be prerequisites for skills 
+in later topics:
+
+1. Introduction to Python
+2. I/O Basics
+3. Operators & Conditional Statements
+4. Nested Conditions
+5. Loops
+6. Loop Control Statements
+7. Comparing Strings & Naming Variables
+8. Lists
+9. Functions
+10. Tuples & Sets
+11. Dictionaries
+12. Introduction to Object Oriented Programming
+13. Miscellaneous Topics
+```
+
+**User prompt enhancement** -- when `topicMap` is provided, questions are formatted with their topic:
+
+```
+Questions to analyze:
+
+--- Topic: Loops (Position 5 in curriculum) ---
+1. Print numbers from 1 to N.
+   Input: An integer N
+   Output: Numbers 1 to N
+   Explanation: Use a for loop
+
+--- Topic: Lists (Position 8 in curriculum) ---
+2. Find the maximum element in a list.
+   ...
+```
+
+### Backward Compatibility
+
+- If no `Topic:` headers are present in input, all questions default to topic "General"
+- If no `topicMap` is sent to the edge function, behavior is identical to current
+- The curriculum sequence is always included in the system prompt (since the only active use case is Programming Foundations)
+
+### UI Changes
+
+- Landing page placeholder updated to show one `Topic:` header example
+- Collapsible "Add More Questions" placeholder also shows `Topic:` format
+- No new input fields needed -- topic info goes directly in the question text area
 
