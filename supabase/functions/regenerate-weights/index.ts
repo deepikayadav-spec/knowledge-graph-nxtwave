@@ -8,7 +8,11 @@ const corsHeaders = {
 /**
  * Regenerate weights edge function
  * Re-analyzes existing questions to identify up to 2 primary knowledge points
- * and populate skill_weights
+ * and populate skill_weights.
+ * 
+ * IMPORTANT: Uses numeric indices (1, 2, 3...) instead of UUIDs in prompts
+ * to prevent the AI from fabricating IDs. Results are remapped back to real
+ * UUIDs before returning.
  */
 
 const systemPrompt = `You are a Knowledge Graph Weight Analyzer. Your task is to analyze questions and their associated skills to:
@@ -33,17 +37,19 @@ const systemPrompt = `You are a Knowledge Graph Weight Analyzer. Your task is to
 
 === OUTPUT FORMAT ===
 
-Return a JSON object where keys are question IDs and values contain:
+Return a JSON object where keys are the NUMERIC INDICES (1, 2, 3, etc.) matching the question numbers in the input:
 {
-  "question_id_1": {
+  "1": {
     "primarySkills": ["skill_a"],
     "skillWeights": {"skill_a": 0.6, "skill_b": 0.2, "skill_c": 0.2}
   },
-  "question_id_2": {
+  "2": {
     "primarySkills": ["skill_x", "skill_y"],
     "skillWeights": {"skill_x": 0.3, "skill_y": 0.3, "skill_z": 0.4}
   }
 }
+
+CRITICAL: Use the EXACT numeric index (1, 2, 3...) as keys. Do NOT invent or modify identifiers.
 
 Output ONLY valid JSON, no explanation.`;
 
@@ -126,12 +132,18 @@ serve(async (req) => {
 
     console.log(`[regenerate-weights] Analyzing ${questions.length} questions for primary skills and weights`);
 
-    // Build user prompt with questions
+    // Build index-to-UUID mapping
+    const indexToId: Record<number, string> = {};
+    questions.forEach((q, i) => {
+      indexToId[i + 1] = q.id;
+    });
+
+    // Build user prompt with NUMERIC INDICES only (no UUIDs exposed to AI)
     const questionsList = questions.map((q, i) => 
-      `${i + 1}. ID: ${q.id}\n   Question: ${q.questionText.substring(0, 200)}${q.questionText.length > 200 ? '...' : ''}\n   Skills: [${q.skills.join(', ')}]`
+      `${i + 1}. Question: ${q.questionText.substring(0, 200)}${q.questionText.length > 200 ? '...' : ''}\n   Skills: [${q.skills.join(', ')}]`
     ).join('\n\n');
 
-    const userPrompt = `Analyze these questions and generate primary skills (1-2 max) and weights for each:
+    const userPrompt = `Analyze these questions and generate primary skills (1-2 max) and weights for each.
 
 ${questionsList}
 
@@ -139,7 +151,7 @@ For each question, identify:
 1. Primary skill(s) - the main cognitive challenge (1-2 skills max)
 2. Skill weights - how cognitive load is distributed (must sum to 1.0)
 
-Return JSON with question IDs as keys.`;
+Return JSON with the NUMERIC INDEX (1, 2, 3, etc.) as keys. Do NOT use any other identifiers.`;
 
     const model = "google/gemini-2.5-flash";
     const maxTokens = Math.min(4000 + questions.length * 200, 16000);
@@ -185,12 +197,30 @@ Return JSON with question IDs as keys.`;
       throw new Error("No content in AI response");
     }
 
-    const weightData = extractJsonFromResponse(content);
+    const rawData = extractJsonFromResponse(content);
     
-    console.log(`[regenerate-weights] Generated weights for ${Object.keys(weightData).length} questions`);
+    // Remap numeric indices back to real UUIDs
+    const weightData: Record<string, any> = {};
+    let mapped = 0;
+    let unmapped = 0;
 
-    // Add version marker so we can confirm latest deployment is being used
-    weightData._version = "2026-02-09-v2";
+    for (const [key, value] of Object.entries(rawData)) {
+      const numericIndex = parseInt(key, 10);
+      const realId = indexToId[numericIndex];
+      
+      if (realId) {
+        weightData[realId] = value;
+        mapped++;
+      } else {
+        console.warn(`[regenerate-weights] No mapping for key "${key}" (parsed as ${numericIndex})`);
+        unmapped++;
+      }
+    }
+
+    console.log(`[regenerate-weights] Remapped ${mapped} results to real UUIDs (${unmapped} unmapped keys)`);
+
+    // Add version marker
+    weightData._version = "2026-02-09-v3-numeric-index";
 
     return new Response(JSON.stringify(weightData), {
       headers: { ...corsHeaders, "Content-Type": "application/json" },

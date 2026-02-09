@@ -53,6 +53,9 @@ export function useRegenerateWeights(): UseRegenerateWeightsReturn {
         return false;
       }
 
+      // Build a set of valid question IDs for validation
+      const validIds = new Set(questions.map(q => q.id));
+
       const total = questions.length;
       console.log(`[useRegenerateWeights] Loaded ${total} questions for graph ${graphId}`);
       setProgress({ phase: 'analyzing', current: 0, total, message: `Analyzing ${total} questions...` });
@@ -103,18 +106,29 @@ export function useRegenerateWeights(): UseRegenerateWeightsReturn {
             continue;
           }
 
-          // Log version marker and raw response shape
+          // Log version marker
           if (data?._version) {
             console.log(`[useRegenerateWeights] Function version: ${data._version}`);
           }
-          console.log(`[useRegenerateWeights] Batch ${batchIdx + 1} raw response keys:`, Object.keys(data || {}));
 
           // Remove version marker before processing
           const batchResults = { ...data };
           delete batchResults._version;
 
-          const resultsCount = Object.keys(batchResults).length;
-          console.log(`[useRegenerateWeights] Batch ${batchIdx + 1}/${batches.length}: got ${resultsCount} results`);
+          // Validate returned IDs against known question IDs
+          let validCount = 0;
+          let invalidCount = 0;
+          for (const key of Object.keys(batchResults)) {
+            if (validIds.has(key)) {
+              validCount++;
+            } else {
+              console.warn(`[useRegenerateWeights] ⚠️ INVALID ID from edge function: "${key}" — not in question set!`);
+              delete batchResults[key];
+              invalidCount++;
+            }
+          }
+
+          console.log(`[useRegenerateWeights] Batch ${batchIdx + 1}/${batches.length}: ${validCount} valid, ${invalidCount} invalid IDs`);
           Object.assign(allResults, batchResults);
         } catch (batchError) {
           console.error(`[useRegenerateWeights] Batch ${batchIdx + 1} exception:`, batchError);
@@ -136,12 +150,13 @@ export function useRegenerateWeights(): UseRegenerateWeightsReturn {
         throw new Error(`All ${batches.length} batches failed. Last error: ${lastError || 'Unknown'}`);
       }
 
-      // Phase 3: Batch database updates
+      // Phase 3: Batch database updates with row-count verification
       setProgress({ phase: 'updating', current: 0, total: totalResults, message: 'Updating database...' });
 
       const entries = Object.entries(allResults);
       let updated = 0;
       let updateErrors = 0;
+      let zeroRowUpdates = 0;
 
       for (let i = 0; i < entries.length; i += DB_BATCH_SIZE) {
         const dbBatch = entries.slice(i, i + DB_BATCH_SIZE);
@@ -155,20 +170,25 @@ export function useRegenerateWeights(): UseRegenerateWeightsReturn {
                 skill_weights: weights.skillWeights || {},
               })
               .eq('id', questionId)
-              .then(({ error }) => {
+              .select('id')
+              .then(({ data, error }) => {
                 if (error) {
-                  console.error(`[useRegenerateWeights] DB update FAILED for ${questionId}:`, error.message);
+                  console.error(`[useRegenerateWeights] DB error for ${questionId}:`, error.message);
                   return false;
                 }
-                console.log(`[useRegenerateWeights] DB update OK: ${questionId}`);
+                if (!data || data.length === 0) {
+                  console.error(`[useRegenerateWeights] ⚠️ ZERO ROWS updated for ${questionId} — ID not found in DB!`);
+                  return false;
+                }
                 return true;
               })
           )
         );
 
         const batchSuccess = results.filter(Boolean).length;
+        const batchFail = results.length - batchSuccess;
         updated += batchSuccess;
-        updateErrors += results.length - batchSuccess;
+        updateErrors += batchFail;
 
         setProgress({
           phase: 'updating',
@@ -178,7 +198,7 @@ export function useRegenerateWeights(): UseRegenerateWeightsReturn {
         });
       }
 
-      console.log(`[useRegenerateWeights] DB update complete: ${updated} succeeded, ${updateErrors} failed`);
+      console.log(`[useRegenerateWeights] DB update complete: ${updated} succeeded, ${updateErrors} failed (${zeroRowUpdates} zero-row updates)`);
 
       setProgress({ phase: 'complete', current: totalResults, total: totalResults, message: 'Regeneration complete!' });
 

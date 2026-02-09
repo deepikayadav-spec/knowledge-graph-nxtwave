@@ -40,6 +40,8 @@ export function useRegenerateDifficulty(): UseRegenerateDifficultyReturn {
   const regenerate = useCallback(async (graphId: string): Promise<boolean> => {
     if (!graphId) return false;
 
+    console.log(`[useRegenerateDifficulty] ===== Starting regeneration for graph: ${graphId} =====`);
+
     try {
       // Phase 1: Load questions
       setProgress({ phase: 'loading', current: 0, total: 0, message: 'Loading questions...' });
@@ -60,6 +62,9 @@ export function useRegenerateDifficulty(): UseRegenerateDifficultyReturn {
         return false;
       }
 
+      // Build a set of valid question IDs for validation
+      const validIds = new Set(questions.map(q => q.id));
+
       const total = questions.length;
       console.log(`[useRegenerateDifficulty] Loaded ${total} questions for graph ${graphId}`);
       setProgress({ phase: 'analyzing', current: 0, total, message: `Analyzing ${total} questions...` });
@@ -72,6 +77,7 @@ export function useRegenerateDifficulty(): UseRegenerateDifficultyReturn {
 
       const allResults: Record<string, DifficultyResult> = {};
       let failedBatches = 0;
+      let lastError = '';
 
       for (let batchIdx = 0; batchIdx < batches.length; batchIdx++) {
         const batch = batches[batchIdx];
@@ -85,6 +91,7 @@ export function useRegenerateDifficulty(): UseRegenerateDifficultyReturn {
         });
 
         try {
+          console.log(`[useRegenerateDifficulty] Sending batch ${batchIdx + 1}/${batches.length} with ${batch.length} questions`);
           const { data, error } = await supabase.functions.invoke('analyze-difficulty', {
             body: {
               questions: batch.map(q => ({
@@ -97,21 +104,45 @@ export function useRegenerateDifficulty(): UseRegenerateDifficultyReturn {
           if (error) {
             console.error(`[useRegenerateDifficulty] Batch ${batchIdx + 1} invoke error:`, error);
             failedBatches++;
+            lastError = error.message || String(error);
             continue;
           }
 
           if (data?.error) {
             console.error(`[useRegenerateDifficulty] Batch ${batchIdx + 1} returned error:`, data.error);
             failedBatches++;
+            lastError = data.error;
             continue;
           }
 
-          const resultsCount = Object.keys(data || {}).length;
-          console.log(`[useRegenerateDifficulty] Batch ${batchIdx + 1}/${batches.length}: got ${resultsCount} results`);
-          Object.assign(allResults, data);
+          // Log version marker
+          if (data?._version) {
+            console.log(`[useRegenerateDifficulty] Function version: ${data._version}`);
+          }
+
+          // Remove version marker before processing
+          const batchResults = { ...data };
+          delete batchResults._version;
+
+          // Validate returned IDs against known question IDs
+          let validCount = 0;
+          let invalidCount = 0;
+          for (const key of Object.keys(batchResults)) {
+            if (validIds.has(key)) {
+              validCount++;
+            } else {
+              console.warn(`[useRegenerateDifficulty] ⚠️ INVALID ID from edge function: "${key}" — not in question set!`);
+              delete batchResults[key];
+              invalidCount++;
+            }
+          }
+
+          console.log(`[useRegenerateDifficulty] Batch ${batchIdx + 1}/${batches.length}: ${validCount} valid, ${invalidCount} invalid IDs`);
+          Object.assign(allResults, batchResults);
         } catch (batchError) {
           console.error(`[useRegenerateDifficulty] Batch ${batchIdx + 1} exception:`, batchError);
           failedBatches++;
+          lastError = batchError instanceof Error ? batchError.message : String(batchError);
         }
 
         // Delay between AI batches
@@ -125,10 +156,10 @@ export function useRegenerateDifficulty(): UseRegenerateDifficultyReturn {
       console.log(`[useRegenerateDifficulty] AI analysis complete: ${totalResults} results from ${batches.length} batches (${failedBatches} failed)`);
 
       if (totalResults === 0) {
-        throw new Error(`All ${batches.length} batches failed. Check logs for details.`);
+        throw new Error(`All ${batches.length} batches failed. Last error: ${lastError || 'Unknown'}`);
       }
 
-      // Phase 3: Batch database updates
+      // Phase 3: Batch database updates with row-count verification
       setProgress({ phase: 'updating', current: 0, total: totalResults, message: 'Updating database...' });
 
       const entries = Object.entries(allResults);
@@ -150,9 +181,14 @@ export function useRegenerateDifficulty(): UseRegenerateDifficultyReturn {
                 weightage_multiplier: difficulty.weightageMultiplier,
               })
               .eq('id', questionId)
-              .then(({ error }) => {
+              .select('id')
+              .then(({ data, error }) => {
                 if (error) {
-                  console.error(`[useRegenerateDifficulty] Failed to update ${questionId}:`, error.message);
+                  console.error(`[useRegenerateDifficulty] DB error for ${questionId}:`, error.message);
+                  return false;
+                }
+                if (!data || data.length === 0) {
+                  console.error(`[useRegenerateDifficulty] ⚠️ ZERO ROWS updated for ${questionId} — ID not found in DB!`);
                   return false;
                 }
                 return true;

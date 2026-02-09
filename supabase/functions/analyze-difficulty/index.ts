@@ -7,19 +7,11 @@ const corsHeaders = {
 
 /**
  * Analyze Difficulty Edge Function
- * Uses AI to analyze coding questions and assign difficulty scores based on a rubric.
+ * Uses AI to analyze coding questions and assign difficulty scores.
  * 
- * Rubric Dimensions:
- * - Cognitive Complexity (1-4): Bloom's taxonomy level
- * - Task Structure (1-3): Problem definition clarity
- * - Algorithmic Demands (1-3): Efficiency requirements
- * - Scope & Integration (1-3): Concept integration level
- * 
- * Multiplier Mapping:
- * - 4-6 points: 1.0x (Basic/Novice)
- * - 7-9 points: 1.5x (Intermediate)
- * - 10-11 points: 2.0x (Advanced)
- * - 12-13 points: 3.0x (Expert)
+ * IMPORTANT: Uses numeric indices (1, 2, 3...) instead of UUIDs in prompts
+ * to prevent the AI from fabricating IDs. Results are remapped back to real
+ * UUIDs before returning.
  */
 
 const systemPrompt = `You are a Coding Question Difficulty Analyzer. Your task is to analyze coding questions and assign difficulty scores based on a standardized rubric.
@@ -59,27 +51,11 @@ Calculate total points (4-13) and map to multiplier:
 - 10-11 points → 2.0x (Advanced)
 - 12-13 points → 3.0x (Expert)
 
-=== EXAMPLES ===
-
-Q: "Write a function to check if a number is even"
-- Cognitive: 1 (Remember: simple modulo)
-- Structure: 1 (Well-defined)
-- Algorithmic: 1 (Any solution)
-- Scope: 1 (Single concept)
-- Total: 4 → 1.0x Basic
-
-Q: "Implement a LRU cache with O(1) get/put operations"
-- Cognitive: 4 (Create: design data structure)
-- Structure: 2 (Partially defined: design choices)
-- Algorithmic: 3 (Optimal: specific complexity)
-- Scope: 3 (System: multiple data structures)
-- Total: 12 → 3.0x Expert
-
 === OUTPUT FORMAT ===
 
-Return a JSON object where keys are question IDs:
+Return a JSON object where keys are the NUMERIC INDICES (1, 2, 3, etc.) matching the question numbers:
 {
-  "question_id_1": {
+  "1": {
     "cognitiveComplexity": 2,
     "taskStructure": 1,
     "algorithmicDemands": 2,
@@ -88,6 +64,8 @@ Return a JSON object where keys are question IDs:
     "weightageMultiplier": 1.0
   }
 }
+
+CRITICAL: Use the EXACT numeric index (1, 2, 3...) as keys. Do NOT invent or modify identifiers.
 
 Output ONLY valid JSON, no explanation.`;
 
@@ -112,23 +90,13 @@ function calculateMultiplier(rawPoints: number): number {
   return 3.0;
 }
 
-// ============= ROBUST JSON PARSING UTILITIES =============
-
-/**
- * Sanitize question text to prevent JSON corruption
- */
 function sanitizeQuestionText(text: string): string {
   return text
-    // Remove control characters
     .replace(/[\x00-\x08\x0B\x0C\x0E-\x1F\x7F]/g, '')
-    // Normalize whitespace
     .replace(/\s+/g, ' ')
     .trim();
 }
 
-/**
- * Detect if JSON is likely truncated (unbalanced brackets)
- */
 function isLikelyTruncatedJson(text: string): boolean {
   const openCurly = (text.match(/\{/g) || []).length;
   const closeCurly = (text.match(/\}/g) || []).length;
@@ -137,9 +105,6 @@ function isLikelyTruncatedJson(text: string): boolean {
   return openCurly !== closeCurly || openSquare !== closeSquare;
 }
 
-/**
- * Attempt to repair truncated JSON by finding last valid position and closing brackets
- */
 function attemptJsonRepair(text: string): any | null {
   let repaired = text.trim();
   let openCurly = 0;
@@ -150,87 +115,48 @@ function attemptJsonRepair(text: string): any | null {
 
   for (let i = 0; i < repaired.length; i++) {
     const char = repaired[i];
-
-    if (escapeNext) {
-      escapeNext = false;
-      continue;
-    }
-
-    if (char === '\\') {
-      escapeNext = true;
-      continue;
-    }
-
-    if (char === '"') {
-      inString = !inString;
-      continue;
-    }
-
+    if (escapeNext) { escapeNext = false; continue; }
+    if (char === '\\') { escapeNext = true; continue; }
+    if (char === '"') { inString = !inString; continue; }
     if (inString) continue;
 
-    if (char === '{') {
-      openCurly++;
-    } else if (char === '}') {
+    if (char === '{') openCurly++;
+    else if (char === '}') {
       openCurly--;
-      if (openCurly >= 0 && openSquare >= 0) {
-        lastValidPos = i + 1;
-      }
-    } else if (char === '[') {
-      openSquare++;
-    } else if (char === ']') {
+      if (openCurly >= 0 && openSquare >= 0) lastValidPos = i + 1;
+    } else if (char === '[') openSquare++;
+    else if (char === ']') {
       openSquare--;
-      if (openCurly >= 0 && openSquare >= 0) {
-        lastValidPos = i + 1;
-      }
+      if (openCurly >= 0 && openSquare >= 0) lastValidPos = i + 1;
     }
   }
 
-  // If we found a valid position before the end, truncate there
   if (lastValidPos > 0 && lastValidPos < repaired.length) {
     repaired = repaired.substring(0, lastValidPos);
   }
 
-  // Recount brackets after potential truncation
   openCurly = (repaired.match(/\{/g) || []).length - (repaired.match(/\}/g) || []).length;
   openSquare = (repaired.match(/\[/g) || []).length - (repaired.match(/\]/g) || []).length;
 
-  // Close any remaining open brackets
-  while (openSquare > 0) {
-    repaired += ']';
-    openSquare--;
-  }
-  while (openCurly > 0) {
-    repaired += '}';
-    openCurly--;
-  }
+  while (openSquare > 0) { repaired += ']'; openSquare--; }
+  while (openCurly > 0) { repaired += '}'; openCurly--; }
 
-  // Clean up trailing commas
   repaired = repaired.replace(/,\s*}/g, '}').replace(/,\s*]/g, ']');
 
-  try {
-    return JSON.parse(repaired);
-  } catch {
-    return null;
-  }
+  try { return JSON.parse(repaired); } catch { return null; }
 }
 
-/**
- * Get default difficulty result for questions that fail to parse
- */
 function getDefaultDifficultyResult(): DifficultyResult {
   return {
-    cognitiveComplexity: 2,  // Apply level
-    taskStructure: 1,        // Well-defined
-    algorithmicDemands: 1,   // Any solution
-    scopeIntegration: 1,     // Single concept
+    cognitiveComplexity: 2,
+    taskStructure: 1,
+    algorithmicDemands: 1,
+    scopeIntegration: 1,
     rawPoints: 5,
-    weightageMultiplier: 1.0, // Basic default
+    weightageMultiplier: 1.0,
   };
 }
 
-/**
- * Extract and parse JSON from AI response with multiple fallback strategies
- */
 function extractJsonFromResponse(response: string): any {
   let cleaned = response
     .replace(/```json\s*/gi, "")
@@ -252,13 +178,10 @@ function extractJsonFromResponse(response: string): any {
     .replace(/\t+/g, " ")
     .trim();
 
-  // First attempt: direct parse
   try {
     return JSON.parse(cleaned);
   } catch (e) {
     console.log("[analyze-difficulty] First parse failed, attempting cleanup...");
-    
-    // Second attempt: cleanup trailing commas and control chars
     cleaned = cleaned
       .replace(/,\s*}/g, "}")
       .replace(/,\s*]/g, "]")
@@ -267,13 +190,9 @@ function extractJsonFromResponse(response: string): any {
     try {
       return JSON.parse(cleaned);
     } catch (secondError) {
-      // Debug logging for troubleshooting
-      console.error("[analyze-difficulty] Parse failed. First 500 chars:", 
-        cleaned.substring(0, 500));
-      console.error("[analyze-difficulty] Last 500 chars:", 
-        cleaned.substring(Math.max(0, cleaned.length - 500)));
+      console.error("[analyze-difficulty] Parse failed. First 500 chars:", cleaned.substring(0, 500));
+      console.error("[analyze-difficulty] Last 500 chars:", cleaned.substring(Math.max(0, cleaned.length - 500)));
 
-      // Third attempt: repair truncated JSON
       if (isLikelyTruncatedJson(cleaned)) {
         console.log("[analyze-difficulty] Detected truncated JSON, attempting repair...");
         const repaired = attemptJsonRepair(cleaned);
@@ -289,14 +208,11 @@ function extractJsonFromResponse(response: string): any {
   }
 }
 
-function validateAndNormalize(result: any, questionId: string): DifficultyResult {
-  // If result is invalid or missing, return default
+function validateAndNormalize(result: any): DifficultyResult {
   if (!result || typeof result !== 'object') {
-    console.warn(`[analyze-difficulty] Invalid result for ${questionId}, using default`);
     return getDefaultDifficultyResult();
   }
   
-  // Ensure values are within valid ranges
   const cognitiveComplexity = Math.min(4, Math.max(1, Math.round(result.cognitiveComplexity || 1)));
   const taskStructure = Math.min(3, Math.max(1, Math.round(result.taskStructure || 1)));
   const algorithmicDemands = Math.min(3, Math.max(1, Math.round(result.algorithmicDemands || 1)));
@@ -305,14 +221,7 @@ function validateAndNormalize(result: any, questionId: string): DifficultyResult
   const rawPoints = cognitiveComplexity + taskStructure + algorithmicDemands + scopeIntegration;
   const weightageMultiplier = calculateMultiplier(rawPoints);
   
-  return {
-    cognitiveComplexity,
-    taskStructure,
-    algorithmicDemands,
-    scopeIntegration,
-    rawPoints,
-    weightageMultiplier,
-  };
+  return { cognitiveComplexity, taskStructure, algorithmicDemands, scopeIntegration, rawPoints, weightageMultiplier };
 }
 
 serve(async (req) => {
@@ -356,15 +265,19 @@ serve(async (req) => {
 
     console.log(`[analyze-difficulty] Analyzing ${questions.length} questions for difficulty`);
 
-    // Sanitize question text before sending to AI
+    // Build index-to-UUID mapping
+    const indexToId: Record<number, string> = {};
+    questions.forEach((q, i) => {
+      indexToId[i + 1] = q.id;
+    });
+
+    // Sanitize and build prompt with NUMERIC INDICES only (no UUIDs)
     const sanitizedQuestions = questions.map(q => ({
-      id: q.id,
       questionText: sanitizeQuestionText(q.questionText),
     }));
 
-    // Build user prompt with sanitized questions
     const questionsList = sanitizedQuestions.map((q, i) => 
-      `${i + 1}. ID: ${q.id}\n   Question: ${q.questionText.substring(0, 500)}${q.questionText.length > 500 ? '...' : ''}`
+      `${i + 1}. Question: ${q.questionText.substring(0, 500)}${q.questionText.length > 500 ? '...' : ''}`
     ).join('\n\n');
 
     const userPrompt = `Analyze these coding questions and score each on the 4 rubric dimensions:
@@ -379,7 +292,7 @@ For each question:
 5. Calculate total rawPoints
 6. Map to weightageMultiplier (4-6→1.0, 7-9→1.5, 10-11→2.0, 12-13→3.0)
 
-Return JSON with question IDs as keys.`;
+Return JSON with the NUMERIC INDEX (1, 2, 3, etc.) as keys. Do NOT use any other identifiers.`;
 
     const model = "google/gemini-2.5-flash";
     const maxTokens = Math.min(4000 + questions.length * 150, 16000);
@@ -431,27 +344,33 @@ Return JSON with question IDs as keys.`;
     try {
       rawResults = extractJsonFromResponse(content);
     } catch (parseError) {
-      // If complete parsing fails, return defaults for all questions
       console.error("[analyze-difficulty] Complete parse failure, using defaults for all questions:", parseError);
       rawResults = {};
-      for (const q of questions) {
-        rawResults[q.id] = null; // Will trigger default in validateAndNormalize
-      }
       usedFallbacks = questions.length;
     }
     
-    // Validate and normalize all results, filling in missing questions with defaults
+    // Remap numeric indices back to real UUIDs and validate/normalize
     const normalizedResults: Record<string, DifficultyResult> = {};
-    for (const q of questions) {
-      const result = rawResults[q.id];
-      if (!result) {
-        console.warn(`[analyze-difficulty] No result for question ${q.id}, using default`);
+    let mapped = 0;
+
+    for (let i = 0; i < questions.length; i++) {
+      const numericKey = String(i + 1);
+      const realId = questions[i].id;
+      const rawResult = rawResults[numericKey];
+      
+      if (!rawResult) {
+        console.warn(`[analyze-difficulty] No result for index ${numericKey} (question ${realId}), using default`);
         usedFallbacks++;
       }
-      normalizedResults[q.id] = validateAndNormalize(result, q.id);
+      
+      normalizedResults[realId] = validateAndNormalize(rawResult);
+      mapped++;
     }
     
-    console.log(`[analyze-difficulty] Generated difficulty scores for ${Object.keys(normalizedResults).length} questions (${usedFallbacks} used fallback defaults)`);
+    console.log(`[analyze-difficulty] Remapped ${mapped} results to real UUIDs (${usedFallbacks} used fallback defaults)`);
+
+    // Add version marker
+    normalizedResults._version = "2026-02-09-v3-numeric-index" as any;
 
     return new Response(JSON.stringify(normalizedResults), {
       headers: { ...corsHeaders, "Content-Type": "application/json" },
