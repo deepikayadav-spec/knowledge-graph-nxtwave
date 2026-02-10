@@ -1014,11 +1014,26 @@ Generate the knowledge graph JSON.`;
       console.warn('[IPA/LTA] Response was truncated due to max tokens limit');
     }
     
-    const content = data.choices?.[0]?.message?.content;
+    let content = data.choices?.[0]?.message?.content;
 
-    if (!content) {
+    // Handle upstream provider errors wrapped in a 200 response (e.g., 502 "Network connection lost")
+    const choiceError = data.choices?.[0]?.error;
+    if ((!content || content.trim() === '') && choiceError) {
+      const providerCode = choiceError.code || 'unknown';
+      const providerMsg = choiceError.message || 'Unknown provider error';
+      console.error(`[IPA/LTA] Upstream provider error (code ${providerCode}): ${providerMsg}`);
+      return new Response(
+        JSON.stringify({ error: `AI service temporarily unavailable (${providerMsg}). Please try again.` }),
+        { status: 503, headers: { ...corsHeaders, "Content-Type": "application/json" } }
+      );
+    }
+
+    if (!content || content.trim() === '') {
       console.error("[IPA/LTA] No content in response. Full response:", JSON.stringify(data));
-      throw new Error("No content in AI response");
+      return new Response(
+        JSON.stringify({ error: "AI returned an empty response. Please try again." }),
+        { status: 502, headers: { ...corsHeaders, "Content-Type": "application/json" } }
+      );
     }
 
     let graphData;
