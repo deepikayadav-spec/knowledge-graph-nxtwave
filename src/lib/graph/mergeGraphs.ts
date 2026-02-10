@@ -93,6 +93,7 @@ const MANDATORY_EDGES: Array<{from: string; to: string; reason: string}> = [
   { from: 'string_indexing', to: 'string_slicing', reason: 'slicing builds on indexing' },
   { from: 'conditional_branching', to: 'filter_pattern', reason: 'filtering requires if/else' },
   { from: 'basic_output', to: 'formatted_output', reason: 'formatting builds on basic output' },
+  { from: 'loop_iteration', to: 'nested_iteration', reason: 'nested loops require understanding single loops' },
 ];
 
 function injectMandatoryEdges(nodes: GraphNode[], edges: GraphEdge[]): GraphEdge[] {
