@@ -1,83 +1,110 @@
 
 
-# Fix: No Premature Skill Nodes + Enforce Transitive Reduction
+# Fix: Enforce True DAG + Correct Edge Semantics + Close Remaining Gaps
 
-## Problem 1: Skills appearing before their topic is introduced
+## What's Already Done (no changes needed)
 
-The reference skill catalog lists `loop_iteration`, `dictionary_operations`, `function_calls`, etc. unconditionally. The AI sees this catalog and creates these nodes even when the input questions (e.g., Topics 1-3) don't require them. The prompt says "map to these first," which the AI interprets as "include them."
+- Bidirectional edge prevention (both mergeGraphs.ts and edge function)
+- Transitive reduction algorithm (both files)
+- Catalog naming consistency + curriculum awareness in prompt
+- Recursion added as Topic 10
 
-**Fix**: Add an explicit instruction to the system prompt: "Only create nodes for skills that are ACTUALLY REQUIRED by the given questions. The catalog is for naming consistency, not for pre-populating the graph."
+## What's Still Missing (5 changes)
 
-Additionally, add a curriculum-aware constraint: "If a question is tagged with a topic (e.g., Topic 3: Operators), do NOT create skill nodes from topics that come LATER in the curriculum sequence (e.g., no loop_iteration for a Topic 3 question)."
+### 1. Cognitive Prerequisite Semantics in Prompt
 
-## Problem 2: Redundant transitive edges (Type Recognition -> Arithmetic Operations)
+**File:** `supabase/functions/generate-graph/index.ts` (Phase 4 section, lines 178-195)
 
-The prompt already instructs "If A -> B and B -> C, do NOT add direct A -> C" (line 178), but the AI doesn't reliably follow this. In your example: Type Recognition -> Variable Assignment -> Arithmetic Operations, so the direct Type Recognition -> Arithmetic Operations edge is redundant.
-
-**Fix**: Add a programmatic transitive reduction step as post-processing -- both in the edge function (for each batch) and in `mergeGraphs.ts` (after merging batches). This algorithmically removes any edge A -> C where a path A -> ... -> C already exists through intermediate nodes.
-
-## Changes
-
-### File: `supabase/functions/generate-graph/index.ts`
-
-1. **Update system prompt** (around line 41-78, the catalog section): Add this clarification after "ONLY create a new skill if NONE of the above apply":
+Replace the current prerequisite guidance with explicit RIGHT/WRONG examples:
 
 ```
-IMPORTANT: The catalog is for NAMING CONSISTENCY only. Do NOT create nodes 
-for skills that are not required by the given questions. If no question 
-requires loop_iteration, do NOT include it in the output.
+PREREQUISITE means COGNITIVE DEPENDENCY, not execution order:
+- Ask: "Can a student LEARN skill B without ever having been taught skill A?"
+- If YES -> no edge needed
+- If NO -> add edge A -> B
 
-CURRICULUM AWARENESS: When questions are tagged with a topic, do NOT 
-create skill nodes from topics that come LATER in the curriculum. 
-For example, if all questions are from "Operators & Conditional Statements" 
-(Topic 3), do NOT create loop_iteration (Topic 5) or function_calls (Topic 9).
+WRONG edges (execution order, not learning dependency):
+- string_concatenation -> basic_output (you don't need concat to learn print())
+- basic_output -> variable_assignment (you don't need print to learn x = 5)
+
+RIGHT edges (true cognitive dependencies):
+- variable_assignment -> basic_input (input() is useless without storing the result)
+- string_indexing -> string_slicing (slicing syntax builds on indexing concepts)
+
+FOUNDATIONAL TIER RULE: Foundational skills (variable_assignment, basic_output,
+arithmetic_operations, type_recognition) are independent entry points. Do NOT
+create prerequisite edges BETWEEN foundational-tier skills unless one genuinely
+cannot be UNDERSTOOD without the other.
 ```
 
-2. **Add transitive reduction post-processing** (after the existing cycle-stripping code, around line 747): After filtering bidirectional edges, apply transitive reduction:
+### 2. Long-Path Cycle Breaking (Kahn's Algorithm)
+
+**Files:** `supabase/functions/generate-graph/index.ts` AND `src/lib/graph/mergeGraphs.ts`
+
+Add a `breakCycles` function that runs AFTER transitive reduction. This catches cycles like A -> B -> C -> A that bidirectional checks miss.
+
+Algorithm (Kahn's topological sort):
+1. Count in-degrees for all nodes referenced in edges
+2. Queue all nodes with in-degree 0
+3. Process queue: for each node, decrement in-degree of neighbors
+4. Any edges involving unprocessed nodes form cycles
+5. Remove cycle-forming edges (prefer removing edges between same-tier nodes, e.g., foundational -> foundational)
+6. Repeat until no cycles remain
+
+### 3. Orphan Edge Cleanup
+
+**Files:** Both `generate-graph/index.ts` and `mergeGraphs.ts`
+
+After all edge processing, filter out any edge where `from` or `to` references a node ID that doesn't exist in the final node list. Currently, if the AI hallucinates a node ID or semantic dedup removes a node, its edges silently remain as dangling references.
 
 ```typescript
-// Transitive reduction: remove edge A->C if path A->...->C exists
-function transitiveReduce(nodes, edges) {
-  // Build adjacency list
-  // For each edge A->C, check if there's an alternative path A->...->C
-  // via BFS/DFS excluding the direct edge
-  // If yes, remove the direct edge
+const nodeIds = new Set(nodes.map(n => n.id));
+edges = edges.filter(e => nodeIds.has(e.from) && nodeIds.has(e.to));
+```
+
+### 4. Level Recomputation
+
+**Files:** Both `generate-graph/index.ts` and `mergeGraphs.ts`
+
+After cycle breaking and edge cleanup, recompute node levels from the final edge set rather than trusting the AI-assigned levels. The AI's levels become stale after edges are removed.
+
+```typescript
+function recomputeLevels(nodes, edges) {
+  // Build adjacency and compute level = 1 + max(level of prerequisites)
+  // Nodes with no incoming edges get level 0
+  // Topological order traversal to assign levels
 }
 ```
 
-### File: `src/lib/graph/mergeGraphs.ts`
+### 5. Question Path Validation
 
-3. **Add transitive reduction after merge**: After `deduplicateSemanticDuplicates` returns, apply the same transitive reduction algorithm to strip any redundant edges that appeared across batches.
+**File:** `mergeGraphs.ts`
 
-A new utility function `transitiveReduce(edges)` will be created that:
-- Builds an adjacency map from the edge list
-- For each edge A -> C, temporarily removes it and checks if C is still reachable from A
-- If reachable (meaning an indirect path exists), the edge is redundant and gets removed
-- Returns the reduced edge list
+After all processing, validate that every node ID referenced in `questionPaths` actually exists in the final node list. Remove references to deleted/merged nodes that weren't caught by the ID remapping.
 
-## Technical Detail: Transitive Reduction Algorithm
+## Processing Pipeline (Final Order)
 
 ```text
-For each edge (A -> C):
-  1. Build adjacency list from all edges
-  2. Remove edge A -> C temporarily  
-  3. BFS/DFS from A: can we still reach C?
-  4. If YES -> edge is redundant, drop it
-  5. If NO -> edge is necessary, keep it
+Edge Function (per batch):
+  AI Response -> Parse JSON -> Strip Bidirectional -> Transitive Reduce -> Cycle Break -> Orphan Cleanup -> Recompute Levels -> Return
+
+mergeGraphs (across batches):
+  Merge Nodes -> Merge Edges (bidirectional check) -> Semantic Dedupe -> Transitive Reduce -> Cycle Break -> Orphan Cleanup -> Recompute Levels -> Validate Paths -> Return
 ```
 
-This runs in O(E * (V + E)) which is fine for graphs with fewer than 1000 nodes.
+## File Change Summary
 
-## Summary
-
-| File | Change |
-|------|--------|
-| `supabase/functions/generate-graph/index.ts` | Add "catalog is for naming only" + "respect curriculum order" instructions to prompt. Add transitive reduction post-processing after cycle stripping. |
-| `src/lib/graph/mergeGraphs.ts` | Add transitive reduction as final step after semantic deduplication. |
+| File | Changes |
+|------|---------|
+| `supabase/functions/generate-graph/index.ts` | Update Phase 4 prompt with cognitive dependency examples + foundational tier rule. Add `breakCycles()`, orphan edge cleanup, and `recomputeLevels()` post-processing. |
+| `src/lib/graph/mergeGraphs.ts` | Add `breakCycles()`, orphan edge cleanup, `recomputeLevels()`, and question path validation after transitive reduction. |
 
 ## Expected Result
 
-- Questions from Topics 1-3 will no longer generate `loop_iteration`, `function_calls`, or other later-topic nodes
-- Redundant edges like Type Recognition -> Arithmetic Operations (when path exists via Variable Assignment) will be automatically removed
-- The graph will be cleaner and flatter, with only necessary prerequisite edges
+- No cycles of any length (guaranteed by Kahn's algorithm)
+- Foundational skills stay independent at level 0
+- Edges represent "you must understand A to learn B", not "A runs before B in code"
+- No dangling edge references to non-existent nodes
+- Node levels always match the actual prerequisite structure
+- Clean, minimal DAG that reads as a logical learning progression
 
