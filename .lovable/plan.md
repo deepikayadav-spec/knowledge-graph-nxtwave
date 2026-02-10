@@ -1,110 +1,113 @@
 
 
-# Fix: Enforce True DAG + Correct Edge Semantics + Close Remaining Gaps
+# Fix: Rebalance Edge Generation -- Too Conservative to Properly Connected
 
-## What's Already Done (no changes needed)
+## Problem
 
-- Bidirectional edge prevention (both mergeGraphs.ts and edge function)
-- Transitive reduction algorithm (both files)
-- Catalog naming consistency + curriculum awareness in prompt
-- Recursion added as Topic 10
+The prompt currently says "Do NOT create prerequisite edges BETWEEN foundational-tier skills" which the AI interprets as "avoid edges between anything at level 0." Combined with Topics 1-2 questions (which are mostly foundational), this results in nearly zero edges and a flat graph.
 
-## What's Still Missing (5 changes)
+Additionally, `loop_iteration` and `accumulator_pattern` appear for simple repetition problems (e.g., "print Hello three times") because the AI maps repetition to loops instead of brute-force repeated statements.
 
-### 1. Cognitive Prerequisite Semantics in Prompt
+## Changes
 
-**File:** `supabase/functions/generate-graph/index.ts` (Phase 4 section, lines 178-195)
+### File: `supabase/functions/generate-graph/index.ts`
 
-Replace the current prerequisite guidance with explicit RIGHT/WRONG examples:
+**1. Rewrite the Phase 4 prerequisite guidance (lines 178-202)**
+
+Replace the overly restrictive Foundational Tier Rule with a balanced version that:
+- Keeps the cognitive dependency test (not execution order)
+- Provides a comprehensive list of CORRECT edges the AI should create
+- Narrows the foundational independence rule to only truly independent concepts
+- Adds a "MINIMUM CONNECTIVITY" instruction so the AI doesn't under-connect
+
+New text:
 
 ```
 PREREQUISITE means COGNITIVE DEPENDENCY, not execution order:
 - Ask: "Can a student LEARN skill B without ever having been taught skill A?"
-- If YES -> no edge needed
+- If YES -> no edge needed  
 - If NO -> add edge A -> B
+
+CORRECT prerequisite edges (USE THESE as reference):
+- variable_assignment -> basic_input (input() requires storing the result)
+- variable_assignment -> type_conversion (you convert values stored in variables)
+- variable_assignment -> string_concatenation (you concatenate values in variables)
+- type_recognition -> type_conversion (must recognize types before converting)
+- arithmetic_operations -> comparison_operators (comparisons often involve computed values)
+- comparison_operators -> conditional_branching (conditions use comparisons)
+- conditional_branching -> nested_conditions (nesting requires understanding single conditions)
+- variable_assignment -> loop_iteration (loops operate on variables)
+- loop_iteration -> accumulator_pattern (accumulating requires looping)
+- loop_iteration -> search_pattern (searching requires iterating)
+- string_indexing -> string_slicing (slicing builds on indexing concepts)
+- conditional_branching -> filter_pattern (filtering requires if/else)
 
 WRONG edges (execution order, not learning dependency):
 - string_concatenation -> basic_output (you don't need concat to learn print())
 - basic_output -> variable_assignment (you don't need print to learn x = 5)
+- arithmetic_operations -> basic_output (you don't need math to learn print())
 
-RIGHT edges (true cognitive dependencies):
-- variable_assignment -> basic_input (input() is useless without storing the result)
-- string_indexing -> string_slicing (slicing syntax builds on indexing concepts)
+INDEPENDENCE RULE: These specific foundational skills are independent 
+entry points and should NOT require each other as prerequisites:
+  variable_assignment, basic_output, arithmetic_operations, type_recognition
+However, skills that BUILD on these foundations (like basic_input, 
+type_conversion, string_concatenation) SHOULD have appropriate prerequisite 
+edges pointing back to the foundational skills they depend on.
 
-FOUNDATIONAL TIER RULE: Foundational skills (variable_assignment, basic_output,
-arithmetic_operations, type_recognition) are independent entry points. Do NOT
-create prerequisite edges BETWEEN foundational-tier skills unless one genuinely
-cannot be UNDERSTOOD without the other.
+MINIMUM CONNECTIVITY: Every non-foundational node MUST have at least 
+one incoming prerequisite edge. If a skill has no prerequisites, it 
+should be at level 0 (foundational). Aim for 1.5-2.5 edges per node.
 ```
 
-### 2. Long-Path Cycle Breaking (Kahn's Algorithm)
+**2. Strengthen the brute-force constraint (lines 357-367)**
 
-**Files:** `supabase/functions/generate-graph/index.ts` AND `src/lib/graph/mergeGraphs.ts`
+Add explicit guidance about simple repetition not requiring loops:
 
-Add a `breakCycles` function that runs AFTER transitive reduction. This catches cycles like A -> B -> C -> A that bidirectional checks miss.
+```
+=== PROGRAMMING FOUNDATIONS SCOPE CONSTRAINT ===
 
-Algorithm (Kahn's topological sort):
-1. Count in-degrees for all nodes referenced in edges
-2. Queue all nodes with in-degree 0
-3. Process queue: for each node, decrement in-degree of neighbors
-4. Any edges involving unprocessed nodes form cycles
-5. Remove cycle-forming edges (prefer removing edges between same-tier nodes, e.g., foundational -> foundational)
-6. Repeat until no cycles remain
+This is a Programming Foundations course. Students solve problems using 
+bruteforce methods ONLY. Do NOT create skills for advanced algorithmic 
+patterns: Sliding Window, Two Pointers, Greedy Algorithm, Dynamic 
+Programming, Kadane's Algorithm, Divide and Conquer, Binary Search 
+optimization, Backtracking, Graph Algorithms, or Trie structures.
 
-### 3. Orphan Edge Cleanup
+If a problem could be solved with an advanced pattern, map it to the 
+fundamental bruteforce skills (e.g., nested_iteration, accumulator_pattern, 
+search_pattern, filter_pattern).
 
-**Files:** Both `generate-graph/index.ts` and `mergeGraphs.ts`
-
-After all edge processing, filter out any edge where `from` or `to` references a node ID that doesn't exist in the final node list. Currently, if the AI hallucinates a node ID or semantic dedup removes a node, its edges silently remain as dangling references.
-
-```typescript
-const nodeIds = new Set(nodes.map(n => n.id));
-edges = edges.filter(e => nodeIds.has(e.from) && nodeIds.has(e.to));
+REPETITION WITHOUT LOOPS: If a problem asks to repeat an action a small 
+fixed number of times (e.g., "print Hello 3 times"), and the question 
+belongs to a topic BEFORE "Loops" (Topic 5) in the curriculum, map it 
+to basic_output (repeated print statements), NOT to loop_iteration. 
+Only use loop_iteration when the question is FROM Topic 5 or later, 
+OR when the repetition count is variable/large.
 ```
 
-### 4. Level Recomputation
+**3. Adjust the target metrics (line 322)**
 
-**Files:** Both `generate-graph/index.ts` and `mergeGraphs.ts`
+Change the edge density validation from a pass/fail check to guidance:
 
-After cycle breaking and edge cleanup, recompute node levels from the final edge set rather than trusting the AI-assigned levels. The AI's levels become stale after edges are removed.
-
-```typescript
-function recomputeLevels(nodes, edges) {
-  // Build adjacency and compute level = 1 + max(level of prerequisites)
-  // Nodes with no incoming edges get level 0
-  // Topological order traversal to assign levels
-}
+```
+5. Edge Density: Aim for 1.5-2.5 edges per node. Every non-foundational 
+   node should have at least one incoming edge.
 ```
 
-### 5. Question Path Validation
+### File: `src/lib/graph/mergeGraphs.ts`
 
-**File:** `mergeGraphs.ts`
+No changes needed -- the merge pipeline (transitive reduction, cycle breaking, orphan cleanup, level recomputation) is already correct. The issue is purely in what the AI generates, not how we post-process it.
 
-After all processing, validate that every node ID referenced in `questionPaths` actually exists in the final node list. Remove references to deleted/merged nodes that weren't caught by the ID remapping.
+## Summary
 
-## Processing Pipeline (Final Order)
-
-```text
-Edge Function (per batch):
-  AI Response -> Parse JSON -> Strip Bidirectional -> Transitive Reduce -> Cycle Break -> Orphan Cleanup -> Recompute Levels -> Return
-
-mergeGraphs (across batches):
-  Merge Nodes -> Merge Edges (bidirectional check) -> Semantic Dedupe -> Transitive Reduce -> Cycle Break -> Orphan Cleanup -> Recompute Levels -> Validate Paths -> Return
-```
-
-## File Change Summary
-
-| File | Changes |
-|------|---------|
-| `supabase/functions/generate-graph/index.ts` | Update Phase 4 prompt with cognitive dependency examples + foundational tier rule. Add `breakCycles()`, orphan edge cleanup, and `recomputeLevels()` post-processing. |
-| `src/lib/graph/mergeGraphs.ts` | Add `breakCycles()`, orphan edge cleanup, `recomputeLevels()`, and question path validation after transitive reduction. |
+| File | Change |
+|------|--------|
+| `supabase/functions/generate-graph/index.ts` | Rewrite Phase 4 edge guidance with explicit correct-edge examples and minimum connectivity rule. Strengthen brute-force constraint to prevent loop_iteration in pre-loop topics. |
 
 ## Expected Result
 
-- No cycles of any length (guaranteed by Kahn's algorithm)
-- Foundational skills stay independent at level 0
-- Edges represent "you must understand A to learn B", not "A runs before B in code"
-- No dangling edge references to non-existent nodes
-- Node levels always match the actual prerequisite structure
-- Clean, minimal DAG that reads as a logical learning progression
+- Topics 1-2 questions produce a connected graph: `variable_assignment -> basic_input -> type_conversion`, `type_recognition -> type_conversion`, etc.
+- Foundational skills (variable_assignment, basic_output, arithmetic_operations, type_recognition) remain at level 0 with no edges between them
+- Skills that build on foundations (basic_input, string_concatenation, type_conversion) get proper incoming edges
+- No `loop_iteration` or `accumulator_pattern` for pre-Topic-5 simple repetition questions
+- Edge density reaches the 1.5-2.5 target instead of near-zero
 
