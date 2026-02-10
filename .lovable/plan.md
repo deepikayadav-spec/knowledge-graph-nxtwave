@@ -1,79 +1,62 @@
 
 
-# Fix: Add Mandatory Edge Injection to Client-Side Merge
+# Fix: Orphan Cleanup Destroys Injected Edges + Missing Mandatory Edge
 
-## Problem
-The mandatory edge injection only exists in the edge function, which sees zero nodes in incremental mode. The client-side `mergeGraphs.ts` has the full node set but never injects mandatory edges -- so string nodes stay at Level 0.
+## What's Wrong (Confirmed)
 
-## Solution (2 small changes)
+Two bugs are causing nodes to appear without prerequisites:
 
-### 1. `src/lib/graph/mergeGraphs.ts` -- Add mandatory edge injection
+1. **Orphan cleanup wipes all injected edges** -- Line 1062 of the edge function builds its node ID set from `graphData.globalNodes` only. In incremental mode, the AI returns 0 new nodes, so this set is empty. Every injected mandatory edge gets deleted because both endpoints are "missing."
 
-Add the `MANDATORY_EDGES` list and `injectMandatoryEdges()` function, then call it after semantic dedup (line 367) and before transitive reduction (line 369).
+2. **`loop_iteration -> nested_iteration` is missing** from MANDATORY_EDGES in both files, so `nested_iteration` never gets connected.
 
-```typescript
-const MANDATORY_EDGES: Array<{from: string; to: string; reason: string}> = [
-  { from: 'variable_assignment', to: 'basic_input', reason: 'input() requires storing result' },
-  { from: 'variable_assignment', to: 'type_conversion', reason: 'converts values in variables' },
-  { from: 'variable_assignment', to: 'string_concatenation', reason: 'concatenates values in variables' },
-  { from: 'variable_assignment', to: 'string_indexing', reason: 'indexes strings in variables' },
-  { from: 'variable_assignment', to: 'string_repetition', reason: 'repeats strings in variables' },
-  { from: 'variable_assignment', to: 'sequence_length_retrieval', reason: 'len() on variables' },
-  { from: 'type_recognition', to: 'type_conversion', reason: 'recognize before converting' },
-  { from: 'arithmetic_operations', to: 'comparison_operators', reason: 'comparisons use computed values' },
-  { from: 'comparison_operators', to: 'conditional_branching', reason: 'conditions use comparisons' },
-  { from: 'conditional_branching', to: 'nested_conditions', reason: 'nesting requires single conditions' },
-  { from: 'variable_assignment', to: 'loop_iteration', reason: 'loops operate on variables' },
-  { from: 'loop_iteration', to: 'accumulator_pattern', reason: 'accumulating requires looping' },
-  { from: 'loop_iteration', to: 'search_pattern', reason: 'searching requires iterating' },
-  { from: 'string_indexing', to: 'string_slicing', reason: 'slicing builds on indexing' },
-  { from: 'conditional_branching', to: 'filter_pattern', reason: 'filtering requires if/else' },
-  { from: 'basic_output', to: 'formatted_output', reason: 'formatting builds on basic output' },
-];
+## What Will Be Fixed
 
-function injectMandatoryEdges(nodes: GraphNode[], edges: GraphEdge[]): GraphEdge[] {
-  const nodeIds = new Set(nodes.map(n => n.id));
-  const edgeSet = new Set(edges.map(e => `${e.from}:${e.to}`));
-  const result = [...edges];
+### File 1: `supabase/functions/generate-graph/index.ts`
 
-  for (const me of MANDATORY_EDGES) {
-    if (nodeIds.has(me.from) && nodeIds.has(me.to)) {
-      const key = `${me.from}:${me.to}`;
-      if (!edgeSet.has(key)) {
-        result.push({ from: me.from, to: me.to, reason: me.reason, relationshipType: 'requires' });
-        edgeSet.add(key);
-        console.log(`[mergeGraphs] Injected mandatory edge: ${me.from} -> ${me.to}`);
-      }
-    }
-  }
-  return result;
-}
+**Change A** -- Add missing mandatory edge to the MANDATORY_EDGES array:
+```
+{ from: 'loop_iteration', to: 'nested_iteration', reason: 'nested loops require understanding single loops' }
 ```
 
-Insert call at line 368 (between semantic dedup and transitive reduction):
+**Change B** -- Fix orphan cleanup (line 1061-1062) to include existing nodes:
 ```typescript
-// Inject mandatory prerequisite edges
-const withMandatory = injectMandatoryEdges(dedupResult.nodes, dedupResult.edges);
+// BEFORE (broken):
+const nodeIds = new Set(graphData.globalNodes.map((n) => n.id));
 
-// Apply transitive reduction
-const reducedEdges = transitiveReduce(withMandatory);
-```
-
-### 2. `supabase/functions/generate-graph/index.ts` -- Fix incremental mode
-
-At line 1013-1015, combine existing nodes with new nodes so injection works in incremental mode too:
-
-```typescript
-const allNodes = [...(graphData.globalNodes || [])];
+// AFTER (fixed):
+const nodeIds = new Set(graphData.globalNodes.map((n) => n.id));
 if (existingNodes) {
-  for (const en of existingNodes) {
-    if (!allNodes.some(n => n.id === en.id)) allNodes.push(en);
-  }
+  for (const en of existingNodes) nodeIds.add(en.id);
 }
-graphData.edges = injectMandatoryEdges(allNodes, graphData.edges);
 ```
 
-## Expected Result
+### File 2: `src/lib/graph/mergeGraphs.ts`
 
-String nodes move to Level 1 (depend on `variable_assignment`), `string_slicing` moves to Level 2 (depends on `string_indexing`). Works for both fresh generation and incremental additions.
+**Change A** -- Add missing mandatory edge to the MANDATORY_EDGES array:
+```
+{ from: 'loop_iteration', to: 'nested_iteration', reason: 'nested loops require understanding single loops' }
+```
+
+## Why This Will Work (No More Regeneration Needed)
+
+The current pipeline is:
+```text
+Inject 14 edges -> Orphan cleanup sees 0 nodes -> Deletes all 14 edges -> 0 edges remain
+```
+
+After the fix:
+```text
+Inject 15 edges -> Orphan cleanup sees ALL nodes (new + existing) -> Keeps all 15 edges -> Levels computed correctly
+```
+
+Additionally, the client-side `mergeGraphs.ts` acts as a second safety net: even if the edge function somehow misses an edge, the client will inject it when merging the full graph.
+
+## Will I Need to Regenerate?
+
+After these fixes, you will need to regenerate the "New PF" graph **one last time**. But this time:
+- All mandatory edges will survive the pipeline (no more orphan cleanup bug)
+- `nested_iteration` will be at Level 2+ (below `loop_iteration`)
+- No nodes will be isolated if they have a mandatory prerequisite defined
+- Both server and client enforce the same rules as a double safety net
 
