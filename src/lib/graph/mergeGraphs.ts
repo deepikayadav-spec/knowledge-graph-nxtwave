@@ -191,6 +191,113 @@ function transitiveReduce(edges: GraphEdge[]): GraphEdge[] {
 }
 
 /**
+ * Break cycles using Kahn's algorithm (topological sort).
+ */
+function breakCycles(edges: GraphEdge[]): GraphEdge[] {
+  let currentEdges = [...edges];
+  let iteration = 0;
+  const maxIterations = 100;
+
+  while (iteration < maxIterations) {
+    iteration++;
+    const allNodes = new Set<string>();
+    const inDegree = new Map<string, number>();
+    const adj = new Map<string, string[]>();
+
+    for (const e of currentEdges) {
+      allNodes.add(e.from);
+      allNodes.add(e.to);
+      inDegree.set(e.from, inDegree.get(e.from) || 0);
+      inDegree.set(e.to, (inDegree.get(e.to) || 0) + 1);
+      if (!adj.has(e.from)) adj.set(e.from, []);
+      adj.get(e.from)!.push(e.to);
+    }
+
+    const queue: string[] = [];
+    for (const node of allNodes) {
+      if ((inDegree.get(node) || 0) === 0) queue.push(node);
+    }
+
+    const processed = new Set<string>();
+    while (queue.length > 0) {
+      const node = queue.shift()!;
+      processed.add(node);
+      for (const neighbor of adj.get(node) || []) {
+        const deg = (inDegree.get(neighbor) || 1) - 1;
+        inDegree.set(neighbor, deg);
+        if (deg === 0) queue.push(neighbor);
+      }
+    }
+
+    if (processed.size === allNodes.size) break;
+
+    const cycleEdges = currentEdges.filter(e => !processed.has(e.from) && !processed.has(e.to));
+    if (cycleEdges.length === 0) break;
+
+    const removed = cycleEdges[cycleEdges.length - 1];
+    console.warn(`[mergeGraphs] Cycle breaking: removed ${removed.from} -> ${removed.to}`);
+    currentEdges = currentEdges.filter(e => !(e.from === removed.from && e.to === removed.to));
+  }
+
+  if (currentEdges.length < edges.length) {
+    console.log(`[mergeGraphs] Cycle breaking: ${edges.length} -> ${currentEdges.length} edges`);
+  }
+  return currentEdges;
+}
+
+/**
+ * Recompute node levels from the final edge structure.
+ */
+function recomputeLevels(nodes: GraphNode[], edges: GraphEdge[]): void {
+  const incoming = new Map<string, string[]>();
+  for (const e of edges) {
+    if (!incoming.has(e.to)) incoming.set(e.to, []);
+    incoming.get(e.to)!.push(e.from);
+  }
+
+  const nodeIds = new Set(nodes.map(n => n.id));
+  const levelMap = new Map<string, number>();
+
+  function getLevel(id: string, visited: Set<string>): number {
+    if (levelMap.has(id)) return levelMap.get(id)!;
+    if (visited.has(id)) return 0;
+    visited.add(id);
+    const prereqs = (incoming.get(id) || []).filter(p => nodeIds.has(p));
+    const level = prereqs.length === 0 ? 0 : 1 + Math.max(...prereqs.map(p => getLevel(p, visited)));
+    levelMap.set(id, level);
+    return level;
+  }
+
+  for (const node of nodes) {
+    node.level = getLevel(node.id, new Set());
+  }
+  console.log(`[mergeGraphs] Recomputed levels: max depth = ${Math.max(0, ...nodes.map(n => n.level))}`);
+}
+
+/**
+ * Validate question paths: remove references to non-existent nodes.
+ */
+function validateQuestionPaths(
+  questionPaths: Record<string, QuestionPath | string[]>,
+  nodeIds: Set<string>
+): Record<string, QuestionPath | string[]> {
+  const validated: Record<string, QuestionPath | string[]> = {};
+  for (const [question, path] of Object.entries(questionPaths)) {
+    if (Array.isArray(path)) {
+      const filtered = path.filter(id => nodeIds.has(id));
+      if (filtered.length > 0) validated[question] = filtered;
+    } else {
+      const filteredRequired = (path.requiredNodes || []).filter(id => nodeIds.has(id));
+      const filteredOrder = (path.executionOrder || []).filter(id => nodeIds.has(id));
+      if (filteredRequired.length > 0) {
+        validated[question] = { ...path, requiredNodes: filteredRequired, executionOrder: filteredOrder };
+      }
+    }
+  }
+  return validated;
+}
+
+/**
  * Merge multiple KnowledgeGraph payloads produced from question batches.
  * - Dedupe nodes by id (merge appearsInQuestions)
  * - Dedupe edges by from+to
@@ -261,11 +368,28 @@ export function mergeGraphs(graphs: KnowledgeGraph[]): KnowledgeGraph {
   // Apply transitive reduction to remove redundant edges across batches
   const reducedEdges = transitiveReduce(dedupResult.edges);
 
+  // Break any remaining cycles (Kahn's algorithm)
+  const acyclicEdges = breakCycles(reducedEdges);
+
+  // Orphan edge cleanup: remove edges referencing non-existent nodes
+  const nodeIds = new Set(dedupResult.nodes.map(n => n.id));
+  const cleanEdges = acyclicEdges.filter(e => {
+    const valid = nodeIds.has(e.from) && nodeIds.has(e.to);
+    if (!valid) console.warn(`[mergeGraphs] Orphan cleanup: removed ${e.from} -> ${e.to}`);
+    return valid;
+  });
+
+  // Recompute levels from final edge structure
+  recomputeLevels(dedupResult.nodes, cleanEdges);
+
+  // Validate question paths: remove references to non-existent nodes
+  const validatedPaths = validateQuestionPaths(dedupResult.questionPaths, nodeIds);
+
   return {
     globalNodes: dedupResult.nodes,
-    edges: reducedEdges,
+    edges: cleanEdges,
     courses,
-    questionPaths: dedupResult.questionPaths,
-    ipaByQuestion: undefined, // We no longer include IPA
+    questionPaths: validatedPaths,
+    ipaByQuestion: undefined,
   };
 }
