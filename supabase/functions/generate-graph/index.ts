@@ -184,10 +184,14 @@ PREREQUISITE means COGNITIVE DEPENDENCY, not execution order:
 - If YES -> no edge needed  
 - If NO -> add edge A -> B
 
-CORRECT prerequisite edges (USE THESE as reference):
+MANDATORY PREREQUISITE EDGES -- You MUST include these edges whenever 
+both the source and target nodes exist in your output:
 - variable_assignment -> basic_input (input() requires storing the result)
 - variable_assignment -> type_conversion (you convert values stored in variables)
 - variable_assignment -> string_concatenation (you concatenate values in variables)
+- variable_assignment -> string_indexing (indexing requires a string stored in a variable)
+- variable_assignment -> string_repetition (repetition operates on strings in variables)
+- variable_assignment -> sequence_length_retrieval (len() operates on values stored in variables)
 - type_recognition -> type_conversion (must recognize types before converting)
 - arithmetic_operations -> comparison_operators (comparisons often involve computed values)
 - comparison_operators -> conditional_branching (conditions use comparisons)
@@ -197,6 +201,10 @@ CORRECT prerequisite edges (USE THESE as reference):
 - loop_iteration -> search_pattern (searching requires iterating)
 - string_indexing -> string_slicing (slicing builds on indexing concepts)
 - conditional_branching -> filter_pattern (filtering requires if/else)
+- basic_output -> formatted_output (if formatted_output exists)
+
+If both nodes in a pair above appear in your output, the edge MUST 
+be present. Omitting it is an error.
 
 WRONG edges (execution order, not learning dependency):
 - string_concatenation -> basic_output (you don't need concat to learn print())
@@ -286,6 +294,18 @@ IMPORTANT: Do NOT include "ipaByQuestion" in your output. Output ONLY these fiel
 }
 
 NOTE: cme and le fields will be auto-populated by the client. Do NOT include them.
+
+SELF-CHECK BEFORE RETURNING (mandatory):
+1. Count your edges and nodes. Compute edges/nodes ratio.
+   If ratio < 1.5, you are UNDER-CONNECTED. Go back and add 
+   missing edges from the MANDATORY list above.
+2. List every node with zero incoming edges. Each one MUST be 
+   one of these foundational skills: variable_assignment, basic_output, 
+   arithmetic_operations, type_recognition.
+   If any non-foundational node has zero incoming edges, add the 
+   appropriate prerequisite edge.
+3. Verify every MANDATORY edge pair: if both nodes exist, the 
+   edge must exist.
 
 === SKILL WEIGHT GENERATION ===
 
@@ -762,6 +782,55 @@ function recomputeLevels(nodes: { id: string; level: number; [k: string]: unknow
   console.log(`[IPA/LTA] Recomputed levels: max depth = ${Math.max(0, ...nodes.map(n => n.level))}`);
 }
 
+/**
+ * Mandatory prerequisite edges - injected as safety net after AI response parsing.
+ * If both nodes exist in the graph but the edge is missing, it gets added.
+ */
+const MANDATORY_EDGES: Array<{ from: string; to: string; reason: string }> = [
+  { from: 'variable_assignment', to: 'basic_input', reason: 'input() requires storing the result in a variable' },
+  { from: 'variable_assignment', to: 'type_conversion', reason: 'type conversion operates on values stored in variables' },
+  { from: 'variable_assignment', to: 'string_concatenation', reason: 'concatenation operates on values in variables' },
+  { from: 'variable_assignment', to: 'string_indexing', reason: 'indexing requires a string stored in a variable' },
+  { from: 'variable_assignment', to: 'string_repetition', reason: 'repetition operates on strings in variables' },
+  { from: 'variable_assignment', to: 'sequence_length_retrieval', reason: 'len() operates on values stored in variables' },
+  { from: 'type_recognition', to: 'type_conversion', reason: 'must recognize types before converting between them' },
+  { from: 'arithmetic_operations', to: 'comparison_operators', reason: 'comparisons often involve computed values' },
+  { from: 'comparison_operators', to: 'conditional_branching', reason: 'conditions use comparison operators' },
+  { from: 'conditional_branching', to: 'nested_conditions', reason: 'nesting requires understanding single conditions' },
+  { from: 'variable_assignment', to: 'loop_iteration', reason: 'loops operate on variables' },
+  { from: 'loop_iteration', to: 'accumulator_pattern', reason: 'accumulating requires looping' },
+  { from: 'loop_iteration', to: 'search_pattern', reason: 'searching requires iterating' },
+  { from: 'string_indexing', to: 'string_slicing', reason: 'slicing builds on indexing concepts' },
+  { from: 'conditional_branching', to: 'filter_pattern', reason: 'filtering requires if/else logic' },
+  { from: 'basic_output', to: 'formatted_output', reason: 'formatted output builds on basic print knowledge' },
+];
+
+function injectMandatoryEdges(
+  nodes: Array<{ id: string; [k: string]: unknown }>,
+  edges: Array<{ from: string; to: string; [k: string]: unknown }>
+): typeof edges {
+  const nodeIds = new Set(nodes.map(n => n.id));
+  const edgeSet = new Set(edges.map(e => `${e.from}->${e.to}`));
+  let injected = 0;
+
+  for (const me of MANDATORY_EDGES) {
+    if (nodeIds.has(me.from) && nodeIds.has(me.to)) {
+      const key = `${me.from}->${me.to}`;
+      if (!edgeSet.has(key)) {
+        edges.push({ from: me.from, to: me.to, reason: me.reason, relationshipType: 'requires' });
+        edgeSet.add(key);
+        injected++;
+        console.log(`[IPA/LTA] Injected mandatory edge: ${me.from} -> ${me.to}`);
+      }
+    }
+  }
+
+  if (injected > 0) {
+    console.log(`[IPA/LTA] Injected ${injected} mandatory edges`);
+  }
+  return edges;
+}
+
 serve(async (req) => {
   if (req.method === "OPTIONS") {
     return new Response(null, { headers: corsHeaders });
@@ -940,6 +1009,11 @@ Generate the knowledge graph JSON.`;
     try {
       graphData = extractJsonFromResponse(content);
       
+      // Inject mandatory edges as safety net
+      if (graphData.globalNodes && Array.isArray(graphData.globalNodes) && graphData.edges && Array.isArray(graphData.edges)) {
+        graphData.edges = injectMandatoryEdges(graphData.globalNodes, graphData.edges);
+      }
+
       // Post-processing: strip bidirectional edges to enforce DAG
       if (graphData.edges && Array.isArray(graphData.edges)) {
         const edgeSet = new Set<string>();
