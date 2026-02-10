@@ -347,10 +347,11 @@ in later topics:
 7. Comparing Strings & Naming Variables
 8. Lists
 9. Functions
-10. Tuples & Sets
-11. Dictionaries
-12. Introduction to Object Oriented Programming
-13. Miscellaneous Topics
+10. Recursion
+11. Tuples & Sets
+12. Dictionaries
+13. Introduction to Object Oriented Programming
+14. Miscellaneous Topics
 
 Output ONLY valid JSON, no explanation.`;
 
@@ -364,6 +365,7 @@ const CURRICULUM_TOPICS = [
   "Comparing Strings & Naming Variables",
   "Lists",
   "Functions",
+  "Recursion",
   "Tuples & Sets",
   "Dictionaries",
   "Introduction to Object Oriented Programming",
@@ -729,6 +731,21 @@ Generate the knowledge graph JSON.`;
     let graphData;
     try {
       graphData = extractJsonFromResponse(content);
+      
+      // Post-processing: strip bidirectional edges to enforce DAG
+      if (graphData.edges && Array.isArray(graphData.edges)) {
+        const edgeSet = new Set<string>();
+        graphData.edges = graphData.edges.filter((edge: { from: string; to: string }) => {
+          const key = `${edge.from}:${edge.to}`;
+          const reverseKey = `${edge.to}:${edge.from}`;
+          if (edgeSet.has(key) || edgeSet.has(reverseKey) || edge.from === edge.to) {
+            console.warn(`[IPA/LTA] Stripped cycle/duplicate edge: ${edge.from} -> ${edge.to}`);
+            return false;
+          }
+          edgeSet.add(key);
+          return true;
+        });
+      }
     } catch (parseError) {
       console.error("[IPA/LTA] JSON extraction error:", parseError);
 

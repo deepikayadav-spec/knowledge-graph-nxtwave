@@ -122,9 +122,10 @@ function deduplicateSemanticDuplicates(
     const from = idMapping.get(edge.from) || edge.from;
     const to = idMapping.get(edge.to) || edge.to;
     const key = `${from}:${to}`;
+    const reverseKey = `${to}:${from}`;
     
-    // Avoid self-loops and duplicates
-    if (!edgeSet.has(key) && from !== to) {
+    // Avoid self-loops, duplicates, AND bidirectional cycles
+    if (!edgeSet.has(key) && !edgeSet.has(reverseKey) && from !== to) {
       edgeSet.add(key);
       remappedEdges.push({ ...edge, from, to });
     }
@@ -183,7 +184,8 @@ export function mergeGraphs(graphs: KnowledgeGraph[]): KnowledgeGraph {
     // Merge edges (dedupe by from+to)
     for (const edge of graph.edges) {
       const key = `${edge.from}:${edge.to}`;
-      if (!edgeSet.has(key)) {
+      const reverseKey = `${edge.to}:${edge.from}`;
+      if (!edgeSet.has(key) && !edgeSet.has(reverseKey)) {
         edgeSet.add(key);
         edges.push(edge);
       }
