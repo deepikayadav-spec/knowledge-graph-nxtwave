@@ -177,11 +177,33 @@ If YES → merge them
 
 === PHASE 4: BUILD DAG ===
 
-Construct prerequisite edges using strict necessity criteria:
+Construct prerequisite edges using strict COGNITIVE DEPENDENCY criteria:
+
+PREREQUISITE means COGNITIVE DEPENDENCY, not execution order:
+- Ask: "Can a student LEARN skill B without ever having been taught skill A?"
+- If YES -> no edge needed
+- If NO -> add edge A -> B
+
+WRONG edges (execution order, not learning dependency):
+- string_concatenation -> basic_output (you don't need concat to learn print())
+- basic_output -> variable_assignment (you don't need print to learn x = 5)
+- arithmetic_operations -> basic_output (you don't need math to learn print())
+
+RIGHT edges (true cognitive dependencies):
+- variable_assignment -> basic_input (input() is useless without storing the result)
+- string_indexing -> string_slicing (slicing syntax builds on indexing concepts)
+- loop_iteration -> accumulator_pattern (you must understand loops to accumulate)
+- conditional_branching -> filter_pattern (filtering requires knowing if/else)
+
+FOUNDATIONAL TIER RULE: Foundational skills (variable_assignment, basic_output,
+arithmetic_operations, type_recognition, comparison_operators, boolean_logic)
+are independent entry points. Do NOT create prerequisite edges BETWEEN
+foundational-tier skills unless one genuinely cannot be UNDERSTOOD without
+the other.
 
 1. NECESSITY TEST: Only add edge A → B if:
    - Performance on B is UNRELIABLE without A
-   - A provides ESSENTIAL knowledge for B (not just helpful)
+   - A provides ESSENTIAL cognitive knowledge for B (not just helpful)
 
 2. DIRECTION FLOW: Edges follow learning hierarchy:
    Declarative → Procedural → Conditional → Strategic
@@ -625,6 +647,100 @@ function transitiveReduce(edges: { from: string; to: string; [k: string]: unknow
   return reduced;
 }
 
+/**
+ * Break cycles using Kahn's algorithm (topological sort).
+ * Any edges remaining after all processable nodes are removed form cycles.
+ */
+function breakCycles(edges: { from: string; to: string; [k: string]: unknown }[]): typeof edges {
+  let currentEdges = [...edges];
+  let iteration = 0;
+  const maxIterations = 100;
+
+  while (iteration < maxIterations) {
+    iteration++;
+    // Build in-degree map
+    const allNodes = new Set<string>();
+    const inDegree = new Map<string, number>();
+    const adj = new Map<string, string[]>();
+
+    for (const e of currentEdges) {
+      allNodes.add(e.from);
+      allNodes.add(e.to);
+      inDegree.set(e.from, inDegree.get(e.from) || 0);
+      inDegree.set(e.to, (inDegree.get(e.to) || 0) + 1);
+      if (!adj.has(e.from)) adj.set(e.from, []);
+      adj.get(e.from)!.push(e.to);
+    }
+
+    // Kahn's: queue nodes with in-degree 0
+    const queue: string[] = [];
+    for (const node of allNodes) {
+      if ((inDegree.get(node) || 0) === 0) queue.push(node);
+    }
+
+    const processed = new Set<string>();
+    while (queue.length > 0) {
+      const node = queue.shift()!;
+      processed.add(node);
+      for (const neighbor of adj.get(node) || []) {
+        const deg = (inDegree.get(neighbor) || 1) - 1;
+        inDegree.set(neighbor, deg);
+        if (deg === 0) queue.push(neighbor);
+      }
+    }
+
+    // If all nodes processed, no cycles
+    if (processed.size === allNodes.size) break;
+
+    // Find cycle-forming edges (both endpoints unprocessed)
+    const cycleEdges = currentEdges.filter(e => !processed.has(e.from) && !processed.has(e.to));
+    
+    if (cycleEdges.length === 0) break;
+
+    // Remove the last cycle edge (heuristic: least important)
+    const removed = cycleEdges[cycleEdges.length - 1];
+    console.warn(`[IPA/LTA] Cycle breaking: removed ${removed.from} -> ${removed.to}`);
+    currentEdges = currentEdges.filter(e => !(e.from === removed.from && e.to === removed.to));
+  }
+
+  if (currentEdges.length < edges.length) {
+    console.log(`[IPA/LTA] Cycle breaking: ${edges.length} -> ${currentEdges.length} edges`);
+  }
+  return currentEdges;
+}
+
+/**
+ * Recompute node levels from the final edge structure.
+ * level = 0 if no incoming edges, else 1 + max(level of prerequisites)
+ */
+function recomputeLevels(nodes: { id: string; level: number; [k: string]: unknown }[], edges: { from: string; to: string }[]): void {
+  const incoming = new Map<string, string[]>();
+  for (const e of edges) {
+    if (!incoming.has(e.to)) incoming.set(e.to, []);
+    incoming.get(e.to)!.push(e.from);
+  }
+
+  const levelMap = new Map<string, number>();
+  const nodeIds = new Set(nodes.map(n => n.id));
+
+  function getLevel(id: string, visited: Set<string>): number {
+    if (levelMap.has(id)) return levelMap.get(id)!;
+    if (visited.has(id)) return 0; // safety: break infinite recursion
+    visited.add(id);
+    
+    const prereqs = (incoming.get(id) || []).filter(p => nodeIds.has(p));
+    const level = prereqs.length === 0 ? 0 : 1 + Math.max(...prereqs.map(p => getLevel(p, visited)));
+    levelMap.set(id, level);
+    return level;
+  }
+
+  for (const node of nodes) {
+    node.level = getLevel(node.id, new Set());
+  }
+  
+  console.log(`[IPA/LTA] Recomputed levels: max depth = ${Math.max(0, ...nodes.map(n => n.level))}`);
+}
+
 serve(async (req) => {
   if (req.method === "OPTIONS") {
     return new Response(null, { headers: corsHeaders });
@@ -819,6 +935,24 @@ Generate the knowledge graph JSON.`;
 
         // Transitive reduction: remove edge A->C if path A->...->C exists
         graphData.edges = transitiveReduce(graphData.edges);
+
+        // Cycle breaking: remove back-edges to enforce true DAG
+        graphData.edges = breakCycles(graphData.edges);
+
+        // Orphan edge cleanup: remove edges referencing non-existent nodes
+        if (graphData.globalNodes && Array.isArray(graphData.globalNodes)) {
+          const nodeIds = new Set(graphData.globalNodes.map((n: { id: string }) => n.id));
+          const beforeOrphan = graphData.edges.length;
+          graphData.edges = graphData.edges.filter((e: { from: string; to: string }) => 
+            nodeIds.has(e.from) && nodeIds.has(e.to)
+          );
+          if (graphData.edges.length < beforeOrphan) {
+            console.warn(`[IPA/LTA] Orphan cleanup: removed ${beforeOrphan - graphData.edges.length} dangling edges`);
+          }
+
+          // Recompute levels from final edge structure
+          recomputeLevels(graphData.globalNodes, graphData.edges);
+        }
       }
     } catch (parseError) {
       console.error("[IPA/LTA] JSON extraction error:", parseError);
