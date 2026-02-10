@@ -149,6 +149,48 @@ function deduplicateSemanticDuplicates(
 }
 
 /**
+ * Transitive reduction: for each edge A->C, check if C is reachable
+ * from A via other edges. If yes, A->C is redundant and removed.
+ */
+function transitiveReduce(edges: GraphEdge[]): GraphEdge[] {
+  const adj = new Map<string, Set<string>>();
+  for (const e of edges) {
+    if (!adj.has(e.from)) adj.set(e.from, new Set());
+    adj.get(e.from)!.add(e.to);
+  }
+
+  function isReachableWithout(start: string, target: string): boolean {
+    const visited = new Set<string>();
+    const queue = [start];
+    visited.add(start);
+    while (queue.length > 0) {
+      const node = queue.shift()!;
+      for (const neighbor of adj.get(node) || []) {
+        if (node === start && neighbor === target) continue;
+        if (neighbor === target) return true;
+        if (!visited.has(neighbor)) {
+          visited.add(neighbor);
+          queue.push(neighbor);
+        }
+      }
+    }
+    return false;
+  }
+
+  const reduced = edges.filter(e => {
+    if (isReachableWithout(e.from, e.to)) {
+      console.warn(`[mergeGraphs] Transitive reduction: removed ${e.from} -> ${e.to}`);
+      adj.get(e.from)?.delete(e.to);
+      return false;
+    }
+    return true;
+  });
+
+  console.log(`[mergeGraphs] Transitive reduction: ${edges.length} -> ${reduced.length} edges`);
+  return reduced;
+}
+
+/**
  * Merge multiple KnowledgeGraph payloads produced from question batches.
  * - Dedupe nodes by id (merge appearsInQuestions)
  * - Dedupe edges by from+to
@@ -216,9 +258,12 @@ export function mergeGraphs(graphs: KnowledgeGraph[]): KnowledgeGraph {
     questionPaths
   );
 
+  // Apply transitive reduction to remove redundant edges across batches
+  const reducedEdges = transitiveReduce(dedupResult.edges);
+
   return {
     globalNodes: dedupResult.nodes,
-    edges: dedupResult.edges,
+    edges: reducedEdges,
     courses,
     questionPaths: dedupResult.questionPaths,
     ipaByQuestion: undefined, // We no longer include IPA

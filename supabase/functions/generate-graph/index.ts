@@ -78,6 +78,18 @@ ADVANCED (Level 5+):
 ONLY create a new skill if NONE of the above apply.
 When creating new skills, they must be AT THIS SAME LEVEL of abstraction.
 
+IMPORTANT: The catalog is for NAMING CONSISTENCY only. Do NOT create nodes
+for skills that are not required by the given questions. If no question
+requires loop_iteration, do NOT include it in the output. The catalog
+tells you WHAT TO CALL a skill if you need it, not which skills to include.
+
+CURRICULUM AWARENESS: When questions are tagged with a topic, do NOT
+create skill nodes from topics that come LATER in the curriculum sequence.
+For example, if all questions are from "Operators & Conditional Statements"
+(Topic 3), do NOT create loop_iteration (Topic 5), function_calls (Topic 9),
+or any other skill that belongs to a later topic. Only create skills that
+a student would have encountered BY that point in the curriculum.
+
 === PHASE 1: INFORMATION PROCESSING ANALYSIS (IPA) ===
 
 For EACH question, trace the cognitive algorithm a competent student uses:
@@ -567,6 +579,52 @@ interface ExistingNode {
   description?: string;
 }
 
+/**
+ * Transitive reduction: for each edge A->C, check if C is reachable
+ * from A via other edges. If yes, A->C is redundant and removed.
+ */
+function transitiveReduce(edges: { from: string; to: string; [k: string]: unknown }[]): typeof edges {
+  // Build adjacency list
+  const adj = new Map<string, Set<string>>();
+  for (const e of edges) {
+    if (!adj.has(e.from)) adj.set(e.from, new Set());
+    adj.get(e.from)!.add(e.to);
+  }
+
+  // BFS reachability check excluding the direct edge
+  function isReachableWithout(start: string, target: string): boolean {
+    const visited = new Set<string>();
+    const queue = [start];
+    visited.add(start);
+    while (queue.length > 0) {
+      const node = queue.shift()!;
+      for (const neighbor of adj.get(node) || []) {
+        // Skip the direct edge we're testing
+        if (node === start && neighbor === target) continue;
+        if (neighbor === target) return true;
+        if (!visited.has(neighbor)) {
+          visited.add(neighbor);
+          queue.push(neighbor);
+        }
+      }
+    }
+    return false;
+  }
+
+  const reduced = edges.filter(e => {
+    if (isReachableWithout(e.from, e.to)) {
+      console.warn(`[IPA/LTA] Transitive reduction: removed ${e.from} -> ${e.to}`);
+      // Also remove from adjacency so subsequent checks use reduced graph
+      adj.get(e.from)?.delete(e.to);
+      return false;
+    }
+    return true;
+  });
+
+  console.log(`[IPA/LTA] Transitive reduction: ${edges.length} -> ${reduced.length} edges`);
+  return reduced;
+}
+
 serve(async (req) => {
   if (req.method === "OPTIONS") {
     return new Response(null, { headers: corsHeaders });
@@ -742,9 +800,12 @@ Generate the knowledge graph JSON.`;
             console.warn(`[IPA/LTA] Stripped cycle/duplicate edge: ${edge.from} -> ${edge.to}`);
             return false;
           }
-          edgeSet.add(key);
+        edgeSet.add(key);
           return true;
         });
+
+        // Transitive reduction: remove edge A->C if path A->...->C exists
+        graphData.edges = transitiveReduce(graphData.edges);
       }
     } catch (parseError) {
       console.error("[IPA/LTA] JSON extraction error:", parseError);
