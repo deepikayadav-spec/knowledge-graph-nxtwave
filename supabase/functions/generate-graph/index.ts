@@ -1009,9 +1009,17 @@ Generate the knowledge graph JSON.`;
     try {
       graphData = extractJsonFromResponse(content);
       
-      // Inject mandatory edges as safety net
+      // Inject mandatory edges as safety net (combine new + existing nodes for incremental mode)
       if (graphData.globalNodes && Array.isArray(graphData.globalNodes) && graphData.edges && Array.isArray(graphData.edges)) {
-        graphData.edges = injectMandatoryEdges(graphData.globalNodes, graphData.edges);
+        const allNodesForInjection = [...graphData.globalNodes];
+        if (existingNodes) {
+          for (const en of existingNodes) {
+            if (!allNodesForInjection.some((n: { id: string }) => n.id === en.id)) {
+              allNodesForInjection.push(en as any);
+            }
+          }
+        }
+        graphData.edges = injectMandatoryEdges(allNodesForInjection, graphData.edges);
       }
 
       // Post-processing: strip bidirectional edges to enforce DAG
