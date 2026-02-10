@@ -181,25 +181,38 @@ Construct prerequisite edges using strict COGNITIVE DEPENDENCY criteria:
 
 PREREQUISITE means COGNITIVE DEPENDENCY, not execution order:
 - Ask: "Can a student LEARN skill B without ever having been taught skill A?"
-- If YES -> no edge needed
+- If YES -> no edge needed  
 - If NO -> add edge A -> B
+
+CORRECT prerequisite edges (USE THESE as reference):
+- variable_assignment -> basic_input (input() requires storing the result)
+- variable_assignment -> type_conversion (you convert values stored in variables)
+- variable_assignment -> string_concatenation (you concatenate values in variables)
+- type_recognition -> type_conversion (must recognize types before converting)
+- arithmetic_operations -> comparison_operators (comparisons often involve computed values)
+- comparison_operators -> conditional_branching (conditions use comparisons)
+- conditional_branching -> nested_conditions (nesting requires understanding single conditions)
+- variable_assignment -> loop_iteration (loops operate on variables)
+- loop_iteration -> accumulator_pattern (accumulating requires looping)
+- loop_iteration -> search_pattern (searching requires iterating)
+- string_indexing -> string_slicing (slicing builds on indexing concepts)
+- conditional_branching -> filter_pattern (filtering requires if/else)
 
 WRONG edges (execution order, not learning dependency):
 - string_concatenation -> basic_output (you don't need concat to learn print())
 - basic_output -> variable_assignment (you don't need print to learn x = 5)
 - arithmetic_operations -> basic_output (you don't need math to learn print())
 
-RIGHT edges (true cognitive dependencies):
-- variable_assignment -> basic_input (input() is useless without storing the result)
-- string_indexing -> string_slicing (slicing syntax builds on indexing concepts)
-- loop_iteration -> accumulator_pattern (you must understand loops to accumulate)
-- conditional_branching -> filter_pattern (filtering requires knowing if/else)
+INDEPENDENCE RULE: These specific foundational skills are independent 
+entry points and should NOT require each other as prerequisites:
+  variable_assignment, basic_output, arithmetic_operations, type_recognition
+However, skills that BUILD on these foundations (like basic_input, 
+type_conversion, string_concatenation) SHOULD have appropriate prerequisite 
+edges pointing back to the foundational skills they depend on.
 
-FOUNDATIONAL TIER RULE: Foundational skills (variable_assignment, basic_output,
-arithmetic_operations, type_recognition, comparison_operators, boolean_logic)
-are independent entry points. Do NOT create prerequisite edges BETWEEN
-foundational-tier skills unless one genuinely cannot be UNDERSTOOD without
-the other.
+MINIMUM CONNECTIVITY: Every non-foundational node MUST have at least 
+one incoming prerequisite edge. If a skill has no prerequisites, it 
+should be at level 0 (foundational). Aim for 1.5-2.5 edges per node.
 
 1. NECESSITY TEST: Only add edge A → B if:
    - Performance on B is UNRELIABLE without A
@@ -319,7 +332,8 @@ Before outputting, you MUST verify and FIX if any check fails:
 4. CATALOG CHECK: Every new node (not in catalog) must be justified
    Ask: "Why couldn't this map to an existing catalog skill?"
 
-5. Edge Density: 1.5-2.5 edges per node average
+5. Edge Density: Aim for 1.5-2.5 edges per node. Every non-foundational 
+   node should have at least one incoming edge.
 6. DAG Property: No cycles in edge graph
 7. Level Distribution: Nodes spread across 4-6 levels
 8. Necessity: Every edge passes the "WITHOUT X?" test
@@ -365,6 +379,13 @@ optimization, Backtracking, Graph Algorithms, or Trie structures.
 If a problem could be solved with an advanced pattern, map it to the 
 fundamental bruteforce skills (e.g., nested_iteration, accumulator_pattern, 
 search_pattern, filter_pattern).
+
+REPETITION WITHOUT LOOPS: If a problem asks to repeat an action a small 
+fixed number of times (e.g., "print Hello 3 times"), and the question 
+belongs to a topic BEFORE "Loops" (Topic 5) in the curriculum, map it 
+to basic_output (repeated print statements), NOT to loop_iteration. 
+Only use loop_iteration when the question is FROM Topic 5 or later, 
+OR when the repetition count is variable/large.
 
 === CURRICULUM SEQUENCE ===
 
