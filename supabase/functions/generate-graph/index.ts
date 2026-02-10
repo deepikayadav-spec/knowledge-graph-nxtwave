@@ -771,7 +771,20 @@ Generate the knowledge graph JSON.`;
       });
     }
 
-    const data = await response.json();
+    let data: any;
+    try {
+      const rawText = await response.text();
+      if (!rawText || rawText.trim().length === 0) {
+        throw new Error("Empty response body from AI gateway");
+      }
+      data = JSON.parse(rawText);
+    } catch (jsonErr) {
+      console.error("[IPA/LTA] Failed to parse AI gateway response:", jsonErr);
+      return new Response(
+        JSON.stringify({ error: "AI returned an invalid response. Please try again." }),
+        { status: 502, headers: { ...corsHeaders, "Content-Type": "application/json" } }
+      );
+    }
     
     const finishReason = data.choices?.[0]?.finish_reason;
     console.log(`[IPA/LTA] Lovable AI finish reason: ${finishReason}`);
