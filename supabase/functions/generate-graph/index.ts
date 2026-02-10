@@ -803,6 +803,7 @@ const MANDATORY_EDGES: Array<{ from: string; to: string; reason: string }> = [
   { from: 'string_indexing', to: 'string_slicing', reason: 'slicing builds on indexing concepts' },
   { from: 'conditional_branching', to: 'filter_pattern', reason: 'filtering requires if/else logic' },
   { from: 'basic_output', to: 'formatted_output', reason: 'formatted output builds on basic print knowledge' },
+  { from: 'loop_iteration', to: 'nested_iteration', reason: 'nested loops require understanding single loops' },
 ];
 
 function injectMandatoryEdges(
@@ -1060,6 +1061,10 @@ Generate the knowledge graph JSON.`;
         // Orphan edge cleanup: remove edges referencing non-existent nodes
         if (graphData.globalNodes && Array.isArray(graphData.globalNodes)) {
           const nodeIds = new Set(graphData.globalNodes.map((n: { id: string }) => n.id));
+          // Include existing nodes so injected edges between them aren't removed
+          if (existingNodes) {
+            for (const en of existingNodes) nodeIds.add(en.id);
+          }
           const beforeOrphan = graphData.edges.length;
           graphData.edges = graphData.edges.filter((e: { from: string; to: string }) => 
             nodeIds.has(e.from) && nodeIds.has(e.to)
