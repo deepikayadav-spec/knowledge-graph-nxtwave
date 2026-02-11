@@ -934,106 +934,138 @@ Generate the knowledge graph JSON.`;
     const maxTokens = calculateMaxTokens(questions.length, isIncremental ?? false, existingNodes?.length || 0);
     
     const MAX_RETRIES = 3;
-    let response: Response | null = null;
     let lastError: string = "AI processing failed";
+    let data: any = null;
+    let content: string | null = null;
 
     for (let attempt = 1; attempt <= MAX_RETRIES; attempt++) {
-      response = await fetch("https://ai.gateway.lovable.dev/v1/chat/completions", {
-        method: "POST",
-        headers: {
-          "Authorization": `Bearer ${LOVABLE_API_KEY}`,
-          "Content-Type": "application/json",
-        },
-        body: JSON.stringify({
-          model,
-          messages: [
-            { role: "system", content: fullSystemPrompt },
-            { role: "user", content: userPrompt },
-          ],
-          max_tokens: maxTokens,
-          temperature: 0.2,
-        }),
-      });
-
-      if (response.ok) break;
-
-      const errorData = await response.json().catch(() => ({}));
-      lastError = errorData.error?.message || `AI error (${response.status})`;
-      console.error(`[IPA/LTA] AI attempt ${attempt}/${MAX_RETRIES} failed:`, response.status, JSON.stringify(errorData));
-
-      // Non-retryable errors
-      if (response.status === 429) {
-        return new Response(JSON.stringify({ error: "Too many requests. Please wait a moment and try again." }), {
-          status: 429, headers: { ...corsHeaders, "Content-Type": "application/json" },
+      try {
+        const response = await fetch("https://ai.gateway.lovable.dev/v1/chat/completions", {
+          method: "POST",
+          headers: {
+            "Authorization": `Bearer ${LOVABLE_API_KEY}`,
+            "Content-Type": "application/json",
+          },
+          body: JSON.stringify({
+            model,
+            messages: [
+              { role: "system", content: fullSystemPrompt },
+              { role: "user", content: userPrompt },
+            ],
+            max_tokens: maxTokens,
+            temperature: 0.2,
+          }),
         });
-      }
-      if (response.status === 402) {
-        return new Response(JSON.stringify({ error: "AI credits depleted. Please add credits to your Lovable workspace." }), {
-          status: 402, headers: { ...corsHeaders, "Content-Type": "application/json" },
-        });
-      }
-      if (response.status === 401) {
-        return new Response(JSON.stringify({ error: "AI authentication failed. Please contact support." }), {
-          status: 401, headers: { ...corsHeaders, "Content-Type": "application/json" },
-        });
-      }
 
-      // Retryable 5xx — wait before retrying
-      if (response.status >= 500 && attempt < MAX_RETRIES) {
-        const delay = attempt * 2000;
-        console.log(`[IPA/LTA] Retrying in ${delay}ms...`);
-        await new Promise(r => setTimeout(r, delay));
-        continue;
+        if (!response.ok) {
+          const errorData = await response.json().catch(() => ({}));
+          lastError = errorData.error?.message || `AI error (${response.status})`;
+          console.error(`[IPA/LTA] AI attempt ${attempt}/${MAX_RETRIES} failed:`, response.status, JSON.stringify(errorData));
+
+          // Non-retryable errors
+          if (response.status === 429) {
+            return new Response(JSON.stringify({ error: "Too many requests. Please wait a moment and try again." }), {
+              status: 429, headers: { ...corsHeaders, "Content-Type": "application/json" },
+            });
+          }
+          if (response.status === 402) {
+            return new Response(JSON.stringify({ error: "AI credits depleted. Please add credits to your Lovable workspace." }), {
+              status: 402, headers: { ...corsHeaders, "Content-Type": "application/json" },
+            });
+          }
+          if (response.status === 401) {
+            return new Response(JSON.stringify({ error: "AI authentication failed. Please contact support." }), {
+              status: 401, headers: { ...corsHeaders, "Content-Type": "application/json" },
+            });
+          }
+
+          // Retryable 5xx
+          if (response.status >= 500 && attempt < MAX_RETRIES) {
+            const delay = attempt * 2000;
+            console.log(`[IPA/LTA] Retrying in ${delay}ms...`);
+            await new Promise(r => setTimeout(r, delay));
+            continue;
+          }
+
+          return new Response(JSON.stringify({ error: lastError }), {
+            status: 500, headers: { ...corsHeaders, "Content-Type": "application/json" },
+          });
+        }
+
+        // Parse the response body
+        const rawText = await response.text();
+        if (!rawText || rawText.trim().length === 0) {
+          console.warn(`[IPA/LTA] Empty response body on attempt ${attempt}/${MAX_RETRIES}`);
+          lastError = "AI returned an empty response";
+          if (attempt < MAX_RETRIES) {
+            const delay = attempt * 2000;
+            console.log(`[IPA/LTA] Retrying in ${delay}ms...`);
+            await new Promise(r => setTimeout(r, delay));
+            continue;
+          }
+          return new Response(
+            JSON.stringify({ error: "AI returned an empty response after multiple attempts. Please try again." }),
+            { status: 502, headers: { ...corsHeaders, "Content-Type": "application/json" } }
+          );
+        }
+
+        data = JSON.parse(rawText);
+        
+        const finishReason = data.choices?.[0]?.finish_reason;
+        console.log(`[IPA/LTA] Lovable AI finish reason: ${finishReason}`);
+        if (finishReason === 'length') {
+          console.warn('[IPA/LTA] Response was truncated due to max tokens limit');
+        }
+
+        content = data.choices?.[0]?.message?.content;
+
+        // Handle upstream provider errors wrapped in a 200 response
+        const choiceError = data.choices?.[0]?.error;
+        if ((!content || content.trim() === '') && choiceError) {
+          const providerMsg = choiceError.message || 'Unknown provider error';
+          console.warn(`[IPA/LTA] Upstream provider error on attempt ${attempt}/${MAX_RETRIES}: ${providerMsg}`);
+          lastError = `AI service temporarily unavailable (${providerMsg})`;
+          if (attempt < MAX_RETRIES) {
+            const delay = attempt * 2000;
+            await new Promise(r => setTimeout(r, delay));
+            continue;
+          }
+          return new Response(
+            JSON.stringify({ error: `${lastError}. Please try again.` }),
+            { status: 503, headers: { ...corsHeaders, "Content-Type": "application/json" } }
+          );
+        }
+
+        if (!content || content.trim() === '') {
+          console.warn(`[IPA/LTA] No content on attempt ${attempt}/${MAX_RETRIES}. Response: ${JSON.stringify(data).substring(0, 200)}`);
+          lastError = "AI returned an empty response";
+          if (attempt < MAX_RETRIES) {
+            const delay = attempt * 2000;
+            await new Promise(r => setTimeout(r, delay));
+            continue;
+          }
+          return new Response(
+            JSON.stringify({ error: "AI returned an empty response after multiple attempts. Please try again." }),
+            { status: 502, headers: { ...corsHeaders, "Content-Type": "application/json" } }
+          );
+        }
+
+        // Valid content received — break out of retry loop
+        break;
+
+      } catch (fetchErr) {
+        console.error(`[IPA/LTA] Fetch/parse error on attempt ${attempt}/${MAX_RETRIES}:`, fetchErr);
+        lastError = fetchErr instanceof Error ? fetchErr.message : "AI request failed";
+        if (attempt < MAX_RETRIES) {
+          const delay = attempt * 2000;
+          await new Promise(r => setTimeout(r, delay));
+          continue;
+        }
+        return new Response(
+          JSON.stringify({ error: "AI returned an invalid response after multiple attempts. Please try again." }),
+          { status: 502, headers: { ...corsHeaders, "Content-Type": "application/json" } }
+        );
       }
-    }
-
-    if (!response || !response.ok) {
-      return new Response(JSON.stringify({ error: lastError }), {
-        status: 500, headers: { ...corsHeaders, "Content-Type": "application/json" },
-      });
-    }
-
-    let data: any;
-    try {
-      const rawText = await response.text();
-      if (!rawText || rawText.trim().length === 0) {
-        throw new Error("Empty response body from AI gateway");
-      }
-      data = JSON.parse(rawText);
-    } catch (jsonErr) {
-      console.error("[IPA/LTA] Failed to parse AI gateway response:", jsonErr);
-      return new Response(
-        JSON.stringify({ error: "AI returned an invalid response. Please try again." }),
-        { status: 502, headers: { ...corsHeaders, "Content-Type": "application/json" } }
-      );
-    }
-    
-    const finishReason = data.choices?.[0]?.finish_reason;
-    console.log(`[IPA/LTA] Lovable AI finish reason: ${finishReason}`);
-    if (finishReason === 'length') {
-      console.warn('[IPA/LTA] Response was truncated due to max tokens limit');
-    }
-    
-    let content = data.choices?.[0]?.message?.content;
-
-    // Handle upstream provider errors wrapped in a 200 response (e.g., 502 "Network connection lost")
-    const choiceError = data.choices?.[0]?.error;
-    if ((!content || content.trim() === '') && choiceError) {
-      const providerCode = choiceError.code || 'unknown';
-      const providerMsg = choiceError.message || 'Unknown provider error';
-      console.error(`[IPA/LTA] Upstream provider error (code ${providerCode}): ${providerMsg}`);
-      return new Response(
-        JSON.stringify({ error: `AI service temporarily unavailable (${providerMsg}). Please try again.` }),
-        { status: 503, headers: { ...corsHeaders, "Content-Type": "application/json" } }
-      );
-    }
-
-    if (!content || content.trim() === '') {
-      console.error("[IPA/LTA] No content in response. Full response:", JSON.stringify(data));
-      return new Response(
-        JSON.stringify({ error: "AI returned an empty response. Please try again." }),
-        { status: 502, headers: { ...corsHeaders, "Content-Type": "application/json" } }
-      );
     }
 
     let graphData;
