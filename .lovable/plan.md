@@ -1,90 +1,82 @@
 
 
-# Manual Graph Editing + Grouped Views
+# Fix Node Click, Auto-Generate Groupings, and Add Edit Mode Toggle
 
-## Part 1: Manual Node & Edge CRUD
+## Issue 1: Node Click Not Opening Detail Panel
 
-### Add Node
-- Add an "Add Skill" button to the header toolbar (visible when a graph is loaded)
-- Opens a dialog with fields: Skill ID (snake_case), Name, Tier (dropdown: foundational/core/applied/advanced), Description (optional)
-- Inserts into both local graph state and database (`skills` table)
-- Auto-triggers level recomputation since new node starts at Level 0
+The `NodeDetailPanel` only renders when `viewMode === 'skills'` (line 541 of KnowledgeGraphApp). This is correct for the skills view and the click handler logic is sound. The issue is likely that the panel should also open in subtopics/topics view for regular skill nodes (not super nodes). Additionally, if you're testing with the Subtopics or Topics toggle active, no panel shows at all.
 
-### Remove Node
-- Add a "Delete" button in the `NodeDetailPanel` header
-- Shows confirmation dialog listing impact: which questions reference this skill, which edges will be removed
-- Removes the node from local state, database, and cleans up edges pointing to/from it
-- Updates `appearsInQuestions` references
+**Fix**: Remove the `viewMode === 'skills'` guard from the NodeDetailPanel rendering. Instead, show the panel whenever a regular skill node is selected (not a super node). This way clicking a node always shows its details regardless of view mode.
 
-### Add Edge (Prerequisite)
-- Two interaction modes:
-  1. **From NodeDetailPanel**: "Add Prerequisite" button opens a searchable dropdown of all other nodes; selecting one creates the edge
-  2. **From NodeDetailPanel**: "Add Dependent" button (same pattern, reversed direction)
-- Validates: no self-loops, no duplicate edges, runs cycle detection before committing
-- Persists to `skill_edges` table and updates local state
-- Auto-recomputes levels after edge addition
+**File**: `src/components/KnowledgeGraphApp.tsx`
+- Change `{selectedNode && viewMode === 'skills' && (` to `{selectedNode && (`
+- This restores the click-to-inspect behavior across all view modes
 
-### Remove Edge
-- In `NodeDetailPanel`, each prerequisite and dependent gets a small "x" button
-- Clicking removes the edge from both local state and database
-- Triggers level recomputation
+## Issue 2: Auto-Generate Subtopics and Topics from Curriculum
 
-### Files to Create/Modify
+Currently, switching to Subtopics or Topics view shows nothing because no groupings exist in the database. The `SKILL_TOPIC_MAP` in the edge function already maps each skill to a numbered topic, and `CURRICULUM_TOPICS` has the topic names. We should use this to auto-populate groupings when a graph is loaded.
 
+**Approach**: Create a new edge function `auto-group-skills` that:
+1. Takes a `graph_id`
+2. Reads all skills for that graph
+3. Uses the `SKILL_TOPIC_MAP` to assign each skill to a curriculum topic
+4. Creates `skill_topics` entries (one per curriculum topic that has skills)
+5. Creates `skill_subtopics` entries (one per topic, acting as a single subtopic per topic for now)
+6. Updates each skill's `subtopic_id` to link it to the correct subtopic
+7. Returns the created groupings
+
+**Add a button** "Auto-Group" in the header (next to the view mode toggle) that calls this function when clicked. This gives the user control over when grouping happens.
+
+**Files to create/modify**:
 | File | Changes |
 |------|---------|
-| `src/components/panels/AddNodeDialog.tsx` | **New** -- Dialog for adding a skill node |
-| `src/components/panels/AddEdgeDialog.tsx` | **New** -- Searchable node picker for adding prerequisites/dependents |
-| `src/components/panels/NodeDetailPanel.tsx` | Add delete node button, add/remove prerequisite buttons, add/remove dependent buttons |
-| `src/components/KnowledgeGraphApp.tsx` | Add "Add Skill" button to header, wire up add/remove node handlers, add/remove edge handlers |
-| `src/hooks/useGraphPersistence.ts` | Add `addNode()`, `removeNode()`, `addEdge()`, `removeEdge()` methods that persist to DB |
+| `supabase/functions/auto-group-skills/index.ts` | **New** -- Edge function that reads skills and creates topic/subtopic groupings based on SKILL_TOPIC_MAP |
+| `src/hooks/useSkillGrouping.ts` | Add `autoGroupSkills(graphId)` method that calls the edge function and reloads groupings |
+| `src/components/KnowledgeGraphApp.tsx` | Add "Auto-Group" button near the ViewModeToggle; call `autoGroupSkills` and reload |
+
+## Issue 3: Standalone Edit Mode Toggle
+
+Currently, editing (add/remove nodes, edges) is always available -- there's no guard. The user wants an explicit "Edit" toggle button in the header that controls whether CRUD operations (delete buttons, add prerequisite/dependent buttons) are visible.
+
+**Approach**:
+1. Add an `isEditMode` state to `KnowledgeGraphApp` (separate from the grouping edit mode)
+2. Add an "Edit" / "Done" toggle button in the header toolbar
+3. Only pass `onDeleteNode`, `onAddEdge`, `onRemoveEdge` to `NodeDetailPanel` when edit mode is active
+4. Only show the "Add Skill" button when edit mode is active
+
+**Files to modify**:
+| File | Changes |
+|------|---------|
+| `src/components/KnowledgeGraphApp.tsx` | Add `isEditMode` state, "Edit" button in header, conditionally pass CRUD props |
 
 ---
 
-## Part 2: Grouped Graph Views (Subtopic & Topic)
+## Technical Details
 
-### View Toggle
-- Add a segmented toggle in the header: **Skills** | **Subtopics** | **Topics**
-- Default is "Skills" (current view)
+### Edge Function: `auto-group-skills`
 
-### Subtopic View
-- Each subtopic becomes a single "super node" on the canvas
-- Super node displays: subtopic name, color, count of skills inside, aggregated mastery (if in mastery mode)
-- Edges between super nodes are derived: if any skill in subtopic A has a prerequisite in subtopic B, draw an edge A->B
-- Ungrouped skills appear as regular individual nodes
-- Clicking a super node expands it in a detail panel showing its constituent skills
+```text
+POST /auto-group-skills
+Body: { graph_id: string }
+```
 
-### Topic View
-- Same concept but one level higher: each topic becomes a super node
-- Edges derived from inter-topic skill dependencies
-- Ungrouped subtopics and skills appear individually
-- Clicking a topic super node shows its subtopics
+Logic:
+1. Fetch all skills for the graph from `skills` table
+2. Use a hardcoded `SKILL_TOPIC_MAP` + `CURRICULUM_TOPICS` (same as in generate-graph) to map `skill_id` to topic index
+3. For each topic that has at least one skill:
+   - Create a `skill_topics` row with the topic name and a color from the palette
+   - Create a `skill_subtopics` row linked to that topic (same name, since each topic acts as its own subtopic initially)
+   - Update matching skills to set `subtopic_id`
+4. Return success
 
-### Layout
-- Both grouped views reuse the same `GraphCanvas` layout engine (level-based positioning)
-- Levels are recomputed for the grouped nodes based on the derived edges
-- Super nodes are rendered larger (radius scales with skill count)
+### Header Layout (left to right)
+```text
+[Logo] Graph Name | [Skills|Subtopics|Topics] [Auto-Group] [Edit/Done] [Add Skill*] [Mastery toggle] [...] [Clear]
+```
+*Add Skill only visible in edit mode
 
-### Files to Create/Modify
-
-| File | Changes |
-|------|---------|
-| `src/components/graph/GraphCanvas.tsx` | Accept a `viewMode` prop ('skills' / 'subtopics' / 'topics'); when not 'skills', render grouped super nodes with derived edges |
-| `src/components/graph/SuperNode.tsx` | **New** -- SVG component for rendering a grouped node (subtopic or topic) |
-| `src/components/graph/ViewModeToggle.tsx` | **New** -- Segmented control for switching views |
-| `src/components/KnowledgeGraphApp.tsx` | Add view mode state and toggle in header, compute grouped nodes/edges and pass to canvas |
-| `src/lib/graph/groupedView.ts` | **New** -- Utility functions to collapse nodes into subtopic/topic super nodes and derive inter-group edges |
-
----
-
-## Execution Order
-
-1. **Phase 1a**: Add `addNode`, `removeNode`, `addEdge`, `removeEdge` to `useGraphPersistence`
-2. **Phase 1b**: Create `AddNodeDialog` and `AddEdgeDialog` components
-3. **Phase 1c**: Update `NodeDetailPanel` with delete and edge management buttons
-4. **Phase 1d**: Wire everything into `KnowledgeGraphApp` header and handlers
-5. **Phase 2a**: Create `groupedView.ts` utility for collapsing nodes
-6. **Phase 2b**: Create `SuperNode` and `ViewModeToggle` components
-7. **Phase 2c**: Update `GraphCanvas` to support grouped rendering
-8. **Phase 2d**: Wire view mode into `KnowledgeGraphApp`
-
+### Execution Order
+1. Fix NodeDetailPanel guard (remove viewMode check)
+2. Create `auto-group-skills` edge function
+3. Add auto-group button and hook method
+4. Add standalone edit mode toggle with conditional CRUD props
