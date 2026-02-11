@@ -103,6 +103,87 @@ const GROUPING_COLORS = [
   '#ef4444', '#10b981',
 ];
 
+// --- AI Subtopic Generation ---
+
+interface SubtopicCluster {
+  name: string;
+  skill_ids: string[];
+}
+
+async function generateSubtopicsWithAI(
+  topicName: string,
+  skills: { skill_id: string; name: string }[],
+  apiKey: string
+): Promise<SubtopicCluster[] | null> {
+  const skillList = skills.map(s => `- ${s.skill_id} ("${s.name}")`).join("\n");
+
+  const prompt = `You are a computer science curriculum designer. Given a topic and its skills, group the skills into 2-4 meaningful subtopics.
+
+Topic: "${topicName}"
+Skills:
+${skillList}
+
+Rules:
+- Every skill must appear in exactly one subtopic. Do not drop any skill.
+- Each subtopic should have a short, descriptive name (2-4 words).
+- Return 2-4 subtopics. If there are only 3 skills, 2 subtopics is fine.
+
+Return ONLY valid JSON, no markdown:
+{"subtopics": [{"name": "Subtopic Name", "skill_ids": ["skill_id_1", "skill_id_2"]}]}`;
+
+  try {
+    const response = await fetch("https://ai.gateway.lovable.dev/v1/chat/completions", {
+      method: "POST",
+      headers: {
+        Authorization: `Bearer ${apiKey}`,
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({
+        model: "google/gemini-2.5-flash",
+        messages: [{ role: "user", content: prompt }],
+        temperature: 0.3,
+      }),
+    });
+
+    if (!response.ok) {
+      console.error(`AI call failed for topic "${topicName}": ${response.status}`);
+      return null;
+    }
+
+    const data = await response.json();
+    let content = data.choices?.[0]?.message?.content?.trim();
+    if (!content) return null;
+
+    // Strip markdown fences if present
+    content = content.replace(/^```(?:json)?\s*/i, "").replace(/\s*```$/i, "");
+
+    const parsed = JSON.parse(content);
+    const subtopics: SubtopicCluster[] = parsed.subtopics;
+
+    // Validate: every skill must be accounted for
+    const allSkillIds = new Set(skills.map(s => s.skill_id));
+    const assignedIds = new Set(subtopics.flatMap(st => st.skill_ids));
+
+    if (allSkillIds.size !== assignedIds.size) {
+      console.warn(`AI dropped/added skills for "${topicName}", falling back`);
+      return null;
+    }
+    for (const id of allSkillIds) {
+      if (!assignedIds.has(id)) {
+        console.warn(`AI missed skill "${id}" for "${topicName}", falling back`);
+        return null;
+      }
+    }
+
+    return subtopics;
+  } catch (err) {
+    console.error(`AI subtopic generation failed for "${topicName}":`, err);
+    return null;
+  }
+}
+
+// --- Main handler ---
+
 serve(async (req) => {
   if (req.method === "OPTIONS") {
     return new Response(null, { headers: corsHeaders });
@@ -119,25 +200,15 @@ serve(async (req) => {
 
     const supabaseUrl = Deno.env.get("SUPABASE_URL")!;
     const supabaseKey = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
+    const apiKey = Deno.env.get("LOVABLE_API_KEY")!;
     const supabase = createClient(supabaseUrl, supabaseKey);
 
-    // Delete existing groupings to allow fresh re-grouping
-    await supabase
-      .from("skills")
-      .update({ subtopic_id: null })
-      .eq("graph_id", graph_id);
+    // Clear existing groupings
+    await supabase.from("skills").update({ subtopic_id: null }).eq("graph_id", graph_id);
+    await supabase.from("skill_subtopics").delete().eq("graph_id", graph_id);
+    await supabase.from("skill_topics").delete().eq("graph_id", graph_id);
 
-    await supabase
-      .from("skill_subtopics")
-      .delete()
-      .eq("graph_id", graph_id);
-
-    await supabase
-      .from("skill_topics")
-      .delete()
-      .eq("graph_id", graph_id);
-
-    // Fetch all skills for this graph
+    // Fetch all skills
     const { data: skills, error: skillsError } = await supabase
       .from("skills")
       .select("id, skill_id, name")
@@ -150,7 +221,7 @@ serve(async (req) => {
       });
     }
 
-    // Group skills by topic number
+    // Phase 1: Group skills by topic
     const topicGroups = new Map<number, typeof skills>();
     const unmappedSkills: typeof skills = [];
 
@@ -164,99 +235,106 @@ serve(async (req) => {
       }
     }
 
-    // Create topics and subtopics for each group
     const sortedTopicNums = [...topicGroups.keys()].sort((a, b) => a - b);
     let displayOrder = 0;
+    let subtopicDisplayOrder = 0;
+
+    // Phase 2: Create topics, then use AI to split into subtopics
+    // First create all topic rows
+    const topicRows: { topicNum: number; topicId: string; color: string; groupSkills: typeof skills }[] = [];
 
     for (const topicNum of sortedTopicNums) {
       const topicName = CURRICULUM_TOPICS[topicNum - 1] || `Topic ${topicNum}`;
       const color = GROUPING_COLORS[(topicNum - 1) % GROUPING_COLORS.length];
       const groupSkills = topicGroups.get(topicNum)!;
 
-      // Create topic
       const { data: topic, error: topicError } = await supabase
         .from("skill_topics")
-        .insert({
-          graph_id,
-          name: topicName,
-          color,
-          display_order: displayOrder,
-        })
+        .insert({ graph_id, name: topicName, color, display_order: displayOrder })
         .select()
         .single();
 
       if (topicError) throw topicError;
-
-      // Create subtopic (same as topic for now — 1:1 mapping)
-      const { data: subtopic, error: subtopicError } = await supabase
-        .from("skill_subtopics")
-        .insert({
-          graph_id,
-          topic_id: topic.id,
-          name: topicName,
-          color,
-          display_order: displayOrder,
-        })
-        .select()
-        .single();
-
-      if (subtopicError) throw subtopicError;
-
-      // Link skills to this subtopic
-      const skillIds = groupSkills.map(s => s.skill_id);
-      const { error: updateError } = await supabase
-        .from("skills")
-        .update({ subtopic_id: subtopic.id })
-        .eq("graph_id", graph_id)
-        .in("skill_id", skillIds);
-
-      if (updateError) throw updateError;
-
+      topicRows.push({ topicNum, topicId: topic.id, color, groupSkills });
       displayOrder++;
     }
 
-    // Handle unmapped skills — create a "Miscellaneous" topic if any
+    // Run AI subtopic generation in parallel for all topics with 3+ skills
+    const aiResults = await Promise.all(
+      topicRows.map(async ({ topicNum, topicId, color, groupSkills }) => {
+        const topicName = CURRICULUM_TOPICS[topicNum - 1] || `Topic ${topicNum}`;
+
+        if (groupSkills.length < 3) {
+          // Small topic: single subtopic = topic name
+          return { topicId, topicName, color, clusters: [{ name: topicName, skill_ids: groupSkills.map(s => s.skill_id) }] };
+        }
+
+        const aiClusters = await generateSubtopicsWithAI(topicName, groupSkills, apiKey);
+        if (aiClusters) {
+          return { topicId, topicName, color, clusters: aiClusters };
+        }
+        // Fallback: single subtopic
+        return { topicId, topicName, color, clusters: [{ name: topicName, skill_ids: groupSkills.map(s => s.skill_id) }] };
+      })
+    );
+
+    // Create subtopic rows and link skills
+    for (const { topicId, color, clusters } of aiResults) {
+      for (const cluster of clusters) {
+        const subtopicColor = clusters.length === 1 ? color : GROUPING_COLORS[subtopicDisplayOrder % GROUPING_COLORS.length];
+
+        const { data: subtopic, error: subtopicError } = await supabase
+          .from("skill_subtopics")
+          .insert({
+            graph_id,
+            topic_id: topicId,
+            name: cluster.name,
+            color: subtopicColor,
+            display_order: subtopicDisplayOrder,
+          })
+          .select()
+          .single();
+
+        if (subtopicError) throw subtopicError;
+
+        await supabase
+          .from("skills")
+          .update({ subtopic_id: subtopic.id })
+          .eq("graph_id", graph_id)
+          .in("skill_id", cluster.skill_ids);
+
+        subtopicDisplayOrder++;
+      }
+    }
+
+    // Handle unmapped skills
     if (unmappedSkills.length > 0) {
       const color = GROUPING_COLORS[displayOrder % GROUPING_COLORS.length];
-      
+
       const { data: miscTopic, error: miscTopicError } = await supabase
         .from("skill_topics")
-        .insert({
-          graph_id,
-          name: "Other Skills",
-          color,
-          display_order: displayOrder,
-        })
+        .insert({ graph_id, name: "Other Skills", color, display_order: displayOrder })
         .select()
         .single();
-
       if (miscTopicError) throw miscTopicError;
 
       const { data: miscSubtopic, error: miscSubtopicError } = await supabase
         .from("skill_subtopics")
-        .insert({
-          graph_id,
-          topic_id: miscTopic.id,
-          name: "Other Skills",
-          color,
-          display_order: displayOrder,
-        })
+        .insert({ graph_id, topic_id: miscTopic.id, name: "Other Skills", color, display_order: subtopicDisplayOrder })
         .select()
         .single();
-
       if (miscSubtopicError) throw miscSubtopicError;
 
-      const unmappedIds = unmappedSkills.map(s => s.skill_id);
       await supabase
         .from("skills")
         .update({ subtopic_id: miscSubtopic.id })
         .eq("graph_id", graph_id)
-        .in("skill_id", unmappedIds);
+        .in("skill_id", unmappedSkills.map(s => s.skill_id));
     }
 
     return new Response(
       JSON.stringify({
-        message: "Groupings created successfully",
+        message: "Groupings created with AI subtopics",
         topicsCreated: sortedTopicNums.length + (unmappedSkills.length > 0 ? 1 : 0),
         skillsMapped: skills.length,
       }),
