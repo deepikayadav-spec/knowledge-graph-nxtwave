@@ -1,58 +1,64 @@
 
 
-# Improve Auto-Grouping: Complete Skill-to-Topic Map
+# AI-Powered Subtopic Generation
 
-## Problem
+## The Problem
 
-The `SKILL_TOPIC_MAP` only contains ~45 entries, but the "New PF" graph has 58 skills. These 22 skills are unmapped and all land in a generic "Other Skills" bucket:
+Currently, Auto-Group creates a **1:1 mapping** between topics and subtopics (e.g., "Loops" topic has one subtopic also called "Loops" containing all 8 loop-related skills). This makes the Subtopics view identical to the Topics view.
 
-| Unmapped Skill | Should Belong To |
-|---|---|
-| `class_inheritance` | Topic 15 - Abstraction and Polymorphism |
-| `abstract_class_interaction` | Topic 15 - Abstraction and Polymorphism |
-| `method_overriding` | Topic 15 - Abstraction and Polymorphism |
-| `encapsulation_concepts` | Topic 14 - Introduction to OOP |
-| `character_encoding_conversion` | Topic 7 - Comparing Strings & Naming Variables |
-| `conditional_expression` | Topic 3 - Operators & Conditional Statements |
-| `numeric_rounding` | Topic 3 - Operators & Conditional Statements |
-| `geometric_pattern_generation` | Topic 5 - Loops |
-| `integer_digit_extraction` | Topic 5 - Loops |
-| `list_aggregation` | Topic 8 - Lists |
-| `list_sorting` | Topic 8 - Lists |
-| `sequence_rotation` | Topic 8 - Lists |
-| `matrix_construction` | Topic 12 - Matrices & Shorthand |
-| `matrix_element_access` | Topic 12 - Matrices & Shorthand |
-| `matrix_transposition` | Topic 12 - Matrices & Shorthand |
-| `matrix_rotation` | Topic 12 - Matrices & Shorthand |
-| `matrix_diagonal_traversal` | Topic 12 - Matrices & Shorthand |
-| `backtracking_pattern` | Topic 17 - Problem Solving |
-| `deferred_modification_pattern` | Topic 17 - Problem Solving |
-| `stateful_computation_simulation` | Topic 17 - Problem Solving |
-| `subproblem_enumeration_pattern` | Topic 17 - Problem Solving |
-| `datetime_manipulation` | Topic 16 - Miscellaneous Topics |
+**What you actually want**: Within "Loops", skills should be grouped into meaningful subtopics like:
+- "Basic Iteration" (loop_iteration, input_parsing)
+- "Loop Patterns" (accumulator_pattern, search_pattern, filter_pattern, transform_pattern)
+- "Advanced Loops" (nested_iteration, geometric_pattern_generation, integer_digit_extraction)
 
-## Changes
+## Solution
 
-### 1. Update `SKILL_TOPIC_MAP` in both files
+Enhance the `auto-group-skills` edge function to use AI (via the same Lovable AI gateway already used for graph generation) to intelligently split skills within each topic into meaningful subtopics.
 
-Add all 22 missing skill mappings to the map in:
-- `supabase/functions/auto-group-skills/index.ts`
-- `supabase/functions/generate-graph/index.ts`
+### How It Works
 
-### 2. Allow re-grouping
+1. **Phase 1 (unchanged)**: Group skills into topics using the deterministic `SKILL_TOPIC_MAP`
+2. **Phase 2 (new)**: For each topic with 3+ skills, call AI to suggest subtopic groupings
+3. AI receives the topic name and list of skill names/IDs, and returns subtopic clusters
+4. Topics with only 1-2 skills keep a single subtopic (no AI call needed)
 
-Currently the function returns "skipped" if any topics already exist. Change this to **delete existing groupings first** (clear `skill_subtopics`, `skill_topics`, and reset `subtopic_id` on skills), then re-create everything. This way clicking "Auto-Group" always produces a fresh, correct grouping.
+### AI Prompt Design
 
-### 3. Deploy
+For each topic, the AI gets:
+```
+Topic: "Loops"
+Skills: loop_iteration, accumulator_pattern, search_pattern, filter_pattern, 
+        transform_pattern, input_parsing, nested_iteration, 
+        geometric_pattern_generation, integer_digit_extraction
 
-Re-deploy both edge functions so the new mappings take effect.
+Group these skills into 2-4 meaningful subtopics within this topic.
+Return JSON: { "subtopics": [{ "name": "...", "skill_ids": ["..."] }] }
+```
 
----
+The AI returns clusters, and the function creates the `skill_subtopics` entries accordingly.
 
 ## Files to Modify
 
 | File | Changes |
 |------|---------|
-| `supabase/functions/auto-group-skills/index.ts` | Add 22 missing skill mappings to `SKILL_TOPIC_MAP`; replace "skip if exists" logic with "delete and re-create" logic |
-| `supabase/functions/generate-graph/index.ts` | Add same 22 missing skill mappings to `SKILL_TOPIC_MAP` (keep both files in sync) |
+| `supabase/functions/auto-group-skills/index.ts` | Add AI call (Phase 2) to generate subtopics within each topic. Uses `LOVABLE_API_KEY` and `ai.gateway.lovable.dev` like existing functions. |
+
+No other files need changes -- the existing `useSkillGrouping` hook and `buildSubtopicView` utility already handle multiple subtopics per topic correctly.
+
+## Technical Details
+
+- Uses `google/gemini-2.5-flash` model (fast, cheap, sufficient for classification)
+- AI is only called for topics with 3+ skills (smaller groups get a single subtopic matching the topic name)
+- All AI calls for different topics run in parallel for speed
+- If AI fails for a topic, falls back to a single subtopic (same as current behavior)
+- The prompt enforces that every skill must appear in exactly one subtopic and no skill is dropped
+
+### Execution Flow
+```
+1. Clear existing groupings (already implemented)
+2. Group skills by topic using SKILL_TOPIC_MAP (already implemented)
+3. Create topic rows in DB (already implemented)
+4. NEW: For each topic with 3+ skills, call AI to split into subtopics
+5. Create subtopic rows and link skills (modified to use AI clusters)
+```
 
