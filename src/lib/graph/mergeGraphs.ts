@@ -100,6 +100,9 @@ const MANDATORY_EDGES: Array<{from: string; to: string; reason: string}> = [
   { from: 'loop_iteration', to: 'filter_pattern', reason: 'filtering requires iterating' },
   { from: 'loop_iteration', to: 'transform_pattern', reason: 'transforming requires iterating' },
   { from: 'conditional_branching', to: 'loop_iteration', reason: 'loops use conditions for termination' },
+  { from: 'class_definition', to: 'abstraction', reason: 'abstraction builds on class concepts' },
+  { from: 'class_definition', to: 'polymorphism', reason: 'polymorphism requires OOP basics' },
+  { from: 'class_definition', to: 'inheritance', reason: 'inheritance requires class knowledge' },
 ];
 
 // Independent foundational skills — edges between them are invalid

@@ -427,7 +427,8 @@ in later topics:
 12. Intro to Matrices & Shorthand Expressions
 13. Dictionaries
 14. Introduction to Object Oriented Programming
-15. Miscellaneous Topics
+15. Abstraction and Polymorphism
+16. Miscellaneous Topics
 
 Output ONLY valid JSON, no explanation.`;
 
@@ -446,6 +447,7 @@ const CURRICULUM_TOPICS = [
   "Intro to Matrices & Shorthand Expressions",
   "Dictionaries",
   "Introduction to Object Oriented Programming",
+  "Abstraction and Polymorphism",
   "Miscellaneous Topics",
 ];
 
@@ -488,8 +490,11 @@ const SKILL_TOPIC_MAP: Record<string, number> = {
   dictionary_operations: 13,
   class_definition: 14,
   object_methods: 14,
-  file_io: 15,
-  exception_handling: 15,
+  abstraction: 15,
+  polymorphism: 15,
+  inheritance: 15,
+  file_io: 16,
+  exception_handling: 16,
 };
 
 // Independent foundational skills that should never have edges between each other
@@ -860,6 +865,9 @@ const MANDATORY_EDGES: Array<{ from: string; to: string; reason: string }> = [
   { from: 'loop_iteration', to: 'filter_pattern', reason: 'filtering requires iterating' },
   { from: 'loop_iteration', to: 'transform_pattern', reason: 'transforming requires iterating' },
   { from: 'conditional_branching', to: 'loop_iteration', reason: 'loops use conditions for termination' },
+  { from: 'class_definition', to: 'abstraction', reason: 'abstraction builds on class concepts' },
+  { from: 'class_definition', to: 'polymorphism', reason: 'polymorphism requires OOP basics' },
+  { from: 'class_definition', to: 'inheritance', reason: 'inheritance requires class knowledge' },
 ];
 
 function injectMandatoryEdges(
