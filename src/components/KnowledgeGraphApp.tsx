@@ -16,7 +16,7 @@ import { useAutosave } from '@/hooks/useAutosave';
 import { useSkillGrouping } from '@/hooks/useSkillGrouping';
 import { useStudentMastery } from '@/hooks/useStudentMastery';
 import { buildSubtopicView, buildTopicView } from '@/lib/graph/groupedView';
-import { Network, Sparkles, Trash2, GraduationCap, Plus } from 'lucide-react';
+import { Network, Sparkles, Trash2, GraduationCap, Plus, Pencil, CheckCircle, Wand2 } from 'lucide-react';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Switch } from '@/components/ui/switch';
@@ -51,6 +51,10 @@ export function KnowledgeGraphApp() {
   // Grouping edit mode state
   const [isGroupingEditMode, setIsGroupingEditMode] = useState(false);
   const [selectedGroupingNodeIds, setSelectedGroupingNodeIds] = useState<Set<string>>(new Set());
+
+  // Standalone edit mode for node/edge CRUD
+  const [isEditMode, setIsEditMode] = useState(false);
+  const [isAutoGrouping, setIsAutoGrouping] = useState(false);
 
   // Graph persistence
   const {
@@ -413,8 +417,42 @@ export function KnowledgeGraphApp() {
             {/* View Mode Toggle */}
             <ViewModeToggle value={viewMode} onChange={setViewMode} />
 
-            {/* Add Skill Button */}
-            {currentGraphId && viewMode === 'skills' && (
+            {/* Auto-Group Button */}
+            {currentGraphId && (
+              <Button
+                variant="outline"
+                size="sm"
+                className="gap-1.5"
+                disabled={isAutoGrouping}
+                onClick={async () => {
+                  setIsAutoGrouping(true);
+                  await groupingHook.autoGroupSkills();
+                  setIsAutoGrouping(false);
+                }}
+              >
+                <Wand2 className="h-3.5 w-3.5" />
+                {isAutoGrouping ? 'Grouping...' : 'Auto-Group'}
+              </Button>
+            )}
+
+            {/* Edit Mode Toggle */}
+            {currentGraphId && (
+              <Button
+                variant={isEditMode ? "default" : "outline"}
+                size="sm"
+                className="gap-1.5"
+                onClick={() => setIsEditMode(prev => !prev)}
+              >
+                {isEditMode ? (
+                  <><CheckCircle className="h-3.5 w-3.5" /> Done</>
+                ) : (
+                  <><Pencil className="h-3.5 w-3.5" /> Edit</>
+                )}
+              </Button>
+            )}
+
+            {/* Add Skill Button - only in edit mode */}
+            {currentGraphId && isEditMode && (
               <Button variant="outline" size="sm" className="gap-1.5" onClick={() => setShowAddNodeDialog(true)}>
                 <Plus className="h-3.5 w-3.5" /> Add Skill
               </Button>
@@ -538,7 +576,7 @@ export function KnowledgeGraphApp() {
       </div>
 
       {/* Full-screen modal overlay */}
-      {selectedNode && viewMode === 'skills' && (
+      {selectedNode && (
         <NodeDetailPanel
           node={selectedNode}
           edges={graph.edges}
@@ -548,9 +586,9 @@ export function KnowledgeGraphApp() {
           masteryMode={masteryMode}
           studentMastery={selectedStudentId ? studentMasteryHook.mastery.get(selectedNode.id) : undefined}
           studentName={selectedStudentName}
-          onDeleteNode={currentGraphId ? handleDeleteNode : undefined}
-          onAddEdge={currentGraphId ? handleAddEdge : undefined}
-          onRemoveEdge={currentGraphId ? handleRemoveEdge : undefined}
+          onDeleteNode={isEditMode && currentGraphId ? handleDeleteNode : undefined}
+          onAddEdge={isEditMode && currentGraphId ? handleAddEdge : undefined}
+          onRemoveEdge={isEditMode && currentGraphId ? handleRemoveEdge : undefined}
         />
       )}
 
