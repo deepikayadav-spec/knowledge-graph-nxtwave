@@ -61,7 +61,10 @@ export function KnowledgeGraphApp() {
     deleteGraph,
     copyGraph,
     fetchGraphs,
+    recomputeAndSaveLevels,
   } = useGraphPersistence();
+
+  const [isRecomputingLevels, setIsRecomputingLevels] = useState(false);
 
   // Skill grouping hook
   const groupingHook = useSkillGrouping({
@@ -149,6 +152,19 @@ export function KnowledgeGraphApp() {
     await groupingHook.createSubtopic(name, color, skillIds);
     setSelectedGroupingNodeIds(new Set());
   }, [selectedGroupingNodeIds, groupingHook]);
+
+  // Recompute levels and reload graph
+  const handleRecomputeLevels = useCallback(async () => {
+    if (!currentGraphId) return;
+    setIsRecomputingLevels(true);
+    const success = await recomputeAndSaveLevels(currentGraphId);
+    if (success) {
+      // Reload graph to reflect new levels
+      const reloaded = await loadGraph(currentGraphId);
+      if (reloaded) setGraph(reloaded);
+    }
+    setIsRecomputingLevels(false);
+  }, [currentGraphId, recomputeAndSaveLevels, loadGraph]);
 
   // Clear graph and start fresh
   const handleClearGraph = useCallback(() => {
@@ -322,6 +338,8 @@ export function KnowledgeGraphApp() {
               onDelete={handleDeleteGraph}
               onNew={handleClearGraph}
               onCopy={handleCopyGraph}
+              onRecomputeLevels={handleRecomputeLevels}
+              isRecomputingLevels={isRecomputingLevels}
             />
           </div>
         </header>
@@ -432,6 +450,8 @@ export function KnowledgeGraphApp() {
               onDelete={handleDeleteGraph}
               onNew={handleClearGraph}
               onCopy={handleCopyGraph}
+              onRecomputeLevels={handleRecomputeLevels}
+              isRecomputingLevels={isRecomputingLevels}
             />
             <Button
               variant="outline"

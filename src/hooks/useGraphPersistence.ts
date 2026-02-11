@@ -432,6 +432,80 @@ export function useGraphPersistence() {
     }
   }, [fetchGraphs]);
 
+  // Recompute and save levels from edges (topological sort)
+  const recomputeAndSaveLevels = useCallback(async (graphId: string): Promise<boolean> => {
+    setIsLoading(true);
+    try {
+      // Load edges and skills
+      const [edgesRes, skillsRes] = await Promise.all([
+        supabase.from('skill_edges').select('from_skill, to_skill').eq('graph_id', graphId),
+        supabase.from('skills').select('id, skill_id').eq('graph_id', graphId),
+      ]);
+
+      if (edgesRes.error) throw edgesRes.error;
+      if (skillsRes.error) throw skillsRes.error;
+
+      const edges = edgesRes.data || [];
+      const skills = skillsRes.data || [];
+      const skillIds = new Set(skills.map(s => s.skill_id));
+
+      // Build incoming adjacency
+      const incoming = new Map<string, string[]>();
+      for (const e of edges) {
+        if (!incoming.has(e.to_skill)) incoming.set(e.to_skill, []);
+        incoming.get(e.to_skill)!.push(e.from_skill);
+      }
+
+      // Compute levels via recursive topological sort
+      const levelMap = new Map<string, number>();
+      function getLevel(id: string, visited: Set<string>): number {
+        if (levelMap.has(id)) return levelMap.get(id)!;
+        if (visited.has(id)) return 0;
+        visited.add(id);
+        const prereqs = (incoming.get(id) || []).filter(p => skillIds.has(p));
+        const level = prereqs.length === 0 ? 0 : 1 + Math.max(...prereqs.map(p => getLevel(p, new Set(visited))));
+        levelMap.set(id, level);
+        return level;
+      }
+
+      for (const skill of skills) {
+        getLevel(skill.skill_id, new Set());
+      }
+
+      // Batch update levels
+      const updates = skills.map(skill => ({
+        id: skill.id,
+        level: levelMap.get(skill.skill_id) ?? 0,
+      }));
+
+      for (const u of updates) {
+        const { error } = await supabase
+          .from('skills')
+          .update({ level: u.level })
+          .eq('id', u.id);
+        if (error) throw error;
+      }
+
+      const maxLevel = Math.max(0, ...updates.map(u => u.level));
+      toast({
+        title: 'Levels recomputed',
+        description: `Updated ${updates.length} skills. Max depth: ${maxLevel}.`,
+      });
+
+      return true;
+    } catch (error) {
+      console.error('Error recomputing levels:', error);
+      toast({
+        title: 'Failed to recompute levels',
+        description: error instanceof Error ? error.message : 'Unknown error',
+        variant: 'destructive',
+      });
+      return false;
+    } finally {
+      setIsLoading(false);
+    }
+  }, []);
+
   return {
     savedGraphs,
     currentGraphId,
@@ -443,5 +517,6 @@ export function useGraphPersistence() {
     loadGraph,
     deleteGraph,
     copyGraph,
+    recomputeAndSaveLevels,
   };
 }

@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { Save, FolderOpen, Plus, Trash2, Loader2, Copy, RefreshCw, Gauge } from 'lucide-react';
+import { Save, FolderOpen, Plus, Trash2, Loader2, Copy, RefreshCw, Gauge, Layers } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import {
@@ -47,6 +47,8 @@ interface GraphManagerPanelProps {
   onNew: () => void;
   onCopy?: (graphId: string, newName: string) => void;
   onGraphRegenerated?: () => void;
+  onRecomputeLevels?: () => void;
+  isRecomputingLevels?: boolean;
 }
 
 export function GraphManagerPanel({
@@ -61,6 +63,8 @@ export function GraphManagerPanel({
   onNew,
   onCopy,
   onGraphRegenerated,
+  onRecomputeLevels,
+  isRecomputingLevels,
 }: GraphManagerPanelProps) {
   const [saveDialogOpen, setSaveDialogOpen] = useState(false);
   const [copyDialogOpen, setCopyDialogOpen] = useState(false);
@@ -320,6 +324,22 @@ export function GraphManagerPanel({
           </DialogFooter>
         </DialogContent>
       </Dialog>
+
+      {/* Recompute Levels Button */}
+      <Button
+        variant="outline"
+        size="sm"
+        className="gap-1.5"
+        disabled={!currentGraphId || isRecomputingLevels}
+        onClick={onRecomputeLevels}
+      >
+        {isRecomputingLevels ? (
+          <Loader2 className="h-3.5 w-3.5 animate-spin" />
+        ) : (
+          <Layers className="h-3.5 w-3.5" />
+        )}
+        Levels
+      </Button>
 
       {/* Regenerate Difficulty Button/Dialog */}
       <Dialog open={regenerateDifficultyDialogOpen} onOpenChange={setRegenerateDifficultyDialogOpen}>
