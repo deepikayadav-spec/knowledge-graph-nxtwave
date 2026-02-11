@@ -7,13 +7,16 @@ import { GraphManagerPanel } from './panels/GraphManagerPanel';
 import { GenerationProgress } from './panels/GenerationProgress';
 import { AutosaveIndicator } from './AutosaveIndicator';
 import { EditModeHeader } from './graph/EditModeHeader';
-import { KnowledgeGraph, QuestionPath } from '@/types/graph';
+import { AddNodeDialog } from './panels/AddNodeDialog';
+import { ViewModeToggle, ViewMode } from './graph/ViewModeToggle';
+import { KnowledgeGraph, QuestionPath, GraphNode, GraphEdge, SkillTier } from '@/types/graph';
 import { useGraphPersistence } from '@/hooks/useGraphPersistence';
 import { useBatchGeneration } from '@/hooks/useBatchGeneration';
 import { useAutosave } from '@/hooks/useAutosave';
 import { useSkillGrouping } from '@/hooks/useSkillGrouping';
 import { useStudentMastery } from '@/hooks/useStudentMastery';
-import { Network, Sparkles, Trash2, GraduationCap } from 'lucide-react';
+import { buildSubtopicView, buildTopicView } from '@/lib/graph/groupedView';
+import { Network, Sparkles, Trash2, GraduationCap, Plus } from 'lucide-react';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Switch } from '@/components/ui/switch';
@@ -27,9 +30,7 @@ import {
 
 // Helper to get path array from either format (backward compatible)
 const getPathArray = (path: QuestionPath | string[]): string[] => {
-  if (Array.isArray(path)) {
-    return path;
-  }
+  if (Array.isArray(path)) return path;
   return path.executionOrder || path.requiredNodes || [];
 };
 
@@ -37,6 +38,8 @@ export function KnowledgeGraphApp() {
   const [graph, setGraph] = useState<KnowledgeGraph | null>(null);
   const [selectedNodeId, setSelectedNodeId] = useState<string | null>(null);
   const [selectedQuestion, setSelectedQuestion] = useState<string | null>(null);
+  const [showAddNodeDialog, setShowAddNodeDialog] = useState(false);
+  const [viewMode, setViewMode] = useState<ViewMode>('skills');
 
   // Mastery tracking state
   const [masteryMode, setMasteryMode] = useState(false);
@@ -62,6 +65,10 @@ export function KnowledgeGraphApp() {
     copyGraph,
     fetchGraphs,
     recomputeAndSaveLevels,
+    addNode,
+    removeNode,
+    addEdge,
+    removeEdge,
   } = useGraphPersistence();
 
   const [isRecomputingLevels, setIsRecomputingLevels] = useState(false);
@@ -78,12 +85,12 @@ export function KnowledgeGraphApp() {
     [graph?.globalNodes]
   );
 
-  // Student mastery hook - lifted up to share with GraphCanvas and NodeDetailPanel
+  // Student mastery hook
   const studentMasteryHook = useStudentMastery({
     graphId: currentGraphId || '',
     studentId: selectedStudentId || '',
     skillIds,
-    useDemoData: true, // Enable demo mode for demonstration
+    useDemoData: true,
     autoLoad: !!currentGraphId && !!selectedStudentId,
   });
 
@@ -93,14 +100,14 @@ export function KnowledgeGraphApp() {
     [savedGraphs, currentGraphId]
   );
 
-  // Autosave (only when graph has been saved at least once)
+  // Autosave
   const {
     status: autosaveStatus,
     lastSavedAt: autosaveLastSavedAt,
     triggerSave: autosaveTrigger,
   } = useAutosave(graph, currentGraphId, saveGraph, currentGraphName, {
-    debounceMs: 30000, // 30 seconds after last change
-    enabled: !!currentGraphId, // Only autosave if graph has been saved once
+    debounceMs: 30000,
+    enabled: !!currentGraphId,
   });
 
   // Batch generation with progress tracking
@@ -119,8 +126,7 @@ export function KnowledgeGraphApp() {
     clearCheckpoint,
   } = useBatchGeneration(graph, handleGraphUpdate, fetchGraphs);
 
-  // Clear graph and start fresh
-  // Handle class selection from ClassManagerPanel
+  // Handle class selection
   const handleClassSelect = useCallback((classId: string, className: string) => {
     setSelectedClassId(classId);
     setSelectedClassName(className);
@@ -128,7 +134,6 @@ export function KnowledgeGraphApp() {
     setSelectedStudentName(null);
   }, []);
 
-  // Handle student selection
   const handleStudentChange = useCallback((studentId: string | null, studentName: string | null) => {
     setSelectedStudentId(studentId);
     setSelectedStudentName(studentName);
@@ -137,10 +142,7 @@ export function KnowledgeGraphApp() {
   // Toggle grouping edit mode
   const handleToggleGroupingEditMode = useCallback(() => {
     setIsGroupingEditMode(prev => {
-      if (prev) {
-        // Exiting edit mode - clear selection
-        setSelectedGroupingNodeIds(new Set());
-      }
+      if (prev) setSelectedGroupingNodeIds(new Set());
       return !prev;
     });
   }, []);
@@ -159,12 +161,70 @@ export function KnowledgeGraphApp() {
     setIsRecomputingLevels(true);
     const success = await recomputeAndSaveLevels(currentGraphId);
     if (success) {
-      // Reload graph to reflect new levels
       const reloaded = await loadGraph(currentGraphId);
       if (reloaded) setGraph(reloaded);
     }
     setIsRecomputingLevels(false);
   }, [currentGraphId, recomputeAndSaveLevels, loadGraph]);
+
+  // CRUD handlers
+  const handleAddNode = useCallback(async (skillId: string, name: string, tier: SkillTier, description?: string) => {
+    if (!currentGraphId || !graph) return;
+    const success = await addNode(currentGraphId, skillId, name, tier, description);
+    if (success) {
+      // Add to local state
+      const newNode: GraphNode = {
+        id: skillId,
+        name,
+        level: 0,
+        tier,
+        description,
+        knowledgePoint: { atomicityCheck: `Transferable skill: ${name}`, assessmentExample: '', targetAssessmentLevel: 3, appearsInQuestions: [] },
+        cme: { measured: false, highestConceptLevel: 0, levelLabels: ['Recognition', 'Recall (simple)', 'Recall (complex)', 'Direct application'], independence: 'Unknown', retention: 'Unknown', evidenceByLevel: {} },
+        le: { estimated: true, estimatedMinutes: 15 },
+      };
+      setGraph({
+        ...graph,
+        globalNodes: [...graph.globalNodes, newNode],
+      });
+    }
+  }, [currentGraphId, graph, addNode]);
+
+  const handleDeleteNode = useCallback(async (skillId: string) => {
+    if (!currentGraphId || !graph) return;
+    const success = await removeNode(currentGraphId, skillId);
+    if (success) {
+      setGraph({
+        ...graph,
+        globalNodes: graph.globalNodes.filter(n => n.id !== skillId),
+        edges: graph.edges.filter(e => e.from !== skillId && e.to !== skillId),
+      });
+      setSelectedNodeId(null);
+    }
+  }, [currentGraphId, graph, removeNode]);
+
+  const handleAddEdge = useCallback(async (fromSkill: string, toSkill: string) => {
+    if (!currentGraphId || !graph) return;
+    const success = await addEdge(currentGraphId, fromSkill, toSkill);
+    if (success) {
+      const newEdge: GraphEdge = { from: fromSkill, to: toSkill, reason: '' };
+      setGraph({ ...graph, edges: [...graph.edges, newEdge] });
+      // Recompute levels
+      await handleRecomputeLevels();
+    }
+  }, [currentGraphId, graph, addEdge, handleRecomputeLevels]);
+
+  const handleRemoveEdge = useCallback(async (fromSkill: string, toSkill: string) => {
+    if (!currentGraphId || !graph) return;
+    const success = await removeEdge(currentGraphId, fromSkill, toSkill);
+    if (success) {
+      setGraph({
+        ...graph,
+        edges: graph.edges.filter(e => !(e.from === fromSkill && e.to === toSkill)),
+      });
+      await handleRecomputeLevels();
+    }
+  }, [currentGraphId, graph, removeEdge, handleRecomputeLevels]);
 
   // Clear graph and start fresh
   const handleClearGraph = useCallback(() => {
@@ -176,30 +236,26 @@ export function KnowledgeGraphApp() {
     setSelectedClassName(null);
     setSelectedStudentId(null);
     setSelectedStudentName(null);
+    setViewMode('skills');
     clearCheckpoint();
-    toast({
-      title: "Graph cleared",
-      description: "You can start building a new knowledge graph.",
-    });
+    toast({ title: "Graph cleared", description: "You can start building a new knowledge graph." });
   }, [setCurrentGraphId, clearCheckpoint]);
 
-  // Save current graph
   const handleSaveGraph = useCallback(async (name: string, description?: string) => {
     if (!graph) return;
     await saveGraph(graph, name, description, currentGraphId || undefined);
   }, [graph, currentGraphId, saveGraph]);
 
-  // Load a saved graph
   const handleLoadGraph = useCallback(async (graphId: string) => {
     const loadedGraph = await loadGraph(graphId);
     if (loadedGraph) {
       setGraph(loadedGraph);
       setSelectedNodeId(null);
       setSelectedQuestion(null);
+      setViewMode('skills');
     }
   }, [loadGraph]);
 
-  // Delete a graph
   const handleDeleteGraph = useCallback(async (graphId: string) => {
     const success = await deleteGraph(graphId);
     if (success && graphId === currentGraphId) {
@@ -209,24 +265,16 @@ export function KnowledgeGraphApp() {
     }
   }, [deleteGraph, currentGraphId]);
 
-  // Handle question generation
   const handleGenerate = useCallback(async (questions: string[]) => {
     await generate(questions, false, currentGraphId || undefined);
   }, [generate, currentGraphId]);
 
-  // Remove a question from the graph
   const handleRemoveQuestion = useCallback((questionText: string) => {
     if (!graph) return;
-    
-    // Get skills used by this question
     const questionPath = graph.questionPaths[questionText];
     const questionSkills = new Set(
-      Array.isArray(questionPath) 
-        ? questionPath 
-        : questionPath?.requiredNodes || questionPath?.executionOrder || []
+      Array.isArray(questionPath) ? questionPath : questionPath?.requiredNodes || questionPath?.executionOrder || []
     );
-    
-    // Get all skills used by other questions
     const otherQuestionsSkills = new Set<string>();
     Object.entries(graph.questionPaths).forEach(([q, path]) => {
       if (q !== questionText) {
@@ -234,53 +282,27 @@ export function KnowledgeGraphApp() {
         skills.forEach(s => otherQuestionsSkills.add(s));
       }
     });
-    
-    // Find orphaned skills (only used by this question)
     const orphanedSkills = new Set<string>();
     questionSkills.forEach(skillId => {
-      if (!otherQuestionsSkills.has(skillId)) {
-        orphanedSkills.add(skillId);
-      }
+      if (!otherQuestionsSkills.has(skillId)) orphanedSkills.add(skillId);
     });
-    
-    // Update graph
     const newQuestionPaths = { ...graph.questionPaths };
     delete newQuestionPaths[questionText];
-    
     const newNodes = graph.globalNodes.filter(n => !orphanedSkills.has(n.id));
-    const newEdges = graph.edges.filter(e => 
-      !orphanedSkills.has(e.from) && !orphanedSkills.has(e.to)
-    );
-    
-    // Update appearsInQuestions for remaining nodes
+    const newEdges = graph.edges.filter(e => !orphanedSkills.has(e.from) && !orphanedSkills.has(e.to));
     newNodes.forEach(node => {
-      node.knowledgePoint.appearsInQuestions = node.knowledgePoint.appearsInQuestions.filter(
-        q => q !== questionText
-      );
+      node.knowledgePoint.appearsInQuestions = node.knowledgePoint.appearsInQuestions.filter(q => q !== questionText);
     });
-    
-    setGraph({
-      ...graph,
-      globalNodes: newNodes,
-      edges: newEdges,
-      questionPaths: newQuestionPaths,
-    });
-    
+    setGraph({ ...graph, globalNodes: newNodes, edges: newEdges, questionPaths: newQuestionPaths });
     toast({
       title: 'Question removed',
-      description: orphanedSkills.size > 0 
-        ? `Removed ${orphanedSkills.size} orphaned skill(s).`
-        : 'Question has been removed from the graph.',
+      description: orphanedSkills.size > 0 ? `Removed ${orphanedSkills.size} orphaned skill(s).` : 'Question has been removed from the graph.',
     });
   }, [graph]);
 
-  // Copy a graph
   const handleCopyGraph = useCallback(async (graphId: string, newName: string) => {
     const newId = await copyGraph(graphId, newName);
-    if (newId) {
-      // Optionally load the copied graph
-      await handleLoadGraph(newId);
-    }
+    if (newId) await handleLoadGraph(newId);
   }, [copyGraph, handleLoadGraph]);
 
   const selectedNode = useMemo(
@@ -289,19 +311,26 @@ export function KnowledgeGraphApp() {
   );
 
   const highlightedPath = useMemo(() => {
-    if (!selectedQuestion || !graph?.questionPaths[selectedQuestion]) {
-      return undefined;
-    }
+    if (!selectedQuestion || !graph?.questionPaths[selectedQuestion]) return undefined;
     return getPathArray(graph.questionPaths[selectedQuestion]);
   }, [selectedQuestion, graph?.questionPaths]);
 
   const stats = useMemo(() => {
     if (!graph) return null;
-    const totalNodes = graph.globalNodes.length;
-    const totalEdges = graph.edges.length;
-    const totalQuestions = Object.keys(graph.questionPaths).length;
-    return { totalNodes, totalEdges, totalQuestions };
+    return { totalNodes: graph.globalNodes.length, totalEdges: graph.edges.length, totalQuestions: Object.keys(graph.questionPaths).length };
   }, [graph]);
+
+  // Compute grouped view data
+  const groupedData = useMemo(() => {
+    if (!graph || viewMode === 'skills') return null;
+    if (viewMode === 'subtopics') {
+      return buildSubtopicView(graph.globalNodes, graph.edges, groupingHook.subtopics, groupingHook.skillSubtopicMap);
+    }
+    if (viewMode === 'topics') {
+      return buildTopicView(graph.globalNodes, graph.edges, groupingHook.subtopics, groupingHook.topics, groupingHook.skillSubtopicMap);
+    }
+    return null;
+  }, [graph, viewMode, groupingHook.subtopics, groupingHook.topics, groupingHook.skillSubtopicMap]);
 
   const isGenerating = progress.isProcessing;
   const showCheckpointResume = hasCheckpoint() && !isGenerating;
@@ -320,13 +349,11 @@ export function KnowledgeGraphApp() {
                 <h1 className="text-lg font-semibold text-foreground flex items-center gap-2">
                   Knowledge Graph Engine
                   <Badge variant="secondary" className="text-xs font-normal">
-                    <Sparkles className="h-3 w-3 mr-1" />
-                    Skill Taxonomy
+                    <Sparkles className="h-3 w-3 mr-1" />Skill Taxonomy
                   </Badge>
                 </h1>
               </div>
             </div>
-            
             <GraphManagerPanel
               savedGraphs={savedGraphs}
               currentGraphId={currentGraphId}
@@ -343,26 +370,13 @@ export function KnowledgeGraphApp() {
             />
           </div>
         </header>
-
         <div className="flex-1 flex items-center justify-center p-8">
           <div className="w-full max-w-2xl space-y-4">
             {(isGenerating || showCheckpointResume) && (
-              <GenerationProgress
-                progress={progress}
-                onPause={abort}
-                onResume={resume}
-                onCancel={clearCheckpoint}
-                hasCheckpoint={showCheckpointResume}
-              />
+              <GenerationProgress progress={progress} onPause={abort} onResume={resume} onCancel={clearCheckpoint} hasCheckpoint={showCheckpointResume} />
             )}
-            
             {!isGenerating && (
-              <QuickQuestionInput
-                onGenerate={handleGenerate}
-                isLoading={isGenerating}
-                isLandingMode={true}
-                graphId={currentGraphId}
-              />
+              <QuickQuestionInput onGenerate={handleGenerate} isLoading={isGenerating} isLandingMode={true} graphId={currentGraphId} />
             )}
           </div>
         </div>
@@ -386,11 +400,7 @@ export function KnowledgeGraphApp() {
                   {currentGraphName || 'Knowledge Graph'}
                 </h1>
                 {currentGraphId && (
-                  <AutosaveIndicator
-                    status={autosaveStatus}
-                    lastSavedAt={autosaveLastSavedAt}
-                    onManualSave={autosaveTrigger}
-                  />
+                  <AutosaveIndicator status={autosaveStatus} lastSavedAt={autosaveLastSavedAt} onManualSave={autosaveTrigger} />
                 )}
               </div>
               <p className="text-xs text-muted-foreground">
@@ -400,35 +410,32 @@ export function KnowledgeGraphApp() {
           </div>
 
           <div className="flex items-center gap-3">
+            {/* View Mode Toggle */}
+            <ViewModeToggle value={viewMode} onChange={setViewMode} />
+
+            {/* Add Skill Button */}
+            {currentGraphId && viewMode === 'skills' && (
+              <Button variant="outline" size="sm" className="gap-1.5" onClick={() => setShowAddNodeDialog(true)}>
+                <Plus className="h-3.5 w-3.5" /> Add Skill
+              </Button>
+            )}
+
             {/* Mastery Mode Toggle */}
             {currentGraphId && (
               <div className="flex items-center gap-2 px-2 py-1 rounded-md bg-muted/50">
-                <Switch
-                  id="mastery-mode"
-                  checked={masteryMode}
-                  onCheckedChange={setMasteryMode}
-                />
+                <Switch id="mastery-mode" checked={masteryMode} onCheckedChange={setMasteryMode} />
                 <Label htmlFor="mastery-mode" className="text-sm font-medium cursor-pointer flex items-center gap-1.5">
-                  <GraduationCap className="h-4 w-4" />
-                  Mastery
+                  <GraduationCap className="h-4 w-4" />Mastery
                 </Label>
               </div>
             )}
 
-            {/* Class & Student Selectors (when mastery mode is on) */}
+            {/* Class & Student Selectors */}
             {masteryMode && currentGraphId && (
               <div className="flex items-center gap-2">
-                <ClassSelector
-                  graphId={currentGraphId}
-                  selectedClassId={selectedClassId}
-                  onClassSelect={handleClassSelect}
-                />
+                <ClassSelector graphId={currentGraphId} selectedClassId={selectedClassId} onClassSelect={handleClassSelect} />
                 {selectedClassId && (
-                  <StudentSelector
-                    classId={selectedClassId}
-                    selectedStudentId={selectedStudentId}
-                    onStudentChange={handleStudentChange}
-                  />
+                  <StudentSelector classId={selectedClassId} selectedStudentId={selectedStudentId} onStudentChange={handleStudentChange} />
                 )}
               </div>
             )}
@@ -453,14 +460,8 @@ export function KnowledgeGraphApp() {
               onRecomputeLevels={handleRecomputeLevels}
               isRecomputingLevels={isRecomputingLevels}
             />
-            <Button
-              variant="outline"
-              size="sm"
-              onClick={handleClearGraph}
-              className="gap-1.5 text-muted-foreground hover:text-destructive"
-            >
-              <Trash2 className="h-3.5 w-3.5" />
-              Clear
+            <Button variant="outline" size="sm" onClick={handleClearGraph} className="gap-1.5 text-muted-foreground hover:text-destructive">
+              <Trash2 className="h-3.5 w-3.5" />Clear
             </Button>
           </div>
         </div>
@@ -471,8 +472,8 @@ export function KnowledgeGraphApp() {
         {/* Graph Area */}
         <div className="flex-1 relative">
           <GraphCanvas
-            nodes={graph.globalNodes}
-            edges={graph.edges}
+            nodes={groupedData ? groupedData.nodes as GraphNode[] : graph.globalNodes}
+            edges={groupedData ? groupedData.edges : graph.edges}
             selectedNodeId={selectedNodeId}
             onNodeSelect={setSelectedNodeId}
             highlightedPath={highlightedPath}
@@ -484,50 +485,33 @@ export function KnowledgeGraphApp() {
             skillSubtopicMap={groupingHook.skillSubtopicMap}
             studentMastery={masteryMode && selectedStudentId ? studentMasteryHook.mastery : undefined}
             showMasteryVisuals={masteryMode && !!selectedStudentId}
+            viewMode={viewMode}
+            groupedData={groupedData}
           />
 
           {/* Floating question input and progress */}
           <div className="absolute top-4 left-4 w-80 space-y-2">
             {(isGenerating || showCheckpointResume) && (
-              <GenerationProgress
-                progress={progress}
-                onPause={abort}
-                onResume={resume}
-                onCancel={clearCheckpoint}
-                hasCheckpoint={showCheckpointResume}
-              />
+              <GenerationProgress progress={progress} onPause={abort} onResume={resume} onCancel={clearCheckpoint} hasCheckpoint={showCheckpointResume} />
             )}
-            
             {!isGenerating && (
-              <QuickQuestionInput
-                onGenerate={handleGenerate}
-                isLoading={isGenerating}
-                isLandingMode={false}
-                graphId={currentGraphId}
-              />
+              <QuickQuestionInput onGenerate={handleGenerate} isLoading={isGenerating} isLandingMode={false} graphId={currentGraphId} />
             )}
           </div>
 
           {/* Floating info when path is selected */}
           {highlightedPath && (
             <div className="absolute bottom-4 left-4 panel-glass px-4 py-2 animate-fade-in">
-              <div className="text-xs text-muted-foreground mb-1">
-                Question Path
-              </div>
+              <div className="text-xs text-muted-foreground mb-1">Question Path</div>
               <div className="flex items-center gap-1 text-sm">
                 {highlightedPath.map((nodeId, idx) => {
                   const node = graph.globalNodes.find((n) => n.id === nodeId);
                   return (
                     <span key={nodeId} className="flex items-center gap-1">
-                      <button
-                        onClick={() => setSelectedNodeId(nodeId)}
-                        className="px-2 py-0.5 rounded bg-accent/10 hover:bg-accent/20 text-accent font-medium text-xs transition-colors"
-                      >
+                      <button onClick={() => setSelectedNodeId(nodeId)} className="px-2 py-0.5 rounded bg-accent/10 hover:bg-accent/20 text-accent font-medium text-xs transition-colors">
                         {node?.name.split(' ').slice(0, 3).join(' ')}...
                       </button>
-                      {idx < highlightedPath.length - 1 && (
-                        <span className="text-muted-foreground">→</span>
-                      )}
+                      {idx < highlightedPath.length - 1 && <span className="text-muted-foreground">→</span>}
                     </span>
                   );
                 })}
@@ -554,7 +538,7 @@ export function KnowledgeGraphApp() {
       </div>
 
       {/* Full-screen modal overlay */}
-      {selectedNode && (
+      {selectedNode && viewMode === 'skills' && (
         <NodeDetailPanel
           node={selectedNode}
           edges={graph.edges}
@@ -564,8 +548,19 @@ export function KnowledgeGraphApp() {
           masteryMode={masteryMode}
           studentMastery={selectedStudentId ? studentMasteryHook.mastery.get(selectedNode.id) : undefined}
           studentName={selectedStudentName}
+          onDeleteNode={currentGraphId ? handleDeleteNode : undefined}
+          onAddEdge={currentGraphId ? handleAddEdge : undefined}
+          onRemoveEdge={currentGraphId ? handleRemoveEdge : undefined}
         />
       )}
+
+      {/* Add Node Dialog */}
+      <AddNodeDialog
+        open={showAddNodeDialog}
+        onOpenChange={setShowAddNodeDialog}
+        onAdd={handleAddNode}
+        existingIds={graph.globalNodes.map(n => n.id)}
+      />
     </div>
   );
 }

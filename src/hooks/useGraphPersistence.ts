@@ -506,6 +506,177 @@ export function useGraphPersistence() {
     }
   }, []);
 
+  // Add a single node to the graph
+  const addNode = useCallback(async (
+    graphId: string,
+    skillId: string,
+    name: string,
+    tier: string,
+    description?: string
+  ): Promise<boolean> => {
+    try {
+      const { error } = await supabase.from('skills').insert({
+        graph_id: graphId,
+        skill_id: skillId,
+        name,
+        tier,
+        level: 0,
+        description: description || null,
+      });
+      if (error) throw error;
+
+      // Update total_skills count
+      const { data: countData } = await supabase
+        .from('skills')
+        .select('id', { count: 'exact', head: true })
+        .eq('graph_id', graphId);
+      await supabase
+        .from('knowledge_graphs')
+        .update({ total_skills: countData ? (countData as any).length || 0 : 0 })
+        .eq('id', graphId);
+
+      toast({ title: 'Skill added', description: `"${name}" has been added to the graph.` });
+      return true;
+    } catch (error) {
+      console.error('Error adding node:', error);
+      toast({ title: 'Failed to add skill', description: error instanceof Error ? error.message : 'Unknown error', variant: 'destructive' });
+      return false;
+    }
+  }, []);
+
+  // Remove a node and its connected edges
+  const removeNode = useCallback(async (
+    graphId: string,
+    skillId: string
+  ): Promise<boolean> => {
+    try {
+      // Delete edges connected to this node
+      await Promise.all([
+        supabase.from('skill_edges').delete().eq('graph_id', graphId).eq('from_skill', skillId),
+        supabase.from('skill_edges').delete().eq('graph_id', graphId).eq('to_skill', skillId),
+      ]);
+
+      // Delete the skill
+      const { error } = await supabase.from('skills').delete().eq('graph_id', graphId).eq('skill_id', skillId);
+      if (error) throw error;
+
+      // Remove skill from questions' skill arrays
+      const { data: questions } = await supabase.from('questions').select('id, skills').eq('graph_id', graphId);
+      if (questions) {
+        for (const q of questions) {
+          if (q.skills?.includes(skillId)) {
+            await supabase.from('questions').update({
+              skills: q.skills.filter((s: string) => s !== skillId),
+            }).eq('id', q.id);
+          }
+        }
+      }
+
+      toast({ title: 'Skill removed', description: `Skill and its edges have been removed.` });
+      return true;
+    } catch (error) {
+      console.error('Error removing node:', error);
+      toast({ title: 'Failed to remove skill', description: error instanceof Error ? error.message : 'Unknown error', variant: 'destructive' });
+      return false;
+    }
+  }, []);
+
+  // Add an edge (prerequisite relationship)
+  const addEdge = useCallback(async (
+    graphId: string,
+    fromSkill: string,
+    toSkill: string,
+    reason?: string
+  ): Promise<boolean> => {
+    try {
+      // Validate no self-loop
+      if (fromSkill === toSkill) {
+        toast({ title: 'Invalid edge', description: 'A skill cannot be a prerequisite of itself.', variant: 'destructive' });
+        return false;
+      }
+
+      // Check for duplicate
+      const { data: existing } = await supabase
+        .from('skill_edges')
+        .select('id')
+        .eq('graph_id', graphId)
+        .eq('from_skill', fromSkill)
+        .eq('to_skill', toSkill);
+      if (existing && existing.length > 0) {
+        toast({ title: 'Edge exists', description: 'This prerequisite relationship already exists.', variant: 'destructive' });
+        return false;
+      }
+
+      // Cycle detection: check if toSkill can reach fromSkill via existing edges
+      const { data: allEdges } = await supabase
+        .from('skill_edges')
+        .select('from_skill, to_skill')
+        .eq('graph_id', graphId);
+
+      if (allEdges) {
+        const adj = new Map<string, string[]>();
+        for (const e of allEdges) {
+          if (!adj.has(e.from_skill)) adj.set(e.from_skill, []);
+          adj.get(e.from_skill)!.push(e.to_skill);
+        }
+        // Check if adding fromSkill->toSkill creates a cycle (i.e., can toSkill reach fromSkill?)
+        const visited = new Set<string>();
+        const queue = [toSkill];
+        while (queue.length > 0) {
+          const current = queue.shift()!;
+          if (current === fromSkill) {
+            toast({ title: 'Cycle detected', description: 'Adding this edge would create a circular dependency.', variant: 'destructive' });
+            return false;
+          }
+          if (visited.has(current)) continue;
+          visited.add(current);
+          const neighbors = adj.get(current) || [];
+          queue.push(...neighbors);
+        }
+      }
+
+      const { error } = await supabase.from('skill_edges').insert({
+        graph_id: graphId,
+        from_skill: fromSkill,
+        to_skill: toSkill,
+        reason: reason || null,
+        relationship_type: 'requires',
+      });
+      if (error) throw error;
+
+      toast({ title: 'Edge added', description: 'Prerequisite relationship created.' });
+      return true;
+    } catch (error) {
+      console.error('Error adding edge:', error);
+      toast({ title: 'Failed to add edge', description: error instanceof Error ? error.message : 'Unknown error', variant: 'destructive' });
+      return false;
+    }
+  }, []);
+
+  // Remove an edge
+  const removeEdge = useCallback(async (
+    graphId: string,
+    fromSkill: string,
+    toSkill: string
+  ): Promise<boolean> => {
+    try {
+      const { error } = await supabase
+        .from('skill_edges')
+        .delete()
+        .eq('graph_id', graphId)
+        .eq('from_skill', fromSkill)
+        .eq('to_skill', toSkill);
+      if (error) throw error;
+
+      toast({ title: 'Edge removed', description: 'Prerequisite relationship removed.' });
+      return true;
+    } catch (error) {
+      console.error('Error removing edge:', error);
+      toast({ title: 'Failed to remove edge', description: error instanceof Error ? error.message : 'Unknown error', variant: 'destructive' });
+      return false;
+    }
+  }, []);
+
   return {
     savedGraphs,
     currentGraphId,
@@ -518,5 +689,9 @@ export function useGraphPersistence() {
     deleteGraph,
     copyGraph,
     recomputeAndSaveLevels,
+    addNode,
+    removeNode,
+    addEdge,
+    removeEdge,
   };
 }

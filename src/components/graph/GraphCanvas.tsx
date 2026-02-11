@@ -5,8 +5,11 @@ import { GraphEdgeComponent } from './GraphEdge';
 import { ZoomControls } from './ZoomControls';
 import { LassoSelector } from './LassoSelector';
 import { GroupingToolbar } from './GroupingToolbar';
+import { SuperNodeComponent } from './SuperNode';
 import type { SkillSubtopic } from '@/types/grouping';
 import type { KPMastery } from '@/types/mastery';
+import type { ViewMode } from './ViewModeToggle';
+import type { GroupedGraphData, SuperNode } from '@/lib/graph/groupedView';
 
 interface GraphCanvasProps {
   nodes: GraphNode[];
@@ -25,6 +28,9 @@ interface GraphCanvasProps {
   // Mastery visualization props
   studentMastery?: Map<string, KPMastery>;
   showMasteryVisuals?: boolean;
+  // Grouped view props
+  viewMode?: ViewMode;
+  groupedData?: GroupedGraphData | null;
 }
 
 interface NodePosition {
@@ -58,6 +64,8 @@ export function GraphCanvas({
   skillSubtopicMap = new Map(),
   studentMastery,
   showMasteryVisuals = false,
+  viewMode = 'skills',
+  groupedData,
 }: GraphCanvasProps) {
   const [hoveredNodeId, setHoveredNodeId] = useState<string | null>(null);
   const [transform, setTransform] = useState<Transform>({ x: 0, y: 0, scale: 1 });
@@ -473,6 +481,23 @@ export function GraphCanvas({
             {nodes.map((node) => {
               const pos = nodePositions[node.id];
               if (!pos) return null;
+
+              // Check if this is a super node in grouped view
+              if (groupedData?.isSuperNode(node.id)) {
+                const sn = node as unknown as SuperNode;
+                return (
+                  <SuperNodeComponent
+                    key={sn.id}
+                    node={sn}
+                    x={pos.x}
+                    y={pos.y}
+                    state={getNodeState(sn.id)}
+                    onClick={() => handleNodeClick(sn.id)}
+                    onMouseEnter={() => setHoveredNodeId(sn.id)}
+                    onMouseLeave={() => setHoveredNodeId(null)}
+                  />
+                );
+              }
 
               // Get mastery data for this node if in mastery mode
               const nodeMastery = showMasteryVisuals && studentMastery ? studentMastery.get(node.id) : undefined;
