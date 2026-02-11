@@ -411,6 +411,43 @@ export function useSkillGrouping({ graphId, autoLoad = true }: UseSkillGroupingO
     return allSkillIds.filter(id => !skillSubtopicMap.has(id));
   }, [skillSubtopicMap]);
 
+  // Auto-group skills using curriculum map via edge function
+  const autoGroupSkills = useCallback(async (): Promise<boolean> => {
+    if (!graphId) return false;
+    setLoading(true);
+
+    try {
+      const response = await fetch(
+        `${import.meta.env.VITE_SUPABASE_URL}/functions/v1/auto-group-skills`,
+        {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json', 'apikey': import.meta.env.VITE_SUPABASE_PUBLISHABLE_KEY },
+          body: JSON.stringify({ graph_id: graphId }),
+        }
+      );
+
+      const result = await response.json();
+
+      if (!response.ok) throw new Error(result.error || 'Auto-grouping failed');
+
+      if (result.skipped) {
+        toast.info(result.message || 'Groupings already exist');
+      } else {
+        toast.success(`Created ${result.topicsCreated} topics, mapped ${result.skillsMapped} skills`);
+      }
+
+      // Reload groupings from DB
+      await loadGroupings();
+      return true;
+    } catch (error) {
+      console.error('Failed to auto-group skills:', error);
+      toast.error('Failed to auto-group skills');
+      return false;
+    } finally {
+      setLoading(false);
+    }
+  }, [graphId, loadGroupings]);
+
   return {
     topics,
     subtopics,
@@ -431,5 +468,6 @@ export function useSkillGrouping({ graphId, autoLoad = true }: UseSkillGroupingO
     getSubtopicsInTopic,
     getUngroupedSubtopics,
     getUngroupedSkillIds,
+    autoGroupSkills,
   };
 }

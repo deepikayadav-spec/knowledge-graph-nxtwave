@@ -11,3 +11,7 @@ verify_jwt = false
 [functions.analyze-difficulty]
 enabled = true
 verify_jwt = false
+
+[functions.auto-group-skills]
+enabled = true
+verify_jwt = false
