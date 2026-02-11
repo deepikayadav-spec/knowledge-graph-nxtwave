@@ -414,10 +414,10 @@ export function mergeGraphs(graphs: KnowledgeGraph[]): KnowledgeGraph {
     questionPaths
   );
 
-  // Independence rule: strip edges where both endpoints are foundational
+  // Independence rule: strip edges where the TARGET is foundational — foundational skills must have NO prerequisites
   const independenceFiltered = dedupResult.edges.filter(e => {
-    if (INDEPENDENT_FOUNDATIONAL.has(e.from) && INDEPENDENT_FOUNDATIONAL.has(e.to)) {
-      console.warn(`[mergeGraphs] Independence rule: removed edge ${e.from} -> ${e.to}`);
+    if (INDEPENDENT_FOUNDATIONAL.has(e.to)) {
+      console.warn(`[mergeGraphs] Independence rule: removed edge ${e.from} -> ${e.to} (target is foundational)`);
       return false;
     }
     return true;

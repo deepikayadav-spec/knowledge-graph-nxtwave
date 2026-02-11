@@ -1183,18 +1183,18 @@ Generate the knowledge graph JSON.`;
       }
       
       // === INDEPENDENCE RULE ENFORCEMENT ===
-      // Strip edges where BOTH endpoints are independent foundational skills
+      // Strip edges where the TARGET is a foundational skill — foundational skills must have NO prerequisites
       if (graphData.edges && Array.isArray(graphData.edges)) {
         const beforeIndep = graphData.edges.length;
         graphData.edges = graphData.edges.filter((e: { from: string; to: string }) => {
-          if (INDEPENDENT_FOUNDATIONAL.has(e.from) && INDEPENDENT_FOUNDATIONAL.has(e.to)) {
-            console.warn(`[IPA/LTA] Independence rule: removed edge ${e.from} -> ${e.to} (both are foundational)`);
+          if (INDEPENDENT_FOUNDATIONAL.has(e.to)) {
+            console.warn(`[IPA/LTA] Independence rule: removed edge ${e.from} -> ${e.to} (target is foundational)`);
             return false;
           }
           return true;
         });
         if (graphData.edges.length < beforeIndep) {
-          console.log(`[IPA/LTA] Independence rule: removed ${beforeIndep - graphData.edges.length} inter-foundational edges`);
+          console.log(`[IPA/LTA] Independence rule: removed ${beforeIndep - graphData.edges.length} edges pointing into foundational skills`);
         }
       }
       
