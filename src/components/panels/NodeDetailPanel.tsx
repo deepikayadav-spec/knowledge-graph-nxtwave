@@ -1,10 +1,13 @@
+import { useState } from 'react';
 import { GraphNode, GraphEdge } from '@/types/graph';
-import { X, Brain, Clock, TrendingUp, ArrowRight, Link, Activity, Target, Shield, Timer, User, BarChart3, RefreshCw } from 'lucide-react';
+import { X, Brain, Clock, TrendingUp, ArrowRight, Link, Activity, Target, Shield, Timer, User, BarChart3, RefreshCw, Trash2, Plus } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Separator } from '@/components/ui/separator';
 import { Badge } from '@/components/ui/badge';
 import { Progress } from '@/components/ui/progress';
 import { cn } from '@/lib/utils';
+import { AddEdgeDialog } from './AddEdgeDialog';
+import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle, AlertDialogTrigger } from '@/components/ui/alert-dialog';
 import type { KPMastery } from '@/types/mastery';
 
 interface NodeDetailPanelProps {
@@ -17,6 +20,10 @@ interface NodeDetailPanelProps {
   masteryMode?: boolean;
   studentMastery?: KPMastery;
   studentName?: string | null;
+  // CRUD props
+  onDeleteNode?: (nodeId: string) => void;
+  onAddEdge?: (fromSkill: string, toSkill: string) => Promise<void>;
+  onRemoveEdge?: (fromSkill: string, toSkill: string) => Promise<void>;
 }
 
 // Concept level descriptions from the framework
@@ -71,10 +78,16 @@ export function NodeDetailPanel({
   masteryMode = false,
   studentMastery,
   studentName,
+  onDeleteNode,
+  onAddEdge,
+  onRemoveEdge,
 }: NodeDetailPanelProps) {
+  const [addEdgeMode, setAddEdgeMode] = useState<'prerequisite' | 'dependent' | null>(null);
+
   const prerequisites = edges
     .filter((e) => e.to === node.id)
     .map((e) => ({
+      edge: e,
       node: allNodes.find((n) => n.id === e.from),
       reason: e.reason,
     }))
@@ -83,6 +96,7 @@ export function NodeDetailPanel({
   const unlocks = edges
     .filter((e) => e.from === node.id)
     .map((e) => ({
+      edge: e,
       node: allNodes.find((n) => n.id === e.to),
       reason: e.reason,
     }))
@@ -116,6 +130,21 @@ export function NodeDetailPanel({
     }
   };
 
+  // Existing prerequisite/dependent IDs for exclusion
+  const prereqIds = prerequisites.map(p => p.node!.id);
+  const unlockIds = unlocks.map(u => u.node!.id);
+
+  const handleAddPrerequisite = async (targetId: string) => {
+    if (onAddEdge) await onAddEdge(targetId, node.id);
+  };
+
+  const handleAddDependent = async (targetId: string) => {
+    if (onAddEdge) await onAddEdge(node.id, targetId);
+  };
+
+  // Questions referencing this skill
+  const referencingQuestions = node.knowledgePoint.appearsInQuestions || [];
+
   return (
     <div 
       className="fixed inset-0 z-50 bg-black/50 backdrop-blur-sm flex items-center justify-center p-4 md:p-8"
@@ -130,19 +159,46 @@ export function NodeDetailPanel({
                 {node.name}
               </h2>
               {node.description && (
-                <p className="text-muted-foreground mt-2">
-                  {node.description}
-                </p>
+                <p className="text-muted-foreground mt-2">{node.description}</p>
               )}
+              <div className="flex items-center gap-2 mt-2">
+                <Badge variant="outline" className="text-xs font-mono">{node.id}</Badge>
+                {node.tier && <Badge variant="secondary" className="text-xs">{node.tier}</Badge>}
+              </div>
             </div>
-            <Button
-              variant="ghost"
-              size="icon"
-              className="shrink-0"
-              onClick={onClose}
-            >
-              <X className="h-5 w-5" />
-            </Button>
+            <div className="flex items-center gap-1">
+              {onDeleteNode && (
+                <AlertDialog>
+                  <AlertDialogTrigger asChild>
+                    <Button variant="ghost" size="icon" className="text-destructive hover:text-destructive">
+                      <Trash2 className="h-4 w-4" />
+                    </Button>
+                  </AlertDialogTrigger>
+                  <AlertDialogContent>
+                    <AlertDialogHeader>
+                      <AlertDialogTitle>Delete "{node.name}"?</AlertDialogTitle>
+                      <AlertDialogDescription>
+                        This will remove the skill and all its edges ({prerequisites.length} prerequisites, {unlocks.length} dependents).
+                        {referencingQuestions.length > 0 && (
+                          <span className="block mt-2 text-destructive">
+                            ⚠ Referenced by {referencingQuestions.length} question(s). The skill will be removed from those questions.
+                          </span>
+                        )}
+                      </AlertDialogDescription>
+                    </AlertDialogHeader>
+                    <AlertDialogFooter>
+                      <AlertDialogCancel>Cancel</AlertDialogCancel>
+                      <AlertDialogAction onClick={() => { onDeleteNode(node.id); onClose(); }} className="bg-destructive text-destructive-foreground hover:bg-destructive/90">
+                        Delete
+                      </AlertDialogAction>
+                    </AlertDialogFooter>
+                  </AlertDialogContent>
+                </AlertDialog>
+              )}
+              <Button variant="ghost" size="icon" className="shrink-0" onClick={onClose}>
+                <X className="h-5 w-5" />
+              </Button>
+            </div>
           </div>
         </div>
 
@@ -154,9 +210,7 @@ export function NodeDetailPanel({
               <div className="flex items-center gap-2 text-base font-semibold text-foreground">
                 <User className="h-5 w-5 text-accent" />
                 Student Mastery
-                <Badge variant="secondary" className="text-xs ml-auto">
-                  {studentName}
-                </Badge>
+                <Badge variant="secondary" className="text-xs ml-auto">{studentName}</Badge>
               </div>
 
               {studentMastery ? (
@@ -389,60 +443,104 @@ export function NodeDetailPanel({
           )}
 
           {/* Prerequisites */}
-          {prerequisites.length > 0 && (
-            <section className="space-y-3">
+          <section className="space-y-3">
+            <div className="flex items-center justify-between">
               <div className="flex items-center gap-2 text-base font-semibold text-foreground">
                 <TrendingUp className="h-5 w-5 text-accent rotate-180" />
                 Prerequisites ({prerequisites.length})
               </div>
+              {onAddEdge && (
+                <Button variant="outline" size="sm" className="gap-1 text-xs" onClick={() => setAddEdgeMode('prerequisite')}>
+                  <Plus className="h-3 w-3" /> Add
+                </Button>
+              )}
+            </div>
+            {prerequisites.length > 0 ? (
               <div className="space-y-3 pl-7">
-                {prerequisites.map(({ node: prereq, reason }) => (
-                  <button
-                    key={prereq!.id}
-                    className="w-full text-left group"
-                    onClick={() => onNodeSelect(prereq!.id)}
-                  >
-                    <div className="flex items-center gap-2 text-base text-foreground group-hover:text-accent transition-colors">
-                      <Link className="h-4 w-4" />
-                      {prereq!.name}
-                    </div>
-                    <div className="text-sm text-muted-foreground mt-1 pl-6">
-                      {reason}
-                    </div>
-                  </button>
+                {prerequisites.map(({ node: prereq, reason, edge }) => (
+                  <div key={prereq!.id} className="flex items-start gap-2 group">
+                    <button className="flex-1 text-left" onClick={() => onNodeSelect(prereq!.id)}>
+                      <div className="flex items-center gap-2 text-base text-foreground group-hover:text-accent transition-colors">
+                        <Link className="h-4 w-4" />{prereq!.name}
+                      </div>
+                      {reason && <div className="text-sm text-muted-foreground mt-1 pl-6">{reason}</div>}
+                    </button>
+                    {onRemoveEdge && (
+                      <Button variant="ghost" size="icon" className="h-6 w-6 opacity-0 group-hover:opacity-100 text-muted-foreground hover:text-destructive"
+                        onClick={() => onRemoveEdge(edge.from, edge.to)}>
+                        <X className="h-3 w-3" />
+                      </Button>
+                    )}
+                  </div>
                 ))}
               </div>
-            </section>
-          )}
+            ) : (
+              <p className="text-sm text-muted-foreground pl-7">No prerequisites (Level 0 skill)</p>
+            )}
+          </section>
 
           {/* Unlocks */}
-          {unlocks.length > 0 && (
-            <section className="space-y-3">
+          <section className="space-y-3">
+            <div className="flex items-center justify-between">
               <div className="flex items-center gap-2 text-base font-semibold text-foreground">
                 <ArrowRight className="h-5 w-5 text-accent" />
                 Unlocks ({unlocks.length})
               </div>
+              {onAddEdge && (
+                <Button variant="outline" size="sm" className="gap-1 text-xs" onClick={() => setAddEdgeMode('dependent')}>
+                  <Plus className="h-3 w-3" /> Add
+                </Button>
+              )}
+            </div>
+            {unlocks.length > 0 ? (
               <div className="space-y-3 pl-7">
-                {unlocks.map(({ node: unlock, reason }) => (
-                  <button
-                    key={unlock!.id}
-                    className="w-full text-left group"
-                    onClick={() => onNodeSelect(unlock!.id)}
-                  >
-                    <div className="flex items-center gap-2 text-base text-foreground group-hover:text-accent transition-colors">
-                      <Link className="h-4 w-4" />
-                      {unlock!.name}
-                    </div>
-                    <div className="text-sm text-muted-foreground mt-1 pl-6">
-                      {reason}
-                    </div>
-                  </button>
+                {unlocks.map(({ node: unlock, reason, edge }) => (
+                  <div key={unlock!.id} className="flex items-start gap-2 group">
+                    <button className="flex-1 text-left" onClick={() => onNodeSelect(unlock!.id)}>
+                      <div className="flex items-center gap-2 text-base text-foreground group-hover:text-accent transition-colors">
+                        <Link className="h-4 w-4" />{unlock!.name}
+                      </div>
+                      {reason && <div className="text-sm text-muted-foreground mt-1 pl-6">{reason}</div>}
+                    </button>
+                    {onRemoveEdge && (
+                      <Button variant="ghost" size="icon" className="h-6 w-6 opacity-0 group-hover:opacity-100 text-muted-foreground hover:text-destructive"
+                        onClick={() => onRemoveEdge(edge.from, edge.to)}>
+                        <X className="h-3 w-3" />
+                      </Button>
+                    )}
+                  </div>
                 ))}
               </div>
-            </section>
-          )}
+            ) : (
+              <p className="text-sm text-muted-foreground pl-7">No dependents (leaf skill)</p>
+            )}
+          </section>
         </div>
       </div>
+
+      {/* Add Edge Dialogs */}
+      {addEdgeMode === 'prerequisite' && (
+        <AddEdgeDialog
+          open={true}
+          onOpenChange={() => setAddEdgeMode(null)}
+          onAdd={handleAddPrerequisite}
+          allNodes={allNodes}
+          excludeIds={[node.id, ...prereqIds]}
+          mode="prerequisite"
+          sourceNodeName={node.name}
+        />
+      )}
+      {addEdgeMode === 'dependent' && (
+        <AddEdgeDialog
+          open={true}
+          onOpenChange={() => setAddEdgeMode(null)}
+          onAdd={handleAddDependent}
+          allNodes={allNodes}
+          excludeIds={[node.id, ...unlockIds]}
+          mode="dependent"
+          sourceNodeName={node.name}
+        />
+      )}
     </div>
   );
 }
