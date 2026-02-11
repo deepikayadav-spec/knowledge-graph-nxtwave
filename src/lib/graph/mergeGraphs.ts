@@ -94,7 +94,18 @@ const MANDATORY_EDGES: Array<{from: string; to: string; reason: string}> = [
   { from: 'conditional_branching', to: 'filter_pattern', reason: 'filtering requires if/else' },
   { from: 'basic_output', to: 'formatted_output', reason: 'formatting builds on basic output' },
   { from: 'loop_iteration', to: 'nested_iteration', reason: 'nested loops require understanding single loops' },
+  { from: 'loop_iteration', to: 'set_operations', reason: 'building sets requires iteration' },
+  { from: 'list_operations', to: 'set_operations', reason: 'sets are often created from lists' },
+  { from: 'loop_iteration', to: 'list_operations', reason: 'list building requires looping' },
+  { from: 'loop_iteration', to: 'filter_pattern', reason: 'filtering requires iterating' },
+  { from: 'loop_iteration', to: 'transform_pattern', reason: 'transforming requires iterating' },
+  { from: 'conditional_branching', to: 'loop_iteration', reason: 'loops use conditions for termination' },
 ];
+
+// Independent foundational skills — edges between them are invalid
+const INDEPENDENT_FOUNDATIONAL = new Set([
+  'variable_assignment', 'basic_output', 'arithmetic_operations', 'type_recognition'
+]);
 
 function injectMandatoryEdges(nodes: GraphNode[], edges: GraphEdge[]): GraphEdge[] {
   const nodeIds = new Set(nodes.map(n => n.id));
@@ -403,8 +414,17 @@ export function mergeGraphs(graphs: KnowledgeGraph[]): KnowledgeGraph {
     questionPaths
   );
 
+  // Independence rule: strip edges where both endpoints are foundational
+  const independenceFiltered = dedupResult.edges.filter(e => {
+    if (INDEPENDENT_FOUNDATIONAL.has(e.from) && INDEPENDENT_FOUNDATIONAL.has(e.to)) {
+      console.warn(`[mergeGraphs] Independence rule: removed edge ${e.from} -> ${e.to}`);
+      return false;
+    }
+    return true;
+  });
+
   // Inject mandatory prerequisite edges
-  const withMandatory = injectMandatoryEdges(dedupResult.nodes, dedupResult.edges);
+  const withMandatory = injectMandatoryEdges(dedupResult.nodes, independenceFiltered);
 
   // Apply transitive reduction to remove redundant edges across batches
   const reducedEdges = transitiveReduce(withMandatory);

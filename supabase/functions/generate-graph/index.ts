@@ -424,9 +424,10 @@ in later topics:
 9. Functions
 10. Recursion
 11. Tuples & Sets
-12. Dictionaries
-13. Introduction to Object Oriented Programming
-14. Miscellaneous Topics
+12. Intro to Matrices & Shorthand Expressions
+13. Dictionaries
+14. Introduction to Object Oriented Programming
+15. Miscellaneous Topics
 
 Output ONLY valid JSON, no explanation.`;
 
@@ -442,10 +443,59 @@ const CURRICULUM_TOPICS = [
   "Functions",
   "Recursion",
   "Tuples & Sets",
+  "Intro to Matrices & Shorthand Expressions",
   "Dictionaries",
   "Introduction to Object Oriented Programming",
   "Miscellaneous Topics",
 ];
+
+// Hard enforcement: maps each known skill to its earliest allowed topic position
+const SKILL_TOPIC_MAP: Record<string, number> = {
+  variable_assignment: 1,
+  type_recognition: 1,
+  basic_output: 2,
+  basic_input: 2,
+  type_conversion: 2,
+  string_concatenation: 2,
+  string_indexing: 2,
+  string_slicing: 2,
+  string_repetition: 2,
+  sequence_length_retrieval: 2,
+  arithmetic_operations: 3,
+  comparison_operators: 3,
+  boolean_logic: 3,
+  conditional_branching: 3,
+  nested_conditions: 4,
+  loop_iteration: 5,
+  accumulator_pattern: 5,
+  search_pattern: 5,
+  filter_pattern: 5,
+  transform_pattern: 5,
+  input_parsing: 5,
+  nested_iteration: 5,
+  loop_control_statements: 6,
+  string_methods: 7,
+  formatted_output: 7,
+  output_formatting: 7,
+  list_operations: 8,
+  list_comprehension: 8,
+  function_definition: 9,
+  function_calls: 9,
+  recursion: 10,
+  tuple_operations: 11,
+  set_operations: 11,
+  matrix_operations: 12,
+  dictionary_operations: 13,
+  class_definition: 14,
+  object_methods: 14,
+  file_io: 15,
+  exception_handling: 15,
+};
+
+// Independent foundational skills that should never have edges between each other
+const INDEPENDENT_FOUNDATIONAL = new Set([
+  'variable_assignment', 'basic_output', 'arithmetic_operations', 'type_recognition'
+]);
 
 function getCurriculumPosition(topic: string): number {
   const lower = topic.toLowerCase();
@@ -804,6 +854,12 @@ const MANDATORY_EDGES: Array<{ from: string; to: string; reason: string }> = [
   { from: 'conditional_branching', to: 'filter_pattern', reason: 'filtering requires if/else logic' },
   { from: 'basic_output', to: 'formatted_output', reason: 'formatted output builds on basic print knowledge' },
   { from: 'loop_iteration', to: 'nested_iteration', reason: 'nested loops require understanding single loops' },
+  { from: 'loop_iteration', to: 'set_operations', reason: 'building sets requires iteration' },
+  { from: 'list_operations', to: 'set_operations', reason: 'sets are often created from lists' },
+  { from: 'loop_iteration', to: 'list_operations', reason: 'list building requires looping' },
+  { from: 'loop_iteration', to: 'filter_pattern', reason: 'filtering requires iterating' },
+  { from: 'loop_iteration', to: 'transform_pattern', reason: 'transforming requires iterating' },
+  { from: 'conditional_branching', to: 'loop_iteration', reason: 'loops use conditions for termination' },
 ];
 
 function injectMandatoryEdges(
@@ -1071,6 +1127,76 @@ Generate the knowledge graph JSON.`;
     let graphData;
     try {
       graphData = extractJsonFromResponse(content);
+      
+      // === PROGRAMMATIC POST-GENERATION NODE FILTER ===
+      // Strip nodes that belong to topics beyond the current batch's max topic position
+      if (graphData.globalNodes && Array.isArray(graphData.globalNodes) && topicMap && Object.keys(topicMap).length > 0) {
+        // Determine max topic position from the topicMap sent by the client
+        let maxTopicPosition = 0;
+        for (const topic of Object.values(topicMap)) {
+          const pos = getCurriculumPosition(topic as string);
+          if (pos > maxTopicPosition) maxTopicPosition = pos;
+        }
+        
+        if (maxTopicPosition > 0) {
+          const removedNodes = new Set<string>();
+          graphData.globalNodes = graphData.globalNodes.filter((node: { id: string }) => {
+            const allowedTopic = SKILL_TOPIC_MAP[node.id];
+            if (allowedTopic !== undefined && allowedTopic > maxTopicPosition) {
+              console.warn(`[IPA/LTA] Topic filter: removed node "${node.id}" (topic ${allowedTopic}) — exceeds max topic position ${maxTopicPosition}`);
+              removedNodes.add(node.id);
+              return false;
+            }
+            return true;
+          });
+          
+          // Strip edges referencing removed nodes
+          if (removedNodes.size > 0 && graphData.edges && Array.isArray(graphData.edges)) {
+            graphData.edges = graphData.edges.filter((e: { from: string; to: string }) => {
+              if (removedNodes.has(e.from) || removedNodes.has(e.to)) {
+                console.warn(`[IPA/LTA] Topic filter: removed edge ${e.from} -> ${e.to}`);
+                return false;
+              }
+              return true;
+            });
+          }
+          
+          // Strip removed nodes from questionPaths
+          if (removedNodes.size > 0 && graphData.questionPaths) {
+            for (const [question, path] of Object.entries(graphData.questionPaths)) {
+              if (Array.isArray(path)) {
+                graphData.questionPaths[question] = (path as string[]).filter((id: string) => !removedNodes.has(id));
+              } else {
+                const p = path as any;
+                if (p.requiredNodes) p.requiredNodes = p.requiredNodes.filter((id: string) => !removedNodes.has(id));
+                if (p.executionOrder) p.executionOrder = p.executionOrder.filter((id: string) => !removedNodes.has(id));
+                if (p.skillWeights) {
+                  for (const id of removedNodes) delete p.skillWeights[id];
+                }
+                if (p.primarySkills) p.primarySkills = p.primarySkills.filter((id: string) => !removedNodes.has(id));
+              }
+            }
+          }
+          
+          console.log(`[IPA/LTA] Topic filter: removed ${removedNodes.size} out-of-sequence nodes (max topic: ${maxTopicPosition})`);
+        }
+      }
+      
+      // === INDEPENDENCE RULE ENFORCEMENT ===
+      // Strip edges where BOTH endpoints are independent foundational skills
+      if (graphData.edges && Array.isArray(graphData.edges)) {
+        const beforeIndep = graphData.edges.length;
+        graphData.edges = graphData.edges.filter((e: { from: string; to: string }) => {
+          if (INDEPENDENT_FOUNDATIONAL.has(e.from) && INDEPENDENT_FOUNDATIONAL.has(e.to)) {
+            console.warn(`[IPA/LTA] Independence rule: removed edge ${e.from} -> ${e.to} (both are foundational)`);
+            return false;
+          }
+          return true;
+        });
+        if (graphData.edges.length < beforeIndep) {
+          console.log(`[IPA/LTA] Independence rule: removed ${beforeIndep - graphData.edges.length} inter-foundational edges`);
+        }
+      }
       
       // Inject mandatory edges as safety net (combine new + existing nodes for incremental mode)
       if (graphData.globalNodes && Array.isArray(graphData.globalNodes) && graphData.edges && Array.isArray(graphData.edges)) {
