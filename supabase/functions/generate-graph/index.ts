@@ -429,6 +429,7 @@ in later topics:
 14. Introduction to Object Oriented Programming
 15. Abstraction and Polymorphism
 16. Miscellaneous Topics
+17. Problem Solving
 
 Output ONLY valid JSON, no explanation.`;
 
@@ -449,6 +450,7 @@ const CURRICULUM_TOPICS = [
   "Introduction to Object Oriented Programming",
   "Abstraction and Polymorphism",
   "Miscellaneous Topics",
+  "Problem Solving",
 ];
 
 // Hard enforcement: maps each known skill to its earliest allowed topic position
@@ -495,6 +497,9 @@ const SKILL_TOPIC_MAP: Record<string, number> = {
   inheritance: 15,
   file_io: 16,
   exception_handling: 16,
+  problem_solving: 17,
+  algorithmic_thinking: 17,
+  debugging: 17,
 };
 
 // Independent foundational skills that should never have edges between each other
