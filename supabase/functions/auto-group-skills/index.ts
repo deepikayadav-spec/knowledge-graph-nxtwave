@@ -41,6 +41,8 @@ const SKILL_TOPIC_MAP: Record<string, number> = {
   comparison_operators: 3,
   boolean_logic: 3,
   conditional_branching: 3,
+  conditional_expression: 3,
+  numeric_rounding: 3,
   nested_conditions: 4,
   loop_iteration: 5,
   accumulator_pattern: 5,
@@ -49,29 +51,49 @@ const SKILL_TOPIC_MAP: Record<string, number> = {
   transform_pattern: 5,
   input_parsing: 5,
   nested_iteration: 5,
+  geometric_pattern_generation: 5,
+  integer_digit_extraction: 5,
   loop_control_statements: 6,
   string_methods: 7,
   formatted_output: 7,
   output_formatting: 7,
+  character_encoding_conversion: 7,
   list_operations: 8,
   list_comprehension: 8,
+  list_aggregation: 8,
+  list_sorting: 8,
+  sequence_rotation: 8,
   function_definition: 9,
   function_calls: 9,
   recursion: 10,
   tuple_operations: 11,
   set_operations: 11,
   matrix_operations: 12,
+  matrix_construction: 12,
+  matrix_element_access: 12,
+  matrix_transposition: 12,
+  matrix_rotation: 12,
+  matrix_diagonal_traversal: 12,
   dictionary_operations: 13,
   class_definition: 14,
   object_methods: 14,
+  encapsulation_concepts: 14,
   abstraction: 15,
   polymorphism: 15,
   inheritance: 15,
+  class_inheritance: 15,
+  abstract_class_interaction: 15,
+  method_overriding: 15,
   file_io: 16,
   exception_handling: 16,
+  datetime_manipulation: 16,
   problem_solving: 17,
   algorithmic_thinking: 17,
   debugging: 17,
+  backtracking_pattern: 17,
+  deferred_modification_pattern: 17,
+  stateful_computation_simulation: 17,
+  subproblem_enumeration_pattern: 17,
 };
 
 const GROUPING_COLORS = [
@@ -99,18 +121,21 @@ serve(async (req) => {
     const supabaseKey = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
     const supabase = createClient(supabaseUrl, supabaseKey);
 
-    // Check if groupings already exist
-    const { data: existingTopics } = await supabase
-      .from("skill_topics")
-      .select("id")
-      .eq("graph_id", graph_id)
-      .limit(1);
+    // Delete existing groupings to allow fresh re-grouping
+    await supabase
+      .from("skills")
+      .update({ subtopic_id: null })
+      .eq("graph_id", graph_id);
 
-    if (existingTopics && existingTopics.length > 0) {
-      return new Response(JSON.stringify({ message: "Groupings already exist", skipped: true }), {
-        headers: { ...corsHeaders, "Content-Type": "application/json" },
-      });
-    }
+    await supabase
+      .from("skill_subtopics")
+      .delete()
+      .eq("graph_id", graph_id);
+
+    await supabase
+      .from("skill_topics")
+      .delete()
+      .eq("graph_id", graph_id);
 
     // Fetch all skills for this graph
     const { data: skills, error: skillsError } = await supabase
