@@ -1,58 +1,170 @@
 
 
-# Fix Remaining "Skills" Terminology and Improve Top Bar UI
+# Update Mastery Calculation System
 
-## Problem 1: "Skills" Still Appears in Multiple Places
+## Overview
 
-From the screenshot, the top-left shows `58 skills . 83 relationships . 891` and other places still use "skill":
+Replace the current mastery equations with the new formulas from your uploaded documents. This touches 7 files across constants, calculation logic, retention/stability, UI inputs, and persistence.
 
-| Location | Current Text | Fix |
-|----------|-------------|-----|
-| `KnowledgeGraphApp.tsx` line 413 | `{stats?.totalNodes} skills` | `{stats?.totalNodes} KPs` |
-| `KnowledgeGraphApp.tsx` line 459 | `Add Skill` button | `Add KP` |
-| `KnowledgeGraphApp.tsx` line 456 | Comment: `Add Skill Button` | `Add KP Button` |
-| `KnowledgeGraphApp.tsx` line 358 | Badge: `Skill Taxonomy` | `KP Taxonomy` |
-| `KnowledgeGraphApp.tsx` line 305 | Toast: `orphaned skill(s)` | `orphaned KP(s)` |
-| `GraphManagerPanel.tsx` line 164 | `{graph.total_skills} skills` | `{graph.total_skills} KPs` |
+## What Changes (Summary)
 
-## Problem 2: Top Bar Is Cluttered and Hard to Read
+| Area | Current | New |
+|------|---------|-----|
+| Solution Score | Binary (correct/wrong) | Percentage (0-100%) |
+| Wrong Answer Penalty | 20% deduction | No separate penalty (score of 0% just contributes 0) |
+| Independence Levels | 3 levels (1.0, 0.7, 0.4) | 4 levels -- adds Solution-Driven (0.2) |
+| Contribution Formula | `weight x correctMultiplier - penalty` | `weight x solutionScore x ISQ` |
+| Initial Stability | 1 day | 14 days |
+| Stability Growth | `S x (1 + 0.1 x ln(n+1))` linear-log | `S x (1.2 x S^-0.25 x e^(1.5xR) + 0.1)` multiplicative |
+| Aggregation | earnedPoints / maxPoints (raw ratio) | Uses effectiveMastery (with decay) weighted by maxPoints |
 
-Looking at the screenshot, the header crams everything into one row: graph name, stats, view toggle, Auto-Group, Edit, Add Skill, Mastery toggle, class/student selectors, question path, Save/Weights/Levels/Difficulty, Clear -- all in a single 14px-tall bar. This makes it feel cramped and buttons hard to find.
+---
 
-### Proposed Improvements
+## Detailed Changes by File
 
-**Split into two rows:**
-- **Row 1 (primary)**: Graph name + autosave indicator, stats (compact), View Mode toggle, Edit/Mastery toggles, graph manager actions (Save/Load/Clear)
-- **Row 2 (contextual)**: Only appears when needed -- shows Auto-Group, question path selector, class/student selectors, Add KP (in edit mode), Weights/Levels/Difficulty buttons
+### 1. Database Migration
 
-**Visual improvements:**
-- Group related buttons with subtle separators
-- Use a slightly taller header (h-auto with padding instead of fixed h-14)
-- Stats line uses proper "KPs" terminology with a cleaner separator
-- Contextual row has a slightly different background to distinguish it
+Add a `solution_score` column to `student_attempts` table:
 
-## Files to Modify
-
-| File | Changes |
-|------|---------|
-| `src/components/KnowledgeGraphApp.tsx` | Fix 4 "skill" strings; restructure header into primary row + contextual row; group buttons logically |
-| `src/components/panels/GraphManagerPanel.tsx` | Fix `{graph.total_skills} skills` to `{graph.total_skills} KPs` on line 164 |
-
-## Technical Details
-
-### Header Layout Structure
-
-```text
-Row 1 (always visible):
-[Logo] [Graph Name + Autosave] [Stats: "58 KPs . 83 relationships"]
-                    [KP View | Subtopics | Topics]  [Edit] [Mastery toggle]  [Load | Save | Clear]
-
-Row 2 (contextual, only if any content):
-[Auto-Group]  [Add KP (if edit mode)]  [Class > Student (if mastery)]  
-                    [View Question Path (891)]  [Weights] [Levels] [Difficulty]
+```sql
+ALTER TABLE student_attempts 
+  ADD COLUMN solution_score numeric NOT NULL DEFAULT 1.0;
 ```
 
-- Row 2 uses `flex-wrap` to handle overflow gracefully
-- Row 2 is hidden when there's nothing contextual to show (no graph loaded)
-- Vertical separator divs (`w-px h-5 bg-border`) between button groups for clarity
+This stores the percentage score (0.0 to 1.0) per attempt. Default 1.0 preserves backward compatibility with existing binary data.
+
+Also add `solution_score` to the `BulkUploadRow` CSV expected columns.
+
+---
+
+### 2. `src/types/mastery.ts`
+
+- Add `'solution_driven'` to the `IndependenceLevel` type
+- Add `solutionScore: number` (0-1) to `StudentAttempt`
+- Add `solutionScore` to `BulkUploadRow`
+
+---
+
+### 3. `src/lib/mastery/constants.ts`
+
+- Add `solution_driven: 0.2` to `INDEPENDENCE_MULTIPLIERS`
+- Remove `WRONG_ANSWER_PENALTY` (no longer used)
+- Change `INITIAL_STABILITY` from `1.0` to `14.0`
+- Add new stability curve parameters:
+  ```
+  STABILITY_A = 1.2
+  STABILITY_B = 0.25
+  STABILITY_C = 1.5
+  STABILITY_D = 0.1
+  ```
+
+---
+
+### 4. `src/lib/mastery/retentionDecay.ts`
+
+Replace `updateStability` function with the new multiplicative formula:
+
+```
+S_new = S_old x (a x S^(-b) x e^(c x R) + d)
+```
+
+Where R = retention at moment of review (calculated from time since last review and current stability). The `retrievalCount` parameter is no longer used for stability -- instead the retention at review time drives growth.
+
+---
+
+### 5. `src/lib/mastery/calculateMastery.ts`
+
+**`processAttempt` function** -- rewrite the per-skill loop:
+
+Current logic:
+```
+if correct:  earned += weight x independenceMultiplier
+if wrong:    earned -= weight x WRONG_ANSWER_PENALTY
+```
+
+New logic:
+```
+contribution = weight x weightageMultiplier x solutionScore x ISQ
+earned += contribution
+max += weight x weightageMultiplier
+```
+
+No branching on correct/wrong -- the `solutionScore` (0 to 1) handles it naturally. A score of 0% contributes 0 points.
+
+For stability update: only update when solutionScore > 0, and pass current retention (computed from time since last review) into the new `updateStability` function.
+
+---
+
+### 6. `src/lib/mastery/aggregateMastery.ts`
+
+Update `calculateSubtopicMastery` to use **effectiveMastery** (with decay) for the weighted average instead of raw earnedPoints/maxPoints:
+
+```
+subtopicMastery = Sum(KP.effectiveMastery x KP.maxPoints) / Sum(KP.maxPoints)
+```
+
+Same change for `calculateTopicMastery` and `ungroupedMastery`.
+
+---
+
+### 7. `src/components/mastery/AttemptLoggerPanel.tsx`
+
+- Replace the binary Correct/Wrong toggle with a **percentage slider** (0-100%) labeled "Solution Score"
+- Add `solution_driven` as a 4th radio option: "Solution-Driven (20% credit)"
+- Insert `solution_score` into the `student_attempts` record on submit
+
+---
+
+### 8. `src/components/mastery/BulkUploadPanel.tsx`
+
+- Add `solution_score` to `EXPECTED_COLUMNS`
+- Add `solution_driven` / `solution` to `INDEPENDENCE_LEVEL_MAP`
+- Parse `solution_score` column as a number (0-100, converted to 0-1)
+- Default to 100 if column is missing (backward compat)
+- Include in attempt insert and mastery calculation
+
+---
+
+### 9. `src/hooks/useStudentMastery.ts`
+
+- Update `recordAttempt` signature to accept `solutionScore: number` instead of `isCorrect: boolean`
+- Pass `solutionScore` through to `processAttempt` and database insert
+- Update the `student_attempts` insert to include `solution_score`
+
+---
+
+### 10. `src/lib/mastery/persistMastery.ts`
+
+- Update `calculateAndPersistMastery` to pass `solutionScore` from attempt records
+- Ensure the questions map builder includes all difficulty dimension fields for the weightage multiplier
+
+---
+
+### 11. `src/lib/mastery/demoData.ts`
+
+- Update demo data generator to use new initial stability (14 days) and generate realistic `solutionScore`-based mastery values
+
+---
+
+## What Stays Unchanged
+
+- Primary/secondary KP weight split (60/40) -- kept as-is
+- Weight calculation logic in `calculateWeights.ts` -- untouched
+- Database schema for `student_kp_mastery` -- same columns
+- Weightage multiplier rubric (1.0x-3.0x from 4 dimensions) -- untouched
+- Graph visualization, node rendering, retention status colors -- untouched
+- All variable/column naming conventions
+
+## Order of Implementation
+
+1. Database migration (add `solution_score` column)
+2. Type updates (`mastery.ts`)
+3. Constants update
+4. Retention/stability formula update
+5. Core calculation logic update
+6. Aggregation logic update
+7. Persistence layer update
+8. UI updates (AttemptLogger, BulkUpload)
+9. Hook update (`useStudentMastery`)
+10. Demo data update
 
