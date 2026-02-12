@@ -1,64 +1,75 @@
 
 
-# AI-Powered Subtopic Generation
+# Super Node Click Detail Panel and Text Visibility Fix
 
-## The Problem
+## Problem 1: Clicking subtopic/topic nodes does nothing
 
-Currently, Auto-Group creates a **1:1 mapping** between topics and subtopics (e.g., "Loops" topic has one subtopic also called "Loops" containing all 8 loop-related skills). This makes the Subtopics view identical to the Topics view.
+When a super node (subtopic or topic) is clicked, `handleNodeClick` sets `selectedNodeId` to its ID (e.g., `subtopic_xxx`). But `selectedNode` is derived by searching `graph.globalNodes` (line 312-314), which only contains skill nodes -- so it never finds a match, and `NodeDetailPanel` never opens.
 
-**What you actually want**: Within "Loops", skills should be grouped into meaningful subtopics like:
-- "Basic Iteration" (loop_iteration, input_parsing)
-- "Loop Patterns" (accumulator_pattern, search_pattern, filter_pattern, transform_pattern)
-- "Advanced Loops" (nested_iteration, geometric_pattern_generation, integer_digit_extraction)
+## Problem 2: Text on super nodes is truncated
+
+The `SuperNode.tsx` component truncates names to 18 characters (line 54) and uses a tiny dynamic font size (line 52: `Math.max(9, 11 - Math.floor(node.name.length / 8))`). This makes long subtopic/topic names unreadable.
+
+---
 
 ## Solution
 
-Enhance the `auto-group-skills` edge function to use AI (via the same Lovable AI gateway already used for graph generation) to intelligently split skills within each topic into meaningful subtopics.
+### 1. New `SuperNodeDetailPanel` component
 
-### How It Works
+Create a new panel that opens when a super node is clicked, showing:
+- The subtopic/topic name and color badge
+- Type indicator (Subtopic or Topic)
+- Count of knowledge points inside
+- A scrollable list of all contained KPs (with name and skill ID)
+- Click on any KP in the list to navigate to its full `NodeDetailPanel`
 
-1. **Phase 1 (unchanged)**: Group skills into topics using the deterministic `SKILL_TOPIC_MAP`
-2. **Phase 2 (new)**: For each topic with 3+ skills, call AI to suggest subtopic groupings
-3. AI receives the topic name and list of skill names/IDs, and returns subtopic clusters
-4. Topics with only 1-2 skills keep a single subtopic (no AI call needed)
+### 2. Wire up super node click in `KnowledgeGraphApp.tsx`
 
-### AI Prompt Design
+- Add a `selectedSuperNodeId` state
+- When a node is clicked, check if it's a super node (using `groupedData.isSuperNode`). If yes, set `selectedSuperNodeId`; if no, set `selectedNodeId` as before
+- Render `SuperNodeDetailPanel` when `selectedSuperNodeId` is set
+- Resolve the super node data from `groupedData.nodes`
 
-For each topic, the AI gets:
-```
-Topic: "Loops"
-Skills: loop_iteration, accumulator_pattern, search_pattern, filter_pattern, 
-        transform_pattern, input_parsing, nested_iteration, 
-        geometric_pattern_generation, integer_digit_extraction
+### 3. Fix text visibility in `SuperNode.tsx`
 
-Group these skills into 2-4 meaningful subtopics within this topic.
-Return JSON: { "subtopics": [{ "name": "...", "skill_ids": ["..."] }] }
-```
+- Use `foreignObject` instead of `<text>` for the name label (same approach as `GraphNode.tsx`) -- this enables proper word wrapping
+- Increase the label area so full names are visible
+- Remove the 18-character truncation
+- Use a readable font size (11-12px) with proper text wrapping
+- Position the label below the circle (like skill nodes do) for more space
 
-The AI returns clusters, and the function creates the `skill_subtopics` entries accordingly.
+---
 
-## Files to Modify
+## Files to Create/Modify
 
 | File | Changes |
 |------|---------|
-| `supabase/functions/auto-group-skills/index.ts` | Add AI call (Phase 2) to generate subtopics within each topic. Uses `LOVABLE_API_KEY` and `ai.gateway.lovable.dev` like existing functions. |
-
-No other files need changes -- the existing `useSkillGrouping` hook and `buildSubtopicView` utility already handle multiple subtopics per topic correctly.
+| `src/components/panels/SuperNodeDetailPanel.tsx` | **New** -- Modal panel showing super node name, type, skill count, and a clickable list of contained KPs |
+| `src/components/KnowledgeGraphApp.tsx` | Add `selectedSuperNodeId` state; route super node clicks to new panel; pass `groupedData` info to resolve super node; render `SuperNodeDetailPanel` |
+| `src/components/graph/SuperNode.tsx` | Replace `<text>` with `foreignObject` for the name label; remove truncation; use proper word-wrap styling; increase label area |
 
 ## Technical Details
 
-- Uses `google/gemini-2.5-flash` model (fast, cheap, sufficient for classification)
-- AI is only called for topics with 3+ skills (smaller groups get a single subtopic matching the topic name)
-- All AI calls for different topics run in parallel for speed
-- If AI fails for a topic, falls back to a single subtopic (same as current behavior)
-- The prompt enforces that every skill must appear in exactly one subtopic and no skill is dropped
+### SuperNodeDetailPanel props
+```
+- superNode: SuperNode (from groupedView.ts)
+- skills: GraphNode[] (the contained KPs, filtered from graph.globalNodes)
+- onClose: () => void
+- onSkillSelect: (skillId: string) => void (navigates to that skill's NodeDetailPanel)
+```
 
-### Execution Flow
+### Click routing logic in KnowledgeGraphApp
 ```
-1. Clear existing groupings (already implemented)
-2. Group skills by topic using SKILL_TOPIC_MAP (already implemented)
-3. Create topic rows in DB (already implemented)
-4. NEW: For each topic with 3+ skills, call AI to split into subtopics
-5. Create subtopic rows and link skills (modified to use AI clusters)
+When onNodeSelect is called with an ID:
+  1. Check if groupedData?.isSuperNode(id) is true
+  2. If yes: set selectedSuperNodeId = id, clear selectedNodeId
+  3. If no: set selectedNodeId = id, clear selectedSuperNodeId
 ```
+
+### SuperNode text fix
+- Replace the `<text>` element with a `foreignObject` positioned below the circle
+- Width: 140px (wider than the node)
+- Use CSS `word-break: break-word`, `text-align: center`, `font-size: 11px`
+- Remove the `node.name.length > 18` truncation
+- Keep the skill count badge as a separate element below the name
 
