@@ -1,75 +1,70 @@
 
 
-# Super Node Click Detail Panel and Text Visibility Fix
+# Terminology Pivot: "Skills" to "Knowledge Points" (User-Facing)
 
-## Problem 1: Clicking subtopic/topic nodes does nothing
+## Overview
 
-When a super node (subtopic or topic) is clicked, `handleNodeClick` sets `selectedNodeId` to its ID (e.g., `subtopic_xxx`). But `selectedNode` is derived by searching `graph.globalNodes` (line 312-314), which only contains skill nodes -- so it never finds a match, and `NodeDetailPanel` never opens.
+Replace all **user-facing** instances of "skill/skills" with "knowledge point/knowledge points" (or "KP/KPs" where space is tight). Internal variable names, database columns, and code identifiers remain unchanged for stability.
 
-## Problem 2: Text on super nodes is truncated
+## Changes by File
 
-The `SuperNode.tsx` component truncates names to 18 characters (line 54) and uses a tiny dynamic font size (line 52: `Math.max(9, 11 - Math.floor(node.name.length / 8))`). This makes long subtopic/topic names unreadable.
+### 1. `src/components/graph/ViewModeToggle.tsx`
+- Line 12: `'Skills'` label becomes `'Knowledge Points'`
 
----
+### 2. `src/components/graph/SuperNode.tsx`
+- Line 75: `{node.skillCount} skill{...}` becomes `{node.skillCount} KP{...}`
 
-## Solution
+### 3. `src/components/graph/GroupingToolbar.tsx`
+- Line 48: `{selectedCount} skill{...} selected` becomes `{selectedCount} KP{...} selected`
+- Line 80: `Group {selectedCount} selected skill{...}` becomes `Group {selectedCount} selected knowledge point{...}`
 
-### 1. New `SuperNodeDetailPanel` component
+### 4. `src/components/graph/GraphNode.tsx`
+- Line 382 (comment only): `Mastered skill glow` -- comment update, cosmetic
 
-Create a new panel that opens when a super node is clicked, showing:
-- The subtopic/topic name and color badge
-- Type indicator (Subtopic or Topic)
-- Count of knowledge points inside
-- A scrollable list of all contained KPs (with name and skill ID)
-- Click on any KP in the list to navigate to its full `NodeDetailPanel`
+### 5. `src/components/panels/AddNodeDialog.tsx`
+- Line 53: Dialog title `"Add Skill"` becomes `"Add Knowledge Point"`
+- Line 64: Label `"Skill ID"` becomes `"KP ID"`
+- Line 84: Label placeholder `"What does this skill represent?"` becomes `"What does this knowledge point represent?"`
+- Line 91: Button `"Add Skill"` becomes `"Add Knowledge Point"`
 
-### 2. Wire up super node click in `KnowledgeGraphApp.tsx`
+### 6. `src/components/panels/AddEdgeDialog.tsx`
+- Line 53: `Select a skill that...` becomes `Select a knowledge point that...`
+- Line 54: Same change
+- Line 60: Label `"Search skills"` becomes `"Search knowledge points"`
+- Line 67: `"No matching skills"` becomes `"No matching knowledge points"`
 
-- Add a `selectedSuperNodeId` state
-- When a node is clicked, check if it's a super node (using `groupedData.isSuperNode`). If yes, set `selectedSuperNodeId`; if no, set `selectedNodeId` as before
-- Render `SuperNodeDetailPanel` when `selectedSuperNodeId` is set
-- Resolve the super node data from `groupedData.nodes`
+### 7. `src/components/panels/NodeDetailPanel.tsx`
+- Line 181: `"remove the skill"` becomes `"remove the knowledge point"`
+- Line 184: `"The skill will be removed"` becomes `"The knowledge point will be removed"`
+- Line 478: `"Level 0 skill"` becomes `"Level 0 knowledge point"`
+- Line 515: `"leaf skill"` becomes `"leaf knowledge point"`
 
-### 3. Fix text visibility in `SuperNode.tsx`
+### 8. `src/components/panels/QuestionPathSelector.tsx`
+- Line 145: `"Skills that are only used..."` becomes `"Knowledge points that are only used..."`
 
-- Use `foreignObject` instead of `<text>` for the name label (same approach as `GraphNode.tsx`) -- this enables proper word wrapping
-- Increase the label area so full names are visible
-- Remove the 18-character truncation
-- Use a readable font size (11-12px) with proper text wrapping
-- Position the label below the circle (like skill nodes do) for more space
+### 9. `src/components/panels/GenerationProgress.tsx`
+- Line 73: `"skills discovered"` becomes `"knowledge points discovered"`
 
----
+### 10. `src/components/mastery/AttemptLoggerPanel.tsx`
+- Line 161: `"Skills: "` label becomes `"KPs: "`
 
-## Files to Create/Modify
+### 11. `src/components/mastery/MasterySidebar.tsx`
+- Line 162: `"Select skills on the graph..."` becomes `"Select knowledge points on the graph..."`
+- Line 162: `"Organize skills into..."` becomes `"Organize knowledge points into..."`
 
-| File | Changes |
-|------|---------|
-| `src/components/panels/SuperNodeDetailPanel.tsx` | **New** -- Modal panel showing super node name, type, skill count, and a clickable list of contained KPs |
-| `src/components/KnowledgeGraphApp.tsx` | Add `selectedSuperNodeId` state; route super node clicks to new panel; pass `groupedData` info to resolve super node; render `SuperNodeDetailPanel` |
-| `src/components/graph/SuperNode.tsx` | Replace `<text>` with `foreignObject` for the name label; remove truncation; use proper word-wrap styling; increase label area |
+### 12. `src/components/mastery/HierarchicalMasteryView.tsx`
+- Line 177: `"No skills in this subtopic"` becomes `"No knowledge points in this subtopic"`
+- Line 237: `"select skills and create subtopics"` becomes `"select knowledge points and create subtopics"`
+- Line 273: `"Ungrouped Skills"` becomes `"Ungrouped Knowledge Points"`
 
-## Technical Details
+## What Stays Unchanged
 
-### SuperNodeDetailPanel props
-```
-- superNode: SuperNode (from groupedView.ts)
-- skills: GraphNode[] (the contained KPs, filtered from graph.globalNodes)
-- onClose: () => void
-- onSkillSelect: (skillId: string) => void (navigates to that skill's NodeDetailPanel)
-```
+- All variable/prop names (e.g., `skillId`, `skills`, `skillNames`, `skillCount`)
+- Database column names (`skills`, `skill_weights`, `primary_skills`)
+- Type names (`SkillTier`, `SkillTopic`, `SkillSubtopic`)
+- Hook names (`useSkillGrouping`)
+- File names
+- Code comments (except the one in GraphNode.tsx for consistency)
 
-### Click routing logic in KnowledgeGraphApp
-```
-When onNodeSelect is called with an ID:
-  1. Check if groupedData?.isSuperNode(id) is true
-  2. If yes: set selectedSuperNodeId = id, clear selectedNodeId
-  3. If no: set selectedNodeId = id, clear selectedSuperNodeId
-```
-
-### SuperNode text fix
-- Replace the `<text>` element with a `foreignObject` positioned below the circle
-- Width: 140px (wider than the node)
-- Use CSS `word-break: break-word`, `text-align: center`, `font-size: 11px`
-- Remove the `node.name.length > 18` truncation
-- Keep the skill count badge as a separate element below the name
+This is purely a UI string change -- no logic or data flow is affected.
 
