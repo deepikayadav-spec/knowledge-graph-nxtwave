@@ -50,21 +50,21 @@ export function AddEdgeDialog({ open, onOpenChange, onAdd, allNodes, excludeIds,
           </DialogTitle>
           <DialogDescription>
             {mode === 'prerequisite'
-              ? `Select a skill that "${sourceNodeName}" requires.`
-              : `Select a skill that depends on "${sourceNodeName}".`}
+              ? `Select a knowledge point that "${sourceNodeName}" requires.`
+              : `Select a knowledge point that depends on "${sourceNodeName}".`}
           </DialogDescription>
         </DialogHeader>
 
         <div className="space-y-3">
           <div className="space-y-2">
-            <Label>Search skills</Label>
+            <Label>Search knowledge points</Label>
             <Input value={search} onChange={e => setSearch(e.target.value)} placeholder="Type to filter..." />
           </div>
 
           <ScrollArea className="h-52 border rounded-md">
             <div className="p-1">
               {filteredNodes.length === 0 ? (
-                <p className="text-sm text-muted-foreground text-center py-4">No matching skills</p>
+                <p className="text-sm text-muted-foreground text-center py-4">No matching knowledge points</p>
               ) : (
                 filteredNodes.map(node => (
                   <button

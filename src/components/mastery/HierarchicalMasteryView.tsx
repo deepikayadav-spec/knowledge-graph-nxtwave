@@ -174,7 +174,7 @@ export function HierarchicalMasteryView({
               {skills.length > 0 ? (
                 skills.map(skillId => renderSkillItem(skillId))
               ) : (
-                <p className="text-xs text-muted-foreground py-2">No skills in this subtopic</p>
+                <p className="text-xs text-muted-foreground py-2">No knowledge points in this subtopic</p>
               )}
             </div>
           </CollapsibleContent>
@@ -234,7 +234,7 @@ export function HierarchicalMasteryView({
         <Folder className="h-12 w-12 mx-auto mb-3 opacity-50" />
         <p className="text-sm">No groupings yet</p>
         <p className="text-xs mt-1">
-          Click "Edit Groups" to select skills and create subtopics
+          Click "Edit Groups" to select knowledge points and create subtopics
         </p>
       </div>
     );
@@ -270,7 +270,7 @@ export function HierarchicalMasteryView({
       {ungroupedSkillIds.length > 0 && (
         <div className="space-y-2">
           <h4 className="text-xs font-semibold text-muted-foreground uppercase tracking-wide flex items-center gap-2">
-            Ungrouped Skills
+            Ungrouped Knowledge Points
             <Badge variant="outline" className="text-xs">
               {ungroupedSkillIds.length}
             </Badge>

@@ -142,7 +142,7 @@ export function QuestionPathSelector({
               <p>This will remove the question from the graph:</p>
               <p className="font-medium text-foreground">"{deleteConfirmQuestion}"</p>
               <p className="text-sm text-muted-foreground">
-                Skills that are only used by this question will also be removed.
+                Knowledge points that are only used by this question will also be removed.
               </p>
             </AlertDialogDescription>
           </AlertDialogHeader>

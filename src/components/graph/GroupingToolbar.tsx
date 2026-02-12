@@ -45,7 +45,7 @@ export function GroupingToolbar({
       <div className="absolute bottom-20 left-1/2 -translate-x-1/2 z-20 animate-fade-in">
         <div className="flex items-center gap-2 px-4 py-2 rounded-lg bg-card border border-border shadow-lg">
           <span className="text-sm font-medium text-foreground">
-            {selectedCount} skill{selectedCount > 1 ? 's' : ''} selected
+            {selectedCount} KP{selectedCount > 1 ? 's' : ''} selected
           </span>
           
           <div className="w-px h-5 bg-border" />
@@ -77,7 +77,7 @@ export function GroupingToolbar({
           <DialogHeader>
             <DialogTitle>Create Subtopic</DialogTitle>
             <DialogDescription>
-              Group {selectedCount} selected skill{selectedCount > 1 ? 's' : ''} into a new subtopic.
+              Group {selectedCount} selected knowledge point{selectedCount > 1 ? 's' : ''} into a new subtopic.
             </DialogDescription>
           </DialogHeader>
           
