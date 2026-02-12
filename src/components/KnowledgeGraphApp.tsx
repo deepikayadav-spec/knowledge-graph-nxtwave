@@ -1,6 +1,7 @@
 import { useState, useMemo, useCallback } from 'react';
 import { GraphCanvas } from './graph/GraphCanvas';
 import { NodeDetailPanel } from './panels/NodeDetailPanel';
+import { SuperNodeDetailPanel } from './panels/SuperNodeDetailPanel';
 import { QuestionPathSelector } from './panels/QuestionPathSelector';
 import { QuickQuestionInput } from './panels/QuickQuestionInput';
 import { GraphManagerPanel } from './panels/GraphManagerPanel';
@@ -15,7 +16,7 @@ import { useBatchGeneration } from '@/hooks/useBatchGeneration';
 import { useAutosave } from '@/hooks/useAutosave';
 import { useSkillGrouping } from '@/hooks/useSkillGrouping';
 import { useStudentMastery } from '@/hooks/useStudentMastery';
-import { buildSubtopicView, buildTopicView } from '@/lib/graph/groupedView';
+import { buildSubtopicView, buildTopicView, type SuperNode } from '@/lib/graph/groupedView';
 import { Network, Sparkles, Trash2, GraduationCap, Plus, Pencil, CheckCircle, Wand2 } from 'lucide-react';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
@@ -37,6 +38,7 @@ const getPathArray = (path: QuestionPath | string[]): string[] => {
 export function KnowledgeGraphApp() {
   const [graph, setGraph] = useState<KnowledgeGraph | null>(null);
   const [selectedNodeId, setSelectedNodeId] = useState<string | null>(null);
+  const [selectedSuperNodeId, setSelectedSuperNodeId] = useState<string | null>(null);
   const [selectedQuestion, setSelectedQuestion] = useState<string | null>(null);
   const [showAddNodeDialog, setShowAddNodeDialog] = useState(false);
   const [viewMode, setViewMode] = useState<ViewMode>('skills');
@@ -513,7 +515,15 @@ export function KnowledgeGraphApp() {
             nodes={groupedData ? groupedData.nodes as GraphNode[] : graph.globalNodes}
             edges={groupedData ? groupedData.edges : graph.edges}
             selectedNodeId={selectedNodeId}
-            onNodeSelect={setSelectedNodeId}
+            onNodeSelect={(id) => {
+              if (groupedData?.isSuperNode(id)) {
+                setSelectedSuperNodeId(id);
+                setSelectedNodeId(null);
+              } else {
+                setSelectedNodeId(id);
+                setSelectedSuperNodeId(null);
+              }
+            }}
             highlightedPath={highlightedPath}
             isEditMode={masteryMode && isGroupingEditMode}
             selectedGroupingNodeIds={selectedGroupingNodeIds}
@@ -582,7 +592,7 @@ export function KnowledgeGraphApp() {
           edges={graph.edges}
           allNodes={graph.globalNodes}
           onClose={() => setSelectedNodeId(null)}
-          onNodeSelect={setSelectedNodeId}
+          onNodeSelect={(id) => { setSelectedNodeId(id); setSelectedSuperNodeId(null); }}
           masteryMode={masteryMode}
           studentMastery={selectedStudentId ? studentMasteryHook.mastery.get(selectedNode.id) : undefined}
           studentName={selectedStudentName}
@@ -591,6 +601,24 @@ export function KnowledgeGraphApp() {
           onRemoveEdge={isEditMode && currentGraphId ? handleRemoveEdge : undefined}
         />
       )}
+
+      {/* Super Node Detail Panel */}
+      {selectedSuperNodeId && groupedData && (() => {
+        const superNode = groupedData.nodes.find(n => n.id === selectedSuperNodeId) as SuperNode | undefined;
+        if (!superNode || !('skillIds' in superNode)) return null;
+        const containedSkills = graph.globalNodes.filter(n => superNode.skillIds.includes(n.id));
+        return (
+          <SuperNodeDetailPanel
+            superNode={superNode}
+            skills={containedSkills}
+            onClose={() => setSelectedSuperNodeId(null)}
+            onSkillSelect={(skillId) => {
+              setSelectedSuperNodeId(null);
+              setSelectedNodeId(skillId);
+            }}
+          />
+        );
+      })()}
 
       {/* Add Node Dialog */}
       <AddNodeDialog
