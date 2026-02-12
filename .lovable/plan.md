@@ -1,70 +1,58 @@
 
 
-# Terminology Pivot: "Skills" to "Knowledge Points" (User-Facing)
+# Fix Remaining "Skills" Terminology and Improve Top Bar UI
 
-## Overview
+## Problem 1: "Skills" Still Appears in Multiple Places
 
-Replace all **user-facing** instances of "skill/skills" with "knowledge point/knowledge points" (or "KP/KPs" where space is tight). Internal variable names, database columns, and code identifiers remain unchanged for stability.
+From the screenshot, the top-left shows `58 skills . 83 relationships . 891` and other places still use "skill":
 
-## Changes by File
+| Location | Current Text | Fix |
+|----------|-------------|-----|
+| `KnowledgeGraphApp.tsx` line 413 | `{stats?.totalNodes} skills` | `{stats?.totalNodes} KPs` |
+| `KnowledgeGraphApp.tsx` line 459 | `Add Skill` button | `Add KP` |
+| `KnowledgeGraphApp.tsx` line 456 | Comment: `Add Skill Button` | `Add KP Button` |
+| `KnowledgeGraphApp.tsx` line 358 | Badge: `Skill Taxonomy` | `KP Taxonomy` |
+| `KnowledgeGraphApp.tsx` line 305 | Toast: `orphaned skill(s)` | `orphaned KP(s)` |
+| `GraphManagerPanel.tsx` line 164 | `{graph.total_skills} skills` | `{graph.total_skills} KPs` |
 
-### 1. `src/components/graph/ViewModeToggle.tsx`
-- Line 12: `'Skills'` label becomes `'Knowledge Points'`
+## Problem 2: Top Bar Is Cluttered and Hard to Read
 
-### 2. `src/components/graph/SuperNode.tsx`
-- Line 75: `{node.skillCount} skill{...}` becomes `{node.skillCount} KP{...}`
+Looking at the screenshot, the header crams everything into one row: graph name, stats, view toggle, Auto-Group, Edit, Add Skill, Mastery toggle, class/student selectors, question path, Save/Weights/Levels/Difficulty, Clear -- all in a single 14px-tall bar. This makes it feel cramped and buttons hard to find.
 
-### 3. `src/components/graph/GroupingToolbar.tsx`
-- Line 48: `{selectedCount} skill{...} selected` becomes `{selectedCount} KP{...} selected`
-- Line 80: `Group {selectedCount} selected skill{...}` becomes `Group {selectedCount} selected knowledge point{...}`
+### Proposed Improvements
 
-### 4. `src/components/graph/GraphNode.tsx`
-- Line 382 (comment only): `Mastered skill glow` -- comment update, cosmetic
+**Split into two rows:**
+- **Row 1 (primary)**: Graph name + autosave indicator, stats (compact), View Mode toggle, Edit/Mastery toggles, graph manager actions (Save/Load/Clear)
+- **Row 2 (contextual)**: Only appears when needed -- shows Auto-Group, question path selector, class/student selectors, Add KP (in edit mode), Weights/Levels/Difficulty buttons
 
-### 5. `src/components/panels/AddNodeDialog.tsx`
-- Line 53: Dialog title `"Add Skill"` becomes `"Add Knowledge Point"`
-- Line 64: Label `"Skill ID"` becomes `"KP ID"`
-- Line 84: Label placeholder `"What does this skill represent?"` becomes `"What does this knowledge point represent?"`
-- Line 91: Button `"Add Skill"` becomes `"Add Knowledge Point"`
+**Visual improvements:**
+- Group related buttons with subtle separators
+- Use a slightly taller header (h-auto with padding instead of fixed h-14)
+- Stats line uses proper "KPs" terminology with a cleaner separator
+- Contextual row has a slightly different background to distinguish it
 
-### 6. `src/components/panels/AddEdgeDialog.tsx`
-- Line 53: `Select a skill that...` becomes `Select a knowledge point that...`
-- Line 54: Same change
-- Line 60: Label `"Search skills"` becomes `"Search knowledge points"`
-- Line 67: `"No matching skills"` becomes `"No matching knowledge points"`
+## Files to Modify
 
-### 7. `src/components/panels/NodeDetailPanel.tsx`
-- Line 181: `"remove the skill"` becomes `"remove the knowledge point"`
-- Line 184: `"The skill will be removed"` becomes `"The knowledge point will be removed"`
-- Line 478: `"Level 0 skill"` becomes `"Level 0 knowledge point"`
-- Line 515: `"leaf skill"` becomes `"leaf knowledge point"`
+| File | Changes |
+|------|---------|
+| `src/components/KnowledgeGraphApp.tsx` | Fix 4 "skill" strings; restructure header into primary row + contextual row; group buttons logically |
+| `src/components/panels/GraphManagerPanel.tsx` | Fix `{graph.total_skills} skills` to `{graph.total_skills} KPs` on line 164 |
 
-### 8. `src/components/panels/QuestionPathSelector.tsx`
-- Line 145: `"Skills that are only used..."` becomes `"Knowledge points that are only used..."`
+## Technical Details
 
-### 9. `src/components/panels/GenerationProgress.tsx`
-- Line 73: `"skills discovered"` becomes `"knowledge points discovered"`
+### Header Layout Structure
 
-### 10. `src/components/mastery/AttemptLoggerPanel.tsx`
-- Line 161: `"Skills: "` label becomes `"KPs: "`
+```text
+Row 1 (always visible):
+[Logo] [Graph Name + Autosave] [Stats: "58 KPs . 83 relationships"]
+                    [KP View | Subtopics | Topics]  [Edit] [Mastery toggle]  [Load | Save | Clear]
 
-### 11. `src/components/mastery/MasterySidebar.tsx`
-- Line 162: `"Select skills on the graph..."` becomes `"Select knowledge points on the graph..."`
-- Line 162: `"Organize skills into..."` becomes `"Organize knowledge points into..."`
+Row 2 (contextual, only if any content):
+[Auto-Group]  [Add KP (if edit mode)]  [Class > Student (if mastery)]  
+                    [View Question Path (891)]  [Weights] [Levels] [Difficulty]
+```
 
-### 12. `src/components/mastery/HierarchicalMasteryView.tsx`
-- Line 177: `"No skills in this subtopic"` becomes `"No knowledge points in this subtopic"`
-- Line 237: `"select skills and create subtopics"` becomes `"select knowledge points and create subtopics"`
-- Line 273: `"Ungrouped Skills"` becomes `"Ungrouped Knowledge Points"`
-
-## What Stays Unchanged
-
-- All variable/prop names (e.g., `skillId`, `skills`, `skillNames`, `skillCount`)
-- Database column names (`skills`, `skill_weights`, `primary_skills`)
-- Type names (`SkillTier`, `SkillTopic`, `SkillSubtopic`)
-- Hook names (`useSkillGrouping`)
-- File names
-- Code comments (except the one in GraphNode.tsx for consistency)
-
-This is purely a UI string change -- no logic or data flow is affected.
+- Row 2 uses `flex-wrap` to handle overflow gracefully
+- Row 2 is hidden when there's nothing contextual to show (no graph loaded)
+- Vertical separator divs (`w-px h-5 bg-border`) between button groups for clarity
 
