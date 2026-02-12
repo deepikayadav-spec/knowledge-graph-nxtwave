@@ -44,24 +44,37 @@ export function SuperNodeComponent({
       />
       <circle r={radius - 6} fill={node.color} fillOpacity={0.08} stroke="none" />
 
-      {/* Name */}
-      <text
-        textAnchor="middle"
-        dy="-4"
-        className="text-xs font-semibold fill-foreground pointer-events-none"
-        style={{ fontSize: Math.max(9, 11 - Math.floor(node.name.length / 8)) }}
+      {/* Name label using foreignObject for word wrapping */}
+      <foreignObject
+        x={-70}
+        y={radius + 4}
+        width={140}
+        height={50}
+        className="pointer-events-none overflow-visible"
       >
-        {node.name.length > 18 ? node.name.slice(0, 16) + '…' : node.name}
-      </text>
-
-      {/* Skill count badge */}
-      <text
-        textAnchor="middle"
-        dy="12"
-        className="text-[10px] fill-muted-foreground pointer-events-none"
-      >
-        {node.skillCount} skill{node.skillCount !== 1 ? 's' : ''}
-      </text>
+        <div
+          style={{
+            fontSize: '11px',
+            lineHeight: '14px',
+            textAlign: 'center',
+            wordBreak: 'break-word',
+            color: 'hsl(var(--foreground))',
+            fontWeight: 600,
+          }}
+        >
+          {node.name}
+        </div>
+        <div
+          style={{
+            fontSize: '10px',
+            textAlign: 'center',
+            color: 'hsl(var(--muted-foreground))',
+            marginTop: '2px',
+          }}
+        >
+          {node.skillCount} skill{node.skillCount !== 1 ? 's' : ''}
+        </div>
+      </foreignObject>
     </g>
   );
 }
