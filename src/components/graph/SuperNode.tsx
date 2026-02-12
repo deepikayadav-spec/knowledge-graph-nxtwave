@@ -72,7 +72,7 @@ export function SuperNodeComponent({
             marginTop: '2px',
           }}
         >
-          {node.skillCount} skill{node.skillCount !== 1 ? 's' : ''}
+          {node.skillCount} KP{node.skillCount !== 1 ? 's' : ''}
         </div>
       </foreignObject>
     </g>

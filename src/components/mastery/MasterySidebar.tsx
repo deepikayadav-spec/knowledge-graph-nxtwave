@@ -159,7 +159,7 @@ export function MasterySidebar({
                 {onToggleEditMode && (
                   <div className="flex items-center justify-between">
                     <p className="text-sm text-muted-foreground">
-                      {isEditMode ? 'Select skills on the graph to create subtopics' : 'Organize skills into subtopics and topics'}
+                      {isEditMode ? 'Select knowledge points on the graph to create subtopics' : 'Organize knowledge points into subtopics and topics'}
                     </p>
                     <Button
                       size="sm"

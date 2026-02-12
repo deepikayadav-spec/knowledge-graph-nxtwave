@@ -50,7 +50,7 @@ export function AddNodeDialog({ open, onOpenChange, onAdd, existingIds }: AddNod
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent className="sm:max-w-md">
         <DialogHeader>
-          <DialogTitle>Add Skill</DialogTitle>
+          <DialogTitle>Add Knowledge Point</DialogTitle>
           <DialogDescription>Add a new knowledge point to the graph.</DialogDescription>
         </DialogHeader>
 
@@ -61,7 +61,7 @@ export function AddNodeDialog({ open, onOpenChange, onAdd, existingIds }: AddNod
           </div>
 
           <div className="space-y-2">
-            <Label htmlFor="skill-id">Skill ID (snake_case)</Label>
+            <Label htmlFor="skill-id">KP ID (snake_case)</Label>
             <Input id="skill-id" value={skillId} onChange={e => setSkillId(e.target.value)} placeholder="e.g. list_comprehension" className="font-mono text-sm" />
             {idConflict && <p className="text-sm text-destructive">This ID already exists.</p>}
           </div>
@@ -81,14 +81,14 @@ export function AddNodeDialog({ open, onOpenChange, onAdd, existingIds }: AddNod
 
           <div className="space-y-2">
             <Label htmlFor="skill-desc">Description (optional)</Label>
-            <Textarea id="skill-desc" value={description} onChange={e => setDescription(e.target.value)} placeholder="What does this skill represent?" rows={2} />
+            <Textarea id="skill-desc" value={description} onChange={e => setDescription(e.target.value)} placeholder="What does this knowledge point represent?" rows={2} />
           </div>
         </div>
 
         <DialogFooter>
           <Button variant="outline" onClick={() => onOpenChange(false)}>Cancel</Button>
           <Button onClick={handleSubmit} disabled={!skillId || !name || idConflict || isSubmitting}>
-            {isSubmitting ? 'Adding...' : 'Add Skill'}
+            {isSubmitting ? 'Adding...' : 'Add Knowledge Point'}
           </Button>
         </DialogFooter>
       </DialogContent>

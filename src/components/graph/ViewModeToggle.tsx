@@ -9,7 +9,7 @@ interface ViewModeToggleProps {
 }
 
 const modes: { value: ViewMode; label: string }[] = [
-  { value: 'skills', label: 'Skills' },
+  { value: 'skills', label: 'Knowledge Points' },
   { value: 'subtopics', label: 'Subtopics' },
   { value: 'topics', label: 'Topics' },
 ];

@@ -158,7 +158,7 @@ export function AttemptLoggerPanel({
           </Select>
           {selectedQuestion && (
             <div className="text-xs text-muted-foreground mt-1">
-              Skills: {selectedQuestion.skills.join(', ')}
+              KPs: {selectedQuestion.skills.join(', ')}
             </div>
           )}
         </div>

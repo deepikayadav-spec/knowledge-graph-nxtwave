@@ -379,7 +379,7 @@ export function GraphNodeComponent({
         </foreignObject>
       )}
 
-      {/* Mastered skill glow (90%+ mastery) */}
+      {/* Mastered KP glow (90%+ mastery) */}
       {showMasteryIndicator && masteryData && masteryData.effectiveMastery >= 0.9 && masteryData.retentionStatus === 'current' && (
         <circle
           cx={0}

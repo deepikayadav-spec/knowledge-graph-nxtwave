@@ -178,10 +178,10 @@ export function NodeDetailPanel({
                     <AlertDialogHeader>
                       <AlertDialogTitle>Delete "{node.name}"?</AlertDialogTitle>
                       <AlertDialogDescription>
-                        This will remove the skill and all its edges ({prerequisites.length} prerequisites, {unlocks.length} dependents).
+                        This will remove the knowledge point and all its edges ({prerequisites.length} prerequisites, {unlocks.length} dependents).
                         {referencingQuestions.length > 0 && (
                           <span className="block mt-2 text-destructive">
-                            ⚠ Referenced by {referencingQuestions.length} question(s). The skill will be removed from those questions.
+                            ⚠ Referenced by {referencingQuestions.length} question(s). The knowledge point will be removed from those questions.
                           </span>
                         )}
                       </AlertDialogDescription>
@@ -475,7 +475,7 @@ export function NodeDetailPanel({
                 ))}
               </div>
             ) : (
-              <p className="text-sm text-muted-foreground pl-7">No prerequisites (Level 0 skill)</p>
+              <p className="text-sm text-muted-foreground pl-7">No prerequisites (Level 0 knowledge point)</p>
             )}
           </section>
 
@@ -512,7 +512,7 @@ export function NodeDetailPanel({
                 ))}
               </div>
             ) : (
-              <p className="text-sm text-muted-foreground pl-7">No dependents (leaf skill)</p>
+              <p className="text-sm text-muted-foreground pl-7">No dependents (leaf knowledge point)</p>
             )}
           </section>
         </div>

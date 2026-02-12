@@ -70,7 +70,7 @@ export function GenerationProgress({
 
       <div className="flex items-center justify-between text-xs text-muted-foreground">
         <span>
-          {progress.skillsDiscovered} skills discovered
+          {progress.skillsDiscovered} knowledge points discovered
         </span>
         <span>
           {progress.estimatedTimeRemaining && `~${progress.estimatedTimeRemaining} remaining`}
