@@ -24,6 +24,8 @@ const EXPECTED_COLUMNS = [
   'attempted_at',
 ];
 
+const OPTIONAL_COLUMNS = ['solution_score'];
+
 const INDEPENDENCE_LEVEL_MAP: Record<string, IndependenceLevel> = {
   independent: 'independent',
   lightly_scaffolded: 'lightly_scaffolded',
@@ -31,6 +33,8 @@ const INDEPENDENCE_LEVEL_MAP: Record<string, IndependenceLevel> = {
   heavily_assisted: 'heavily_assisted',
   heavily: 'heavily_assisted',
   assisted: 'heavily_assisted',
+  solution_driven: 'solution_driven',
+  solution: 'solution_driven',
 };
 
 function parseCSV(text: string): string[][] {
@@ -86,6 +90,9 @@ function validateAndParse(
     }
   });
 
+  // Check for optional columns
+  const solutionScoreIdx = header.indexOf('solution_score');
+
   if (!result.valid) return result;
 
   // Parse data rows
@@ -99,6 +106,19 @@ function validateAndParse(
     const isCorrectStr = row[columnIndices['is_correct']]?.trim().toLowerCase();
     const independenceLevelStr = row[columnIndices['independence_level']]?.trim().toLowerCase();
     const attemptedAtStr = row[columnIndices['attempted_at']]?.trim();
+
+    // Parse optional solution_score (0-100 in CSV, converted to 0-1)
+    let solutionScore = 1.0; // Default: full score (backward compat)
+    if (solutionScoreIdx !== -1 && row[solutionScoreIdx]) {
+      const parsed = parseFloat(row[solutionScoreIdx].trim());
+      if (!isNaN(parsed)) {
+        solutionScore = Math.max(0, Math.min(100, parsed)) / 100;
+      }
+    } else {
+      // Derive from is_correct if no solution_score column
+      const isCorrect = isCorrectStr === 'true' || isCorrectStr === '1' || isCorrectStr === 'yes';
+      solutionScore = isCorrect ? 1.0 : 0.0;
+    }
 
     // Validate student_id
     if (!studentId) {
@@ -153,7 +173,7 @@ function validateAndParse(
       result.errors.push({ 
         row: i + 1, 
         field: 'independence_level', 
-        message: `Invalid value: ${independenceLevelStr}. Use: independent, lightly_scaffolded, or heavily_assisted` 
+        message: `Invalid value: ${independenceLevelStr}. Use: independent, lightly_scaffolded, heavily_assisted, or solution_driven` 
       });
       result.valid = false;
       continue;
@@ -172,6 +192,7 @@ function validateAndParse(
       studentName,
       questionText,
       isCorrect,
+      solutionScore,
       independenceLevel,
       attemptedAt,
     });
@@ -263,6 +284,7 @@ export function BulkUploadPanel({
         student_id: row.studentId,
         question_id: qMap.get(row.questionText.toLowerCase().trim()),
         is_correct: row.isCorrect,
+        solution_score: row.solutionScore,
         independence_level: row.independenceLevel,
         attempted_at: row.attemptedAt.toISOString(),
       })).filter(a => a.question_id); // Only include matched questions
@@ -304,7 +326,7 @@ export function BulkUploadPanel({
       if (questionsData && questionsData.length > 0) {
         const questionsMap = buildQuestionsMap(questionsData);
 
-        // 2. Group attempts by student
+        // Group attempts by student
         const attemptsByStudent = new Map<string, StudentAttempt[]>();
         for (const row of validation.rows) {
           const questionId = qMap.get(row.questionText.toLowerCase().trim());
@@ -317,6 +339,7 @@ export function BulkUploadPanel({
             studentId: row.studentId,
             questionId,
             isCorrect: row.isCorrect,
+            solutionScore: row.solutionScore,
             independenceLevel: row.independenceLevel,
             attemptedAt: row.attemptedAt,
           };
@@ -326,7 +349,7 @@ export function BulkUploadPanel({
           attemptsByStudent.set(row.studentId, existing);
         }
 
-        // 3. Calculate and persist mastery for each student
+        // Calculate and persist mastery for each student
         for (const [studentId, studentAttempts] of attemptsByStudent) {
           await calculateAndPersistMastery(graphId, studentId, studentAttempts, questionsMap);
         }
@@ -383,7 +406,10 @@ export function BulkUploadPanel({
             />
           </label>
           <p className="text-xs text-muted-foreground mt-2">
-            Expected columns: student_id, student_name, question_text, is_correct, independence_level, attempted_at
+            Required: student_id, student_name, question_text, is_correct, independence_level, attempted_at
+          </p>
+          <p className="text-xs text-muted-foreground">
+            Optional: solution_score (0-100, defaults to 100 if correct / 0 if wrong)
           </p>
         </div>
 

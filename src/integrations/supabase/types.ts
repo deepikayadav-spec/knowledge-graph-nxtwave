@@ -339,6 +339,7 @@ export type Database = {
           independence_level: string
           is_correct: boolean
           question_id: string
+          solution_score: number
           student_id: string
         }
         Insert: {
@@ -349,6 +350,7 @@ export type Database = {
           independence_level: string
           is_correct: boolean
           question_id: string
+          solution_score?: number
           student_id: string
         }
         Update: {
@@ -359,6 +361,7 @@ export type Database = {
           independence_level?: string
           is_correct?: boolean
           question_id?: string
+          solution_score?: number
           student_id?: string
         }
         Relationships: [

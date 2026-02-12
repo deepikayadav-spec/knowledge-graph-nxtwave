@@ -2,7 +2,10 @@
 
 import { 
   INITIAL_STABILITY, 
-  STABILITY_GROWTH_FACTOR, 
+  STABILITY_A,
+  STABILITY_B,
+  STABILITY_C,
+  STABILITY_D,
   RETENTION_THRESHOLDS 
 } from './constants';
 import type { RetentionStatus } from '@/types/mastery';
@@ -33,19 +36,25 @@ export function calculateRetention(
 }
 
 /**
- * Update stability after a successful retrieval
- * Stability grows logarithmically with each successful recall
+ * Update stability after a successful retrieval using multiplicative formula
+ * S_new = S_old × (A × S_old^(-B) × e^(C × R) + D)
+ * 
+ * Where R = retention at the moment of review (computed from time since last review)
  * 
  * @param currentStability - Current memory strength
- * @param retrievalCount - Number of successful recalls
+ * @param lastReviewedAt - Date of last review (to compute retention at review time)
  * @returns New stability value
  */
 export function updateStability(
   currentStability: number,
-  retrievalCount: number
+  lastReviewedAt: Date | null
 ): number {
-  // newStability = stability × (1 + 0.1 × ln(retrievalCount + 1))
-  return currentStability * (1 + STABILITY_GROWTH_FACTOR * Math.log(retrievalCount + 1));
+  // Compute retention at the moment of this review
+  const R = calculateRetention(lastReviewedAt, currentStability);
+  
+  // S_new = S_old × (A × S_old^(-B) × e^(C × R) + D)
+  const multiplier = STABILITY_A * Math.pow(currentStability, -STABILITY_B) * Math.exp(STABILITY_C * R) + STABILITY_D;
+  return currentStability * multiplier;
 }
 
 /**
@@ -77,8 +86,6 @@ export function daysUntilExpiry(
   // ln(threshold) = -t/S
   // t = -S * ln(threshold)
   const daysToAging = -stability * Math.log(RETENTION_THRESHOLDS.aging);
-  const now = new Date();
-  const lastReviewedAt = new Date(); // Assume reviewed now for calculation
   const daysSince = 0;
   
   return Math.max(0, daysToAging - daysSince);

@@ -33,7 +33,7 @@ interface UseStudentMasteryReturn {
   loadMastery: () => Promise<void>;
   recordAttempt: (
     questionId: string,
-    isCorrect: boolean,
+    solutionScore: number,
     independenceLevel: IndependenceLevel
   ) => Promise<void>;
   getMastery: (skillId: string) => KPMastery | undefined;
@@ -140,7 +140,7 @@ export function useStudentMastery({
   // Record a new attempt
   const recordAttempt = useCallback(async (
     questionId: string,
-    isCorrect: boolean,
+    solutionScore: number,
     independenceLevel: IndependenceLevel
   ) => {
     if (!graphId || !studentId) return;
@@ -151,12 +151,15 @@ export function useStudentMastery({
       return;
     }
     
+    const isCorrect = solutionScore >= 0.5;
+    
     const attempt: StudentAttempt = {
       id: crypto.randomUUID(),
       graphId,
       studentId,
       questionId,
       isCorrect,
+      solutionScore,
       independenceLevel,
       attemptedAt: new Date(),
     };
@@ -170,6 +173,7 @@ export function useStudentMastery({
           student_id: studentId,
           question_id: questionId,
           is_correct: isCorrect,
+          solution_score: solutionScore,
           independence_level: independenceLevel,
           attempted_at: attempt.attemptedAt.toISOString(),
         });
@@ -232,7 +236,7 @@ export function useStudentMastery({
     const records = Array.from(mastery.values());
     return {
       studentId,
-      studentName: '', // Would need to be passed in or fetched
+      studentName: '',
       overallMastery: calculateOverallMastery(records),
       masteredKPs: records.filter(m => (m.effectiveMastery ?? 0) >= 0.8).length,
       agingKPs: records.filter(m => m.retentionStatus === 'aging').length,
