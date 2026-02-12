@@ -53,7 +53,7 @@ export function generateDemoMastery(
     effectiveMastery,
     retentionFactor,
     retentionStatus,
-    stability: 1 + rand * 3,
+    stability: 14 + rand * 46,       // 14-60 days (new initial stability = 14)
     retrievalCount: Math.floor(rand * 8),
     lastReviewedAt: new Date(Date.now() - rand * 30 * 24 * 60 * 60 * 1000),
   };

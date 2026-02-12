@@ -1,7 +1,7 @@
 // Student Mastery Tracking Types
 
 // Independence levels for attempts
-export type IndependenceLevel = 'independent' | 'lightly_scaffolded' | 'heavily_assisted';
+export type IndependenceLevel = 'independent' | 'lightly_scaffolded' | 'heavily_assisted' | 'solution_driven';
 
 // Retention status based on decay
 export type RetentionStatus = 'current' | 'aging' | 'expired';
@@ -14,6 +14,7 @@ export interface StudentAttempt {
   studentId: string;
   questionId: string;
   isCorrect: boolean;
+  solutionScore: number;           // 0-1, replaces binary correct/wrong for calculations
   independenceLevel: IndependenceLevel;
   attemptedAt: Date;
 }
@@ -28,7 +29,7 @@ export interface KPMastery {
   maxPoints: number;
   rawMastery: number;           // earned/max (0-1)
   lastReviewedAt: Date | null;
-  stability: number;            // Memory strength (starts at 1.0)
+  stability: number;            // Memory strength (starts at 14.0)
   retrievalCount: number;       // Successful recalls
   // Computed fields (not stored in DB)
   retentionFactor?: number;     // Current decay (0-1)
@@ -76,6 +77,7 @@ export interface BulkUploadRow {
   studentName: string;
   questionText: string;
   isCorrect: boolean;
+  solutionScore: number;          // 0-1
   independenceLevel: IndependenceLevel;
   attemptedAt: Date;
 }

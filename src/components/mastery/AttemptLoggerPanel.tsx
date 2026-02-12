@@ -1,6 +1,6 @@
-// Manual attempt logger panel for recording student attempts
+// Manual attempt logger panel with coding solution scoring rubric
 
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useMemo } from 'react';
 import { supabase } from '@/integrations/supabase/client';
 import { Button } from '@/components/ui/button';
 import { Label } from '@/components/ui/label';
@@ -12,10 +12,10 @@ import {
   SelectTrigger,
   SelectValue,
 } from '@/components/ui/select';
-import { Switch } from '@/components/ui/switch';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { useToast } from '@/hooks/use-toast';
-import { ClipboardCheck, Check, X } from 'lucide-react';
+import { ClipboardCheck } from 'lucide-react';
+import { CODING_RUBRIC_DIMENSIONS, CODING_RUBRIC_TOTAL } from '@/lib/mastery/constants';
 import type { IndependenceLevel, QuestionWithWeights } from '@/types/mastery';
 
 interface AttemptLoggerPanelProps {
@@ -36,10 +36,18 @@ export function AttemptLoggerPanel({
   const { toast } = useToast();
   const [questions, setQuestions] = useState<QuestionWithWeights[]>([]);
   const [selectedQuestionId, setSelectedQuestionId] = useState<string>('');
-  const [isCorrect, setIsCorrect] = useState<boolean>(true);
   const [independenceLevel, setIndependenceLevel] = useState<IndependenceLevel>('independent');
   const [loading, setLoading] = useState(false);
   const [submitting, setSubmitting] = useState(false);
+
+  // Rubric state: marks selected per dimension (index-aligned with CODING_RUBRIC_DIMENSIONS)
+  const [rubricMarks, setRubricMarks] = useState<number[]>(
+    CODING_RUBRIC_DIMENSIONS.map(() => 0)
+  );
+
+  const totalMarks = useMemo(() => rubricMarks.reduce((s, m) => s + m, 0), [rubricMarks]);
+  const solutionScore = totalMarks / CODING_RUBRIC_TOTAL;
+  const solutionPercent = Math.round(solutionScore * 100);
 
   // Load questions for this graph
   useEffect(() => {
@@ -88,12 +96,15 @@ export function AttemptLoggerPanel({
 
     setSubmitting(true);
     try {
+      const isCorrect = solutionScore >= 0.5;
+
       const { error } = await supabase.from('student_attempts').insert({
         graph_id: graphId,
         class_id: classId || null,
         student_id: studentId,
         question_id: selectedQuestionId,
         is_correct: isCorrect,
+        solution_score: solutionScore,
         independence_level: independenceLevel,
         attempted_at: new Date().toISOString(),
       });
@@ -102,12 +113,12 @@ export function AttemptLoggerPanel({
 
       toast({
         title: 'Attempt recorded',
-        description: `${isCorrect ? 'Correct' : 'Incorrect'} answer logged for ${studentName}`,
+        description: `Score ${solutionPercent}% logged for ${studentName}`,
       });
 
       // Reset form
       setSelectedQuestionId('');
-      setIsCorrect(true);
+      setRubricMarks(CODING_RUBRIC_DIMENSIONS.map(() => 0));
       setIndependenceLevel('independent');
 
       onAttemptRecorded?.();
@@ -163,30 +174,53 @@ export function AttemptLoggerPanel({
           )}
         </div>
 
-        {/* Correct/Incorrect Toggle */}
-        <div className="flex items-center justify-between">
-          <Label htmlFor="is-correct">Answer</Label>
-          <div className="flex items-center gap-3">
-            <span
-              className={`text-sm flex items-center gap-1 ${
-                !isCorrect ? 'text-destructive font-medium' : 'text-muted-foreground'
-              }`}
-            >
-              <X className="h-4 w-4" />
-              Wrong
-            </span>
-            <Switch
-              id="is-correct"
-              checked={isCorrect}
-              onCheckedChange={setIsCorrect}
-            />
-            <span
-              className={`text-sm flex items-center gap-1 ${
-                isCorrect ? 'text-green-600 font-medium' : 'text-muted-foreground'
-              }`}
-            >
-              <Check className="h-4 w-4" />
-              Correct
+        {/* Coding Solution Rubric */}
+        <div className="space-y-3">
+          <Label className="text-sm font-semibold">Solution Scoring Rubric</Label>
+          {CODING_RUBRIC_DIMENSIONS.map((dim, dimIdx) => (
+            <div key={dim.name} className="space-y-1">
+              <div className="flex items-center justify-between">
+                <span className="text-xs font-medium text-foreground">{dim.name}</span>
+                <span className="text-xs text-muted-foreground">
+                  {rubricMarks[dimIdx]} / {dim.maxMarks}
+                </span>
+              </div>
+              <RadioGroup
+                value={String(rubricMarks[dimIdx])}
+                onValueChange={(v) => {
+                  const newMarks = [...rubricMarks];
+                  newMarks[dimIdx] = parseFloat(v);
+                  setRubricMarks(newMarks);
+                }}
+                className="flex flex-wrap gap-2"
+              >
+                {dim.levels.map(level => (
+                  <div key={level.label} className="flex items-center space-x-1">
+                    <RadioGroupItem
+                      value={String(level.marks)}
+                      id={`${dim.name}-${level.label}`}
+                    />
+                    <Label
+                      htmlFor={`${dim.name}-${level.label}`}
+                      className="font-normal cursor-pointer text-xs"
+                    >
+                      {level.label} ({level.marks})
+                    </Label>
+                  </div>
+                ))}
+              </RadioGroup>
+            </div>
+          ))}
+
+          {/* Live Score */}
+          <div className="flex items-center justify-between bg-muted/50 rounded-md px-3 py-2">
+            <span className="text-sm font-medium">Solution Score</span>
+            <span className={`text-sm font-bold ${
+              solutionPercent >= 70 ? 'text-green-600 dark:text-green-400' :
+              solutionPercent >= 40 ? 'text-yellow-600 dark:text-yellow-400' :
+              'text-red-600 dark:text-red-400'
+            }`}>
+              {totalMarks} / {CODING_RUBRIC_TOTAL} = {solutionPercent}%
             </span>
           </div>
         </div>
@@ -215,6 +249,12 @@ export function AttemptLoggerPanel({
               <RadioGroupItem value="heavily_assisted" id="heavily_assisted" />
               <Label htmlFor="heavily_assisted" className="font-normal cursor-pointer">
                 Heavily Assisted (40% credit)
+              </Label>
+            </div>
+            <div className="flex items-center space-x-2">
+              <RadioGroupItem value="solution_driven" id="solution_driven" />
+              <Label htmlFor="solution_driven" className="font-normal cursor-pointer">
+                Solution-Driven (20% credit)
               </Label>
             </div>
           </RadioGroup>

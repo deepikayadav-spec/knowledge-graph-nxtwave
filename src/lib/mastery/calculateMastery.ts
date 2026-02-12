@@ -2,10 +2,9 @@
 
 import { 
   INDEPENDENCE_MULTIPLIERS, 
-  WRONG_ANSWER_PENALTY,
   INITIAL_STABILITY 
 } from './constants';
-import { updateStability, calculateEffectiveMastery } from './retentionDecay';
+import { updateStability, calculateRetention, calculateEffectiveMastery } from './retentionDecay';
 import { mergeWeights } from './calculateWeights';
 import type { 
   KPMastery, 
@@ -38,6 +37,11 @@ export function createEmptyMastery(
 /**
  * Process a single attempt and update mastery records
  * 
+ * New formula:
+ *   contribution = weight × weightageMultiplier × solutionScore × ISQ
+ *   earned += contribution
+ *   max += weight × weightageMultiplier
+ * 
  * @param attempt - The student's attempt record
  * @param question - The question with skill weights
  * @param currentMastery - Map of current mastery records by skill ID
@@ -65,23 +69,22 @@ export function processAttempt(
     let mastery = currentMastery.get(skillId) || 
       createEmptyMastery(attempt.graphId, attempt.studentId, skillId);
     
-    // Apply weightage multiplier to scale the impact of this question
-    // Harder questions (higher multiplier) contribute more to mastery
+    // Scale weight by difficulty multiplier
     const scaledWeight = weight * weightageMultiplier;
     
     // Always add to max points (what they could have earned)
     mastery.maxPoints += scaledWeight;
     
-    if (attempt.isCorrect) {
-      // Correct: add weighted points with independence multiplier
-      mastery.earnedPoints += scaledWeight * independenceMultiplier;
+    // Contribution = scaledWeight × solutionScore × independenceMultiplier
+    const contribution = scaledWeight * attempt.solutionScore * independenceMultiplier;
+    mastery.earnedPoints += contribution;
+    mastery.earnedPoints = Math.max(0, mastery.earnedPoints);
+    
+    // Update stability only when solutionScore > 0 (some learning happened)
+    if (attempt.solutionScore > 0) {
       mastery.retrievalCount += 1;
-      mastery.stability = updateStability(mastery.stability, mastery.retrievalCount);
+      mastery.stability = updateStability(mastery.stability, mastery.lastReviewedAt);
       mastery.lastReviewedAt = attempt.attemptedAt;
-    } else {
-      // Wrong: apply penalty (but never go below 0)
-      mastery.earnedPoints -= scaledWeight * WRONG_ANSWER_PENALTY;
-      mastery.earnedPoints = Math.max(0, mastery.earnedPoints);
     }
     
     // Recalculate raw mastery
@@ -175,11 +178,8 @@ export function getKPsNeedingReview(
  */
 export function calculatePointsForAnswer(
   weight: number,
-  isCorrect: boolean,
+  solutionScore: number,
   independenceLevel: IndependenceLevel
 ): number {
-  if (isCorrect) {
-    return weight * INDEPENDENCE_MULTIPLIERS[independenceLevel];
-  }
-  return -(weight * WRONG_ANSWER_PENALTY);
+  return weight * solutionScore * INDEPENDENCE_MULTIPLIERS[independenceLevel];
 }
