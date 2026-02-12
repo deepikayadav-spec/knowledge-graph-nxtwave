@@ -302,7 +302,7 @@ export function KnowledgeGraphApp() {
     setGraph({ ...graph, globalNodes: newNodes, edges: newEdges, questionPaths: newQuestionPaths });
     toast({
       title: 'Question removed',
-      description: orphanedSkills.size > 0 ? `Removed ${orphanedSkills.size} orphaned skill(s).` : 'Question has been removed from the graph.',
+      description: orphanedSkills.size > 0 ? `Removed ${orphanedSkills.size} orphaned KP(s).` : 'Question has been removed from the graph.',
     });
   }, [graph]);
 
@@ -355,7 +355,7 @@ export function KnowledgeGraphApp() {
                 <h1 className="text-lg font-semibold text-foreground flex items-center gap-2">
                   Knowledge Graph Engine
                   <Badge variant="secondary" className="text-xs font-normal">
-                    <Sparkles className="h-3 w-3 mr-1" />Skill Taxonomy
+                    <Sparkles className="h-3 w-3 mr-1" />KP Taxonomy
                   </Badge>
                 </h1>
               </div>
@@ -393,9 +393,10 @@ export function KnowledgeGraphApp() {
   // Graph view
   return (
     <div className="flex flex-col h-screen bg-background">
-      {/* Header */}
+      {/* Header - Row 1: Primary */}
       <header className="shrink-0 border-b border-border bg-card/50 backdrop-blur-sm">
-        <div className="container flex items-center justify-between h-14 px-4">
+        <div className="flex items-center justify-between px-4 py-2">
+          {/* Left: Logo + Graph name + stats */}
           <div className="flex items-center gap-3">
             <div className="flex items-center justify-center w-8 h-8 rounded-lg bg-accent text-accent-foreground">
               <Network className="h-4 w-4" />
@@ -410,32 +411,16 @@ export function KnowledgeGraphApp() {
                 )}
               </div>
               <p className="text-xs text-muted-foreground">
-                {stats?.totalNodes} skills · {stats?.totalEdges} relationships · {stats?.totalQuestions} questions
+                {stats?.totalNodes} KPs · {stats?.totalEdges} relationships · {stats?.totalQuestions} questions
               </p>
             </div>
           </div>
 
-          <div className="flex items-center gap-3">
-            {/* View Mode Toggle */}
+          {/* Right: View toggle, Edit/Mastery toggles, Graph manager */}
+          <div className="flex items-center gap-2">
             <ViewModeToggle value={viewMode} onChange={setViewMode} />
 
-            {/* Auto-Group Button */}
-            {currentGraphId && (
-              <Button
-                variant="outline"
-                size="sm"
-                className="gap-1.5"
-                disabled={isAutoGrouping}
-                onClick={async () => {
-                  setIsAutoGrouping(true);
-                  await groupingHook.autoGroupSkills();
-                  setIsAutoGrouping(false);
-                }}
-              >
-                <Wand2 className="h-3.5 w-3.5" />
-                {isAutoGrouping ? 'Grouping...' : 'Auto-Group'}
-              </Button>
-            )}
+            <div className="w-px h-5 bg-border" />
 
             {/* Edit Mode Toggle */}
             {currentGraphId && (
@@ -453,13 +438,6 @@ export function KnowledgeGraphApp() {
               </Button>
             )}
 
-            {/* Add Skill Button - only in edit mode */}
-            {currentGraphId && isEditMode && (
-              <Button variant="outline" size="sm" className="gap-1.5" onClick={() => setShowAddNodeDialog(true)}>
-                <Plus className="h-3.5 w-3.5" /> Add Skill
-              </Button>
-            )}
-
             {/* Mastery Mode Toggle */}
             {currentGraphId && (
               <div className="flex items-center gap-2 px-2 py-1 rounded-md bg-muted/50">
@@ -470,22 +448,8 @@ export function KnowledgeGraphApp() {
               </div>
             )}
 
-            {/* Class & Student Selectors */}
-            {masteryMode && currentGraphId && (
-              <div className="flex items-center gap-2">
-                <ClassSelector graphId={currentGraphId} selectedClassId={selectedClassId} onClassSelect={handleClassSelect} />
-                {selectedClassId && (
-                  <StudentSelector classId={selectedClassId} selectedStudentId={selectedStudentId} onStudentChange={handleStudentChange} />
-                )}
-              </div>
-            )}
+            <div className="w-px h-5 bg-border" />
 
-            <QuestionPathSelector
-              questions={graph.questionPaths}
-              selectedQuestion={selectedQuestion}
-              onQuestionSelect={setSelectedQuestion}
-              onQuestionRemove={handleRemoveQuestion}
-            />
             <GraphManagerPanel
               savedGraphs={savedGraphs}
               currentGraphId={currentGraphId}
@@ -505,6 +469,56 @@ export function KnowledgeGraphApp() {
             </Button>
           </div>
         </div>
+
+        {/* Header - Row 2: Contextual tools */}
+        {currentGraphId && (
+          <div className="flex items-center gap-2 px-4 py-1.5 border-t border-border/50 bg-muted/30 flex-wrap">
+            {/* Auto-Group */}
+            <Button
+              variant="outline"
+              size="sm"
+              className="gap-1.5 h-7 text-xs"
+              disabled={isAutoGrouping}
+              onClick={async () => {
+                setIsAutoGrouping(true);
+                await groupingHook.autoGroupSkills();
+                setIsAutoGrouping(false);
+              }}
+            >
+              <Wand2 className="h-3 w-3" />
+              {isAutoGrouping ? 'Grouping...' : 'Auto-Group'}
+            </Button>
+
+            {/* Add KP - only in edit mode */}
+            {isEditMode && (
+              <Button variant="outline" size="sm" className="gap-1.5 h-7 text-xs" onClick={() => setShowAddNodeDialog(true)}>
+                <Plus className="h-3 w-3" /> Add KP
+              </Button>
+            )}
+
+            {/* Class & Student Selectors */}
+            {masteryMode && (
+              <>
+                <div className="w-px h-4 bg-border" />
+                <div className="flex items-center gap-2">
+                  <ClassSelector graphId={currentGraphId} selectedClassId={selectedClassId} onClassSelect={handleClassSelect} />
+                  {selectedClassId && (
+                    <StudentSelector classId={selectedClassId} selectedStudentId={selectedStudentId} onStudentChange={handleStudentChange} />
+                  )}
+                </div>
+              </>
+            )}
+
+            <div className="w-px h-4 bg-border" />
+
+            <QuestionPathSelector
+              questions={graph.questionPaths}
+              selectedQuestion={selectedQuestion}
+              onQuestionSelect={setSelectedQuestion}
+              onQuestionRemove={handleRemoveQuestion}
+            />
+          </div>
+        )}
       </header>
 
       {/* Main Content */}

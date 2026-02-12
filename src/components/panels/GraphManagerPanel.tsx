@@ -161,7 +161,7 @@ export function GraphManagerPanel({
                 <div className="flex-1 min-w-0">
                   <div className="font-medium truncate">{graph.name}</div>
                   <div className="text-xs text-muted-foreground">
-                    {graph.total_skills} skills · {graph.total_questions} questions
+                    {graph.total_skills} KPs · {graph.total_questions} questions
                   </div>
                   <div className="text-xs text-muted-foreground">
                     {formatDistanceToNow(new Date(graph.updated_at), { addSuffix: true })}
