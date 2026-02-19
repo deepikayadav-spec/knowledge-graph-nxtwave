@@ -121,6 +121,7 @@ export type Database = {
           skill_weights: Json | null
           skills: string[]
           task_structure: number | null
+          test_cases: Json | null
           weightage_multiplier: number | null
         }
         Insert: {
@@ -135,6 +136,7 @@ export type Database = {
           skill_weights?: Json | null
           skills?: string[]
           task_structure?: number | null
+          test_cases?: Json | null
           weightage_multiplier?: number | null
         }
         Update: {
@@ -149,6 +151,7 @@ export type Database = {
           skill_weights?: Json | null
           skills?: string[]
           task_structure?: number | null
+          test_cases?: Json | null
           weightage_multiplier?: number | null
         }
         Relationships: [

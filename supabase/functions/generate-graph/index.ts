@@ -431,6 +431,26 @@ in later topics:
 16. Miscellaneous Topics
 17. Problem Solving
 
+=== TEST CASES (OPTIONAL INPUT) ===
+
+Some questions may include test cases as input/output pairs. When present:
+
+1. During PERCEIVE: Examine test case inputs for edge cases the question
+   text does not mention (zero, negative numbers, empty strings, very large
+   values, special characters, boundary conditions).
+
+2. During MONITOR: If test cases reveal error handling scenarios (invalid
+   input, edge boundaries), ensure appropriate skills like input_validation,
+   boundary_checking, or error_handling are surfaced.
+
+3. Test cases that show MULTIPLE distinct scenarios suggest the question
+   has hidden complexity -- make sure all required skills are captured.
+
+4. Do NOT create separate skills for individual test cases. Use them as
+   evidence to inform your IPA analysis and skill identification.
+
+If no test cases are provided for a question, analyze based on question text alone.
+
 Output ONLY valid JSON, no explanation.`;
 
 const CURRICULUM_TOPICS = [

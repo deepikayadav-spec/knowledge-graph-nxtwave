@@ -201,6 +201,11 @@ Numbers 1 to N on separate lines.
 Explanation:
 Use a for loop with range.
 
+Test Cases:
+Input: 5 | Output: 1 2 3 4 5
+Input: 1 | Output: 1
+Input: 0 | Output: (no output)
+
 Question:
 Print even numbers from 1 to N.
 
@@ -218,7 +223,7 @@ Use a for loop with a condition or step.`}
               className="min-h-[200px] font-mono text-sm"
             />
             <p className="text-xs text-muted-foreground">
-              Include Question, Input, Output, and Explanation sections. Use "Topic:" headers to group by topic. Start each new question with "Question:".
+              Include Question, Input, Output, and Explanation sections. Optionally add "Test Cases:" with "Input: value | Output: value" lines to reveal edge cases. Use "Topic:" headers to group by topic. Start each new question with "Question:".
               {questionCount > BATCH_SIZE && (
                 <span className="block mt-1 text-primary">
                   {questionCount} questions will be processed in {batchCount} batches.
