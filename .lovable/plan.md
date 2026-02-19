@@ -1,126 +1,141 @@
 
 
-# Support All Coding Domains + PDF Upload
+# Add Web Curriculum Sequence to WEB_CONFIG
 
-## What We're Building
+## Overview
 
-1. **Domain-aware generation** -- the system works for Python, HTML/CSS, JavaScript, Dynamic JS, React JS, and Gen AI questions (not just Python)
-2. **PDF upload** -- extract questions from unstructured PDFs using AI
+Update the `WEB_CONFIG` in `generate-graph/index.ts` with the actual curriculum sequence from the screenshot. This enables curriculum-aware topic filtering for web questions, just like Python has today.
+
+## Curriculum Sequence (from screenshot)
+
+The larger course contains 5 sub-courses with these topics:
+
+**HTML (Course 1):**
+1. Introduction to HTML
+2. HTML Elements
+3. HTML Forms and Tables
+4. HTML Attributes and General
+
+**CSS (Course 2):**
+5. Introduction To CSS And CSS Selectors
+6. CSS Properties
+7. CSS Display And Position
+8. CSS Layouts And Box Model
+9. CSS Selectors
+10. CSS Flexbox
+11. CSS Grid
+12. CSS Media Queries
+13. CSS General
+
+**JS (Course 3):**
+14. Introduction to JavaScript
+15. DOM And Events
+16. Schedulers & Callback Functions
+17. Storage Mechanisms
+18. Network & HTTP Requests
+19. Asynchronous JS and Error Handling
+20. JS General
+
+**JS Coding (Course 4):**
+21. Variables
+22. Data Types
+23. Operators
+24. Conditional Statements
+25. Functions
+26. Loops
+27. Recursion
+
+**React (Course 5):**
+28. Introduction to React
+29. React Components & Props
+30. useState Hook
+31. useEffect Hook
+32. More React Hooks
+33. React Router
+34. Authentication & Authorisation
+35. React Lists & Forms
+36. React General
+
+## Test Cases Confirmation
+
+No changes needed. The test cases prompt section (lines 733-749 of the edge function) is already in the shared portion of the prompt, meaning it applies to Python, Web, and any future domain equally. The IPA/LTA workflow analyzes whatever content the question contains -- structured or free-form -- so no workflow changes are required.
 
 ## Changes
 
-### 1. Add Domain Selector to UI
+### 1. Update `WEB_CONFIG.curriculumSequence`
 
-Add a dropdown to `QuickQuestionInput.tsx` with these options:
-- **Python** (default -- current behavior)
-- **HTML/CSS/JS** (covers HTML, CSS, JavaScript, Dynamic JS, React JS, Gen AI)
+Add the full 36-topic sequence as a formatted string, matching the Python format.
 
-The selected domain flows through: `QuickQuestionInput` -> `KnowledgeGraphApp.handleGenerate` -> `useBatchGeneration.generate` -> `generate-graph` edge function.
+### 2. Update `WEB_CONFIG.curriculumTopics`
 
-The placeholder text updates based on domain selection. For HTML/CSS/JS, the placeholder shows a free-form question example instead of the structured Input/Output format.
+Populate the array with all 36 topic names.
 
-### 2. Flexible Question Parsing
+### 3. Update `WEB_CONFIG.skillTopicMap`
 
-Update `parseQuestionsFromText()` in `QuickQuestionInput.tsx` to handle free-form text:
-- If `Question:` headers exist, use current structured parser
-- If no `Question:` headers, split on double-newline gaps (each block = one question)
+Map each skill to its earliest allowed topic number:
 
-This handles HTML/CSS questions that are just text descriptions without structured headers.
+| Skill | Earliest Topic | Reasoning |
+|-------|---------------|-----------|
+| html_document_structure | 1 | Introduction to HTML |
+| html_elements | 2 | HTML Elements |
+| html_forms | 3 | HTML Forms and Tables |
+| html_tables | 3 | HTML Forms and Tables |
+| html_attributes | 4 | HTML Attributes and General |
+| html_semantic_elements | 4 | HTML Attributes and General |
+| css_selectors | 5 | Introduction To CSS And CSS Selectors |
+| css_properties | 6 | CSS Properties |
+| css_positioning | 7 | CSS Display And Position |
+| css_box_model | 8 | CSS Layouts And Box Model |
+| css_flexbox | 10 | CSS Flexbox |
+| css_grid | 11 | CSS Grid |
+| css_media_queries | 12 | CSS Media Queries |
+| css_responsive_design | 12 | CSS Media Queries |
+| css_transitions | 13 | CSS General |
+| css_animations | 13 | CSS General |
+| js_dom_manipulation | 15 | DOM And Events |
+| js_event_handling | 15 | DOM And Events |
+| js_async_await | 16 | Schedulers & Callback Functions |
+| js_promises | 16 | Schedulers & Callback Functions |
+| js_fetch_api | 18 | Network & HTTP Requests |
+| js_error_handling | 19 | Asynchronous JS and Error Handling |
+| js_variables | 21 | Variables |
+| js_operators | 23 | Operators |
+| js_conditionals | 24 | Conditional Statements |
+| js_functions | 25 | Functions |
+| js_loops | 26 | Loops |
+| js_arrays | 26 | Loops (arrays used with loops) |
+| js_objects | 25 | Functions (objects used with functions) |
+| js_string_methods | 22 | Data Types |
+| js_modules | 20 | JS General |
+| js_classes | 20 | JS General |
+| react_components | 28 | Introduction to React |
+| react_jsx | 28 | Introduction to React |
+| react_props | 29 | React Components & Props |
+| react_state | 30 | useState Hook |
+| react_effects | 31 | useEffect Hook |
+| react_routing | 33 | React Router |
+| react_lists_keys | 35 | React Lists & Forms |
+| ai_prompt_engineering | 20 | JS General (GenAI topics span across) |
+| ai_api_integration | 18 | Network & HTTP Requests |
+| ai_workflow_design | 20 | JS General |
 
-### 3. Create `extract-questions` Edge Function
+### 4. Update `WEB_CONFIG.independentFoundational`
 
-New edge function that accepts raw text (from a PDF) and uses AI to:
-- Identify individual question boundaries in messy, unformatted text
-- Strip metadata (course IDs, timestamps, table formatting)
-- Return clean question blocks as a JSON array
+Set to: `html_document_structure`, `html_elements`, `css_selectors`, `js_variables`
 
-### 4. PDF Upload Support in UI
+These are true entry points that don't depend on each other (HTML, CSS, and JS are taught as separate courses initially).
 
-- Add `pdfjs-dist` dependency for client-side PDF-to-text extraction
-- Update file input to accept `.pdf` and `.json` files (in addition to `.txt`, `.csv`)
-- When PDF uploaded: extract text client-side -> send to `extract-questions` edge function -> populate textarea with cleaned questions for user review
-- When JSON uploaded: parse array of question objects directly
+## File Modified
 
-### 5. Make `generate-graph` Edge Function Domain-Aware
-
-The current system prompt, skill catalog, curriculum sequence, SKILL_TOPIC_MAP, MANDATORY_EDGES, and INDEPENDENT_FOUNDATIONAL are all Python-specific. Restructure as:
-
-**Move all Python-specific config into a `PYTHON_CONFIG` object** (no content changes, just reorganization):
-- Skill catalog (foundational/core/applied/advanced)
-- Scope constraint
-- Curriculum sequence (17 topics)
-- SKILL_TOPIC_MAP
-- INDEPENDENT_FOUNDATIONAL
-- MANDATORY_EDGES
-- Example IPA analysis
-
-**Create a `WEB_CONFIG` object** for HTML/CSS/JS/React/GenAI:
-- Minimal skill catalog (broad categories so the AI has naming guidance, not restrictive)
-- Scope constraint: "Web development course covering HTML, CSS, JavaScript, Dynamic Web Apps, React, and Generative AI"
-- No curriculum sequence yet (you said you'll provide topics later)
-- Empty SKILL_TOPIC_MAP and MANDATORY_EDGES (no topic filtering until you provide the sequence)
-- Empty INDEPENDENT_FOUNDATIONAL (no enforcement yet)
-- Updated input format description: "Questions may be structured (with Input/Output) OR free-form text descriptions of design/coding tasks"
-- Web-specific example IPA analysis using an HTML/CSS question
-
-**Dynamic prompt assembly**: The edge function reads `domain` from the request body and selects the matching config. All shared logic (IPA/LTA methodology, output format, quality validation, consolidation rules, test cases, incremental mode, skill weights) stays identical.
-
-### 6. Pass Domain Through the Pipeline
-
-| Component | Change |
-|-----------|--------|
-| `QuickQuestionInput.tsx` | Add domain state + dropdown, pass domain via `onGenerate(questions, domain)` |
-| `KnowledgeGraphApp.tsx` | Update `handleGenerate` signature to accept domain, forward to `generate()` |
-| `useBatchGeneration.ts` | Add `domain` parameter to `generate()`, include in edge function request body |
-| `generate-graph/index.ts` | Read `domain` from body, select config, build prompt dynamically |
-
-### 7. Config for `extract-questions` Edge Function
-
-Add to `supabase/config.toml`:
-```toml
-[functions.extract-questions]
-verify_jwt = false
-```
-
-## Technical Details
-
-### Web Minimal Skill Catalog (starting point)
-
-Since there's no curriculum sequence yet, the catalog is intentionally broad to guide naming only:
-
-- **HTML**: `html_document_structure`, `html_elements`, `html_attributes`, `html_forms`, `html_tables`, `html_semantic_elements`
-- **CSS**: `css_selectors`, `css_properties`, `css_box_model`, `css_flexbox`, `css_grid`, `css_positioning`, `css_responsive_design`, `css_media_queries`, `css_animations`, `css_transitions`
-- **JavaScript**: `js_variables`, `js_operators`, `js_conditionals`, `js_loops`, `js_arrays`, `js_objects`, `js_functions`, `js_string_methods`, `js_dom_manipulation`, `js_event_handling`, `js_async_await`, `js_promises`, `js_fetch_api`, `js_modules`, `js_classes`, `js_error_handling`
-- **React**: `react_components`, `react_jsx`, `react_state`, `react_props`, `react_effects`, `react_routing`, `react_lists_keys`
-- **Gen AI**: `ai_prompt_engineering`, `ai_api_integration`, `ai_workflow_design`
-
-The AI will map questions to these names first, and create new ones only if needed -- same logic as Python.
-
-### `extract-questions` Edge Function
-
-Accepts `{ text: string, domain?: string }`, returns `{ questions: string[] }`.
-
-Uses Gemini Flash for speed. System prompt instructs the AI to:
-- Find question boundaries in messy text
-- Strip metadata tables, course IDs, timestamps
-- Return each question as a clean text block
-- Preserve any code snippets, image URLs, HTML markup within questions
-
-### Files Created/Modified
-
-| File | Action |
+| File | Change |
 |------|--------|
-| `src/components/panels/QuickQuestionInput.tsx` | Add domain selector, update parser, add PDF/JSON upload |
-| `src/components/KnowledgeGraphApp.tsx` | Forward domain through handleGenerate |
-| `src/hooks/useBatchGeneration.ts` | Accept domain param, pass to edge function |
-| `supabase/functions/generate-graph/index.ts` | Restructure into domain configs, dynamic prompt assembly |
-| `supabase/functions/extract-questions/index.ts` | **New** -- AI-powered PDF question extraction |
+| `supabase/functions/generate-graph/index.ts` | Update WEB_CONFIG: curriculumSequence, curriculumTopics, skillTopicMap |
 
-### What Stays the Same
+## What Stays the Same
 
-- All existing Python KGs completely unaffected
-- Python prompt content identical (reorganized into config object)
-- Database schema unchanged
-- Mastery calculations, retention decay, auto-group -- all unchanged
-- When you provide the web topic sequence later, we add it to WEB_CONFIG just like Python has today
+- All Python config unchanged
+- IPA/LTA workflow unchanged (already handles test cases for all domains)
+- Shared prompt sections unchanged
+- No UI changes needed
+- No database changes
 
