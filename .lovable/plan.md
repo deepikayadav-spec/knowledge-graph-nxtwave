@@ -1,91 +1,126 @@
 
-# Add Test Cases Support to Knowledge Graph Generation
 
-## Overview
+# Support All Coding Domains + PDF Upload
 
-Add an optional "Test Cases" section to the question input format. When present, the AI will use these input/output pairs to discover edge cases and hidden complexity during IPA analysis. No database changes needed yet -- test cases will flow through the generation pipeline and be stored later when the schema update is added.
+## What We're Building
+
+1. **Domain-aware generation** -- the system works for Python, HTML/CSS, JavaScript, Dynamic JS, React JS, and Gen AI questions (not just Python)
+2. **PDF upload** -- extract questions from unstructured PDFs using AI
 
 ## Changes
 
-### 1. Update Question Input Panel (`src/components/panels/QuestionInputPanel.tsx`)
+### 1. Add Domain Selector to UI
 
-- Update the placeholder text to show the `Test Cases:` section format
-- Update the help text to mention test cases
-- Parse `Test Cases:` sections from each question block before sending to the edge function
-- Format: `Input: value | Output: value` (one per line under `Test Cases:`)
+Add a dropdown to `QuickQuestionInput.tsx` with these options:
+- **Python** (default -- current behavior)
+- **HTML/CSS/JS** (covers HTML, CSS, JavaScript, Dynamic JS, React JS, Gen AI)
 
-### 2. Update `generate-graph` Edge Function (`supabase/functions/generate-graph/index.ts`)
+The selected domain flows through: `QuickQuestionInput` -> `KnowledgeGraphApp.handleGenerate` -> `useBatchGeneration.generate` -> `generate-graph` edge function.
 
-- Add a new section to the system prompt (after the INPUT FORMAT section) explaining how to use test cases:
-  - During PERCEIVE: Notice edge cases revealed by test inputs (zero, negative, empty, large values, boundary conditions)
-  - During MONITOR: Identify error handling and validation skills needed based on unusual test cases
-  - Instruct the AI that test cases reveal hidden complexity the question text alone may not show
-- The test cases will be appended to each question's text when formatting the prompt, clearly labeled as "Test Cases:"
-- Backward compatible: if no test cases are present, behavior is identical to today
+The placeholder text updates based on domain selection. For HTML/CSS/JS, the placeholder shows a free-form question example instead of the structured Input/Output format.
 
-### 3. Add Database Column (migration)
+### 2. Flexible Question Parsing
 
-- Add nullable `test_cases` JSONB column to `questions` table
-- Format: `[{"input": "5", "output": "120"}, ...]`
-- Default NULL, so existing questions are unaffected
+Update `parseQuestionsFromText()` in `QuickQuestionInput.tsx` to handle free-form text:
+- If `Question:` headers exist, use current structured parser
+- If no `Question:` headers, split on double-newline gaps (each block = one question)
 
-### 4. Update Persistence (`src/hooks/useGraphPersistence.ts`)
+This handles HTML/CSS questions that are just text descriptions without structured headers.
 
-- When saving questions to the database, include the `test_cases` field if present
+### 3. Create `extract-questions` Edge Function
+
+New edge function that accepts raw text (from a PDF) and uses AI to:
+- Identify individual question boundaries in messy, unformatted text
+- Strip metadata (course IDs, timestamps, table formatting)
+- Return clean question blocks as a JSON array
+
+### 4. PDF Upload Support in UI
+
+- Add `pdfjs-dist` dependency for client-side PDF-to-text extraction
+- Update file input to accept `.pdf` and `.json` files (in addition to `.txt`, `.csv`)
+- When PDF uploaded: extract text client-side -> send to `extract-questions` edge function -> populate textarea with cleaned questions for user review
+- When JSON uploaded: parse array of question objects directly
+
+### 5. Make `generate-graph` Edge Function Domain-Aware
+
+The current system prompt, skill catalog, curriculum sequence, SKILL_TOPIC_MAP, MANDATORY_EDGES, and INDEPENDENT_FOUNDATIONAL are all Python-specific. Restructure as:
+
+**Move all Python-specific config into a `PYTHON_CONFIG` object** (no content changes, just reorganization):
+- Skill catalog (foundational/core/applied/advanced)
+- Scope constraint
+- Curriculum sequence (17 topics)
+- SKILL_TOPIC_MAP
+- INDEPENDENT_FOUNDATIONAL
+- MANDATORY_EDGES
+- Example IPA analysis
+
+**Create a `WEB_CONFIG` object** for HTML/CSS/JS/React/GenAI:
+- Minimal skill catalog (broad categories so the AI has naming guidance, not restrictive)
+- Scope constraint: "Web development course covering HTML, CSS, JavaScript, Dynamic Web Apps, React, and Generative AI"
+- No curriculum sequence yet (you said you'll provide topics later)
+- Empty SKILL_TOPIC_MAP and MANDATORY_EDGES (no topic filtering until you provide the sequence)
+- Empty INDEPENDENT_FOUNDATIONAL (no enforcement yet)
+- Updated input format description: "Questions may be structured (with Input/Output) OR free-form text descriptions of design/coding tasks"
+- Web-specific example IPA analysis using an HTML/CSS question
+
+**Dynamic prompt assembly**: The edge function reads `domain` from the request body and selects the matching config. All shared logic (IPA/LTA methodology, output format, quality validation, consolidation rules, test cases, incremental mode, skill weights) stays identical.
+
+### 6. Pass Domain Through the Pipeline
+
+| Component | Change |
+|-----------|--------|
+| `QuickQuestionInput.tsx` | Add domain state + dropdown, pass domain via `onGenerate(questions, domain)` |
+| `KnowledgeGraphApp.tsx` | Update `handleGenerate` signature to accept domain, forward to `generate()` |
+| `useBatchGeneration.ts` | Add `domain` parameter to `generate()`, include in edge function request body |
+| `generate-graph/index.ts` | Read `domain` from body, select config, build prompt dynamically |
+
+### 7. Config for `extract-questions` Edge Function
+
+Add to `supabase/config.toml`:
+```toml
+[functions.extract-questions]
+verify_jwt = false
+```
 
 ## Technical Details
 
-### Input Format (user-facing)
+### Web Minimal Skill Catalog (starting point)
 
-```
-Question:
-Print factorial of N.
+Since there's no curriculum sequence yet, the catalog is intentionally broad to guide naming only:
 
-Input:
-An integer N.
+- **HTML**: `html_document_structure`, `html_elements`, `html_attributes`, `html_forms`, `html_tables`, `html_semantic_elements`
+- **CSS**: `css_selectors`, `css_properties`, `css_box_model`, `css_flexbox`, `css_grid`, `css_positioning`, `css_responsive_design`, `css_media_queries`, `css_animations`, `css_transitions`
+- **JavaScript**: `js_variables`, `js_operators`, `js_conditionals`, `js_loops`, `js_arrays`, `js_objects`, `js_functions`, `js_string_methods`, `js_dom_manipulation`, `js_event_handling`, `js_async_await`, `js_promises`, `js_fetch_api`, `js_modules`, `js_classes`, `js_error_handling`
+- **React**: `react_components`, `react_jsx`, `react_state`, `react_props`, `react_effects`, `react_routing`, `react_lists_keys`
+- **Gen AI**: `ai_prompt_engineering`, `ai_api_integration`, `ai_workflow_design`
 
-Output:
-Factorial of N.
+The AI will map questions to these names first, and create new ones only if needed -- same logic as Python.
 
-Explanation:
-Use a loop to multiply 1 to N.
+### `extract-questions` Edge Function
 
-Test Cases:
-Input: 5 | Output: 120
-Input: 0 | Output: 1
-Input: 1 | Output: 1
-Input: -1 | Output: Invalid
-```
+Accepts `{ text: string, domain?: string }`, returns `{ questions: string[] }`.
 
-### System Prompt Addition (edge function)
+Uses Gemini Flash for speed. System prompt instructs the AI to:
+- Find question boundaries in messy text
+- Strip metadata tables, course IDs, timestamps
+- Return each question as a clean text block
+- Preserve any code snippets, image URLs, HTML markup within questions
 
-A new section will be added to the prompt:
+### Files Created/Modified
 
-```text
-=== TEST CASES (OPTIONAL INPUT) ===
-
-Some questions may include test cases as input/output pairs. When present:
-
-1. During PERCEIVE: Examine test case inputs for edge cases the question
-   text does not mention (zero, negative numbers, empty strings, very large
-   values, special characters, boundary conditions).
-
-2. During MONITOR: If test cases reveal error handling scenarios (invalid
-   input, edge boundaries), ensure appropriate skills like input_validation,
-   boundary_checking, or error_handling are surfaced.
-
-3. Test cases that show MULTIPLE distinct scenarios suggest the question
-   has hidden complexity -- make sure all required skills are captured.
-
-4. Do NOT create separate skills for individual test cases. Use them as
-   evidence to inform your IPA analysis and skill identification.
-```
-
-### Files Modified
-
-| File | Change |
+| File | Action |
 |------|--------|
-| `src/components/panels/QuestionInputPanel.tsx` | Update placeholder, parser to extract test cases |
-| `supabase/functions/generate-graph/index.ts` | Add test case section to system prompt |
-| `src/hooks/useGraphPersistence.ts` | Include test_cases in question upsert |
-| Database migration | Add `test_cases` JSONB column to `questions` |
+| `src/components/panels/QuickQuestionInput.tsx` | Add domain selector, update parser, add PDF/JSON upload |
+| `src/components/KnowledgeGraphApp.tsx` | Forward domain through handleGenerate |
+| `src/hooks/useBatchGeneration.ts` | Accept domain param, pass to edge function |
+| `supabase/functions/generate-graph/index.ts` | Restructure into domain configs, dynamic prompt assembly |
+| `supabase/functions/extract-questions/index.ts` | **New** -- AI-powered PDF question extraction |
+
+### What Stays the Same
+
+- All existing Python KGs completely unaffected
+- Python prompt content identical (reorganized into config object)
+- Database schema unchanged
+- Mastery calculations, retention decay, auto-group -- all unchanged
+- When you provide the web topic sequence later, we add it to WEB_CONFIG just like Python has today
+
