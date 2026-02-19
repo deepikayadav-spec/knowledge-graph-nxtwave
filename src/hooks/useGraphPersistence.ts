@@ -161,6 +161,7 @@ export function useGraphPersistence() {
             skills,
             primary_skills: primarySkills.slice(0, 2), // Ensure max 2
             skill_weights: (path as any).skillWeights || {},
+            test_cases: (path as any).testCases || null,
           };
         });
 

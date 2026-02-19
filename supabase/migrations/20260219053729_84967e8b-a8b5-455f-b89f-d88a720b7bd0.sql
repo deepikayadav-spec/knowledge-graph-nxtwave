@@ -1,0 +1,1 @@
+ALTER TABLE public.questions ADD COLUMN test_cases jsonb DEFAULT NULL;

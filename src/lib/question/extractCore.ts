@@ -29,7 +29,7 @@ export function extractCoreQuestion(fullBlock: string): string {
     for (let i = questionStartIdx; i < lines.length; i++) {
       const line = lines[i];
       // Stop at section headers
-      if (/^(Input|Output|Explanation)\s*:?\s*$/i.test(line)) break;
+      if (/^(Input|Output|Explanation|Test Cases)\s*:?\s*$/i.test(line)) break;
       if (line.length > 0) return line.toLowerCase();
     }
   }
@@ -37,6 +37,6 @@ export function extractCoreQuestion(fullBlock: string): string {
   // Fallback for plain text questions (no headers)
   // Return first non-empty line that isn't a header
   return lines.find(l => 
-    !/^(Question|Input|Output|Explanation)\s*:?\s*$/i.test(l)
+    !/^(Question|Input|Output|Explanation|Test Cases)\s*:?\s*$/i.test(l)
   )?.toLowerCase() || fullBlock.trim().toLowerCase();
 }
