@@ -1,46 +1,91 @@
 
-# Improve MasteryOverview UI and Fix Demo Data Distribution
+# Add Test Cases Support to Knowledge Graph Generation
 
 ## Overview
 
-Two changes: (1) make the MasteryOverview panel properly scrollable with a sticky summary header, and (2) update the database demo data so students have a healthy mix of retention statuses instead of being overwhelmed with "Expired" badges.
-
-## Current Problem
-
-**UI**: The Knowledge Points list renders all 58 items without scroll constraints, overflowing the sidebar. The summary cards at the top scroll away.
-
-**Data**: Current retention distribution is skewed:
-- Ananya Reddy: 58/58 expired
-- Vihaan Kumar: 43/58 expired
-- Ishita Nair: 34/58 expired
-- Arjun Deshmukh: 21/58 expired
-
-This happens because `last_reviewed_at` dates are too old relative to the stability values.
+Add an optional "Test Cases" section to the question input format. When present, the AI will use these input/output pairs to discover edge cases and hidden complexity during IPA analysis. No database changes needed yet -- test cases will flow through the generation pipeline and be stored later when the schema update is added.
 
 ## Changes
 
-### 1. `src/components/mastery/MasteryOverview.tsx` -- UI improvements
+### 1. Update Question Input Panel (`src/components/panels/QuestionInputPanel.tsx`)
 
-- Keep the 4 summary cards (Overall, Mastered, Aging, Expired) at the top, always visible
-- Wrap the Knowledge Points list in a `ScrollArea` with a max height so it scrolls independently
-- Add compact styling to each KP row for better density (58 items is a lot)
-- The summary cards stay outside the scroll area so they're always visible
+- Update the placeholder text to show the `Test Cases:` section format
+- Update the help text to mention test cases
+- Parse `Test Cases:` sections from each question block before sending to the edge function
+- Format: `Input: value | Output: value` (one per line under `Test Cases:`)
 
-### 2. Database Update -- Rebalance retention distribution
+### 2. Update `generate-graph` Edge Function (`supabase/functions/generate-graph/index.ts`)
 
-Update `last_reviewed_at` values across all 8 students so the retention mix is roughly:
-- ~50-60% Current
-- ~25-30% Aging
-- ~10-15% Expired
+- Add a new section to the system prompt (after the INPUT FORMAT section) explaining how to use test cases:
+  - During PERCEIVE: Notice edge cases revealed by test inputs (zero, negative, empty, large values, boundary conditions)
+  - During MONITOR: Identify error handling and validation skills needed based on unusual test cases
+  - Instruct the AI that test cases reveal hidden complexity the question text alone may not show
+- The test cases will be appended to each question's text when formatting the prompt, clearly labeled as "Test Cases:"
+- Backward compatible: if no test cases are present, behavior is identical to today
 
-This is done by bringing `last_reviewed_at` closer to the present for most records. The formula `R = e^(-t/S)` means:
-- Current (R >= 0.8): need `t/S < 0.223`, so `t < 0.223 * S`
-- Aging (0.5 <= R < 0.8): need `0.223 <= t/S < 0.693`
-- Expired (R < 0.5): need `t/S >= 0.693`
+### 3. Add Database Column (migration)
 
-The SQL will use each record's stability to compute appropriate `last_reviewed_at` dates with a seeded distribution per student profile:
-- High performers (Aarav, Kavya): ~80% current, ~15% aging, ~5% expired
-- Average (Priya, Rohan): ~50% current, ~35% aging, ~15% expired
-- Struggling (Ananya, Ishita): ~30% current, ~40% aging, ~30% expired
-- Decayed (Vihaan): ~20% current, ~50% aging, ~30% expired
-- Mixed (Arjun): ~40% current, ~35% aging, ~25% expired
+- Add nullable `test_cases` JSONB column to `questions` table
+- Format: `[{"input": "5", "output": "120"}, ...]`
+- Default NULL, so existing questions are unaffected
+
+### 4. Update Persistence (`src/hooks/useGraphPersistence.ts`)
+
+- When saving questions to the database, include the `test_cases` field if present
+
+## Technical Details
+
+### Input Format (user-facing)
+
+```
+Question:
+Print factorial of N.
+
+Input:
+An integer N.
+
+Output:
+Factorial of N.
+
+Explanation:
+Use a loop to multiply 1 to N.
+
+Test Cases:
+Input: 5 | Output: 120
+Input: 0 | Output: 1
+Input: 1 | Output: 1
+Input: -1 | Output: Invalid
+```
+
+### System Prompt Addition (edge function)
+
+A new section will be added to the prompt:
+
+```text
+=== TEST CASES (OPTIONAL INPUT) ===
+
+Some questions may include test cases as input/output pairs. When present:
+
+1. During PERCEIVE: Examine test case inputs for edge cases the question
+   text does not mention (zero, negative numbers, empty strings, very large
+   values, special characters, boundary conditions).
+
+2. During MONITOR: If test cases reveal error handling scenarios (invalid
+   input, edge boundaries), ensure appropriate skills like input_validation,
+   boundary_checking, or error_handling are surfaced.
+
+3. Test cases that show MULTIPLE distinct scenarios suggest the question
+   has hidden complexity -- make sure all required skills are captured.
+
+4. Do NOT create separate skills for individual test cases. Use them as
+   evidence to inform your IPA analysis and skill identification.
+```
+
+### Files Modified
+
+| File | Change |
+|------|--------|
+| `src/components/panels/QuestionInputPanel.tsx` | Update placeholder, parser to extract test cases |
+| `supabase/functions/generate-graph/index.ts` | Add test case section to system prompt |
+| `src/hooks/useGraphPersistence.ts` | Include test_cases in question upsert |
+| Database migration | Add `test_cases` JSONB column to `questions` |
