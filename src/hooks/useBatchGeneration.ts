@@ -249,7 +249,8 @@ export function useBatchGeneration(
   const generate = useCallback(async (
     questions: string[],
     resumeFromCheckpoint = false,
-    graphId?: string
+    graphId?: string,
+    domain?: string
   ) => {
     abortRef.current = false;
     batchStartTimeRef.current = Date.now();
@@ -391,6 +392,7 @@ export function useBatchGeneration(
                 questions: batch,
                 existingNodes: accumulatedNodes.length > 0 ? accumulatedNodes : undefined,
                 ...(hasTopics ? { topicMap: batchTopicMap } : {}),
+                ...(domain ? { domain } : {}),
               },
             });
 
