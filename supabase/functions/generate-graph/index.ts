@@ -373,7 +373,58 @@ Skills should reflect web development concepts at the appropriate level
 of abstraction. Do NOT create hyper-specific skills for individual CSS 
 properties or HTML tags — group them into transferable capabilities.`,
 
-  curriculumSequence: '', // No curriculum sequence yet - will be provided later
+  curriculumSequence: `
+=== CURRICULUM SEQUENCE ===
+
+Topics are taught in this order. Use this to inform prerequisite edges --
+skills from earlier topics should generally be prerequisites for skills
+in later topics:
+
+HTML (Course 1):
+1. Introduction to HTML
+2. HTML Elements
+3. HTML Forms and Tables
+4. HTML Attributes and General
+
+CSS (Course 2):
+5. Introduction To CSS And CSS Selectors
+6. CSS Properties
+7. CSS Display And Position
+8. CSS Layouts And Box Model
+9. CSS Selectors
+10. CSS Flexbox
+11. CSS Grid
+12. CSS Media Queries
+13. CSS General
+
+JS (Course 3):
+14. Introduction to JavaScript
+15. DOM And Events
+16. Schedulers & Callback Functions
+17. Storage Mechanisms
+18. Network & HTTP Requests
+19. Asynchronous JS and Error Handling
+20. JS General
+
+JS Coding (Course 4):
+21. Variables
+22. Data Types
+23. Operators
+24. Conditional Statements
+25. Functions
+26. Loops
+27. Recursion
+
+React (Course 5):
+28. Introduction to React
+29. React Components & Props
+30. useState Hook
+31. useEffect Hook
+32. More React Hooks
+33. React Router
+34. Authentication & Authorisation
+35. React Lists & Forms
+36. React General`,
 
   inputFormatDescription: `
 === INPUT FORMAT ===
@@ -426,13 +477,92 @@ After normalization:
 - js_dom_manipulation (core)
 - js_event_handling (core)`,
 
-  curriculumTopics: [],
+  curriculumTopics: [
+    "Introduction to HTML",
+    "HTML Elements",
+    "HTML Forms and Tables",
+    "HTML Attributes and General",
+    "Introduction To CSS And CSS Selectors",
+    "CSS Properties",
+    "CSS Display And Position",
+    "CSS Layouts And Box Model",
+    "CSS Selectors",
+    "CSS Flexbox",
+    "CSS Grid",
+    "CSS Media Queries",
+    "CSS General",
+    "Introduction to JavaScript",
+    "DOM And Events",
+    "Schedulers & Callback Functions",
+    "Storage Mechanisms",
+    "Network & HTTP Requests",
+    "Asynchronous JS and Error Handling",
+    "JS General",
+    "Variables",
+    "Data Types",
+    "Operators",
+    "Conditional Statements",
+    "Functions",
+    "Loops",
+    "Recursion",
+    "Introduction to React",
+    "React Components & Props",
+    "useState Hook",
+    "useEffect Hook",
+    "More React Hooks",
+    "React Router",
+    "Authentication & Authorisation",
+    "React Lists & Forms",
+    "React General",
+  ],
 
-  skillTopicMap: {},
+  skillTopicMap: {
+    html_document_structure: 1,
+    html_elements: 2,
+    html_forms: 3,
+    html_tables: 3,
+    html_attributes: 4,
+    html_semantic_elements: 4,
+    css_selectors: 5,
+    css_properties: 6,
+    css_positioning: 7,
+    css_box_model: 8,
+    css_flexbox: 10,
+    css_grid: 11,
+    css_media_queries: 12,
+    css_responsive_design: 12,
+    css_transitions: 13,
+    css_animations: 13,
+    js_dom_manipulation: 15,
+    js_event_handling: 15,
+    js_async_await: 16,
+    js_promises: 16,
+    js_fetch_api: 18,
+    js_error_handling: 19,
+    js_variables: 21,
+    js_operators: 23,
+    js_conditionals: 24,
+    js_functions: 25,
+    js_loops: 26,
+    js_arrays: 26,
+    js_objects: 25,
+    js_string_methods: 22,
+    js_modules: 20,
+    js_classes: 20,
+    react_components: 28,
+    react_jsx: 28,
+    react_props: 29,
+    react_state: 30,
+    react_effects: 31,
+    react_routing: 33,
+    react_lists_keys: 35,
+    ai_prompt_engineering: 20,
+    ai_api_integration: 18,
+    ai_workflow_design: 20,
+  },
 
   independentFoundational: new Set([
-    'html_document_structure', 'html_elements', 'css_selectors', 'css_properties',
-    'js_variables', 'js_operators'
+    'html_document_structure', 'html_elements', 'css_selectors', 'js_variables'
   ]),
 
   mandatoryEdges: [
