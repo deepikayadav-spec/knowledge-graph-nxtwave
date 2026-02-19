@@ -5,39 +5,28 @@ const corsHeaders = {
   "Access-Control-Allow-Headers": "authorization, x-client-info, apikey, content-type",
 };
 
-/**
- * IPA/LTA Knowledge Graph Generation System Prompt
- * 
- * Implements the 4-phase pipeline:
- * Phase 1: IPA (Information Processing Analysis) - Trace cognitive algorithm
- * Phase 2: LTA (Learning Task Analysis) - Extract knowledge requirements
- * Phase 3: Normalization - Unify, atomize, assign tiers
- * Phase 4: Build DAG - Construct prerequisite edges
- */
-const systemPrompt = `You are a Knowledge Graph Engineer using the IPA/LTA methodology to build cognitive skill maps.
+// ============================================================
+// DOMAIN CONFIGURATION TYPES
+// ============================================================
 
-=== INPUT FORMAT ===
+interface DomainConfig {
+  skillCatalog: string;
+  scopeConstraint: string;
+  curriculumSequence: string;
+  inputFormatDescription: string;
+  exampleIPA: string;
+  skillTopicMap: Record<string, number>;
+  independentFoundational: Set<string>;
+  mandatoryEdges: Array<{ from: string; to: string; reason: string }>;
+  curriculumTopics: string[];
+}
 
-Questions are provided in a simple structured format with these sections:
-- Question: The task description
-- Input: Expected input format/types
-- Output: Expected output format/types  
-- Explanation: Solution approach, algorithm description, or hints
+// ============================================================
+// PYTHON DOMAIN CONFIG
+// ============================================================
 
-Multiple questions are separated by new "Question:" sections.
-
-Use ALL sections when performing IPA analysis:
-- Explanation informs the DECIDE and EXECUTE steps with solution strategy
-- Input/Output sections clarify data type handling requirements
-
-=== OVERVIEW ===
-
-You will analyze questions through a structured 4-phase pipeline:
-1. IPA: Trace the cognitive algorithm for each question
-2. LTA: Extract knowledge requirements from each cognitive step
-3. Normalize: Unify synonyms, ensure atomicity, assign tiers
-4. Build DAG: Construct prerequisite edges with strict necessity criteria
-
+const PYTHON_CONFIG: DomainConfig = {
+  skillCatalog: `
 === REFERENCE SKILL CATALOG (MAP TO THESE FIRST) ===
 
 Before creating ANY new skill, check if it maps to this catalog:
@@ -88,7 +77,418 @@ create skill nodes from topics that come LATER in the curriculum sequence.
 For example, if all questions are from "Operators & Conditional Statements"
 (Topic 3), do NOT create loop_iteration (Topic 5), function_calls (Topic 9),
 or any other skill that belongs to a later topic. Only create skills that
-a student would have encountered BY that point in the curriculum.
+a student would have encountered BY that point in the curriculum.`,
+
+  scopeConstraint: `
+=== PROGRAMMING FOUNDATIONS SCOPE CONSTRAINT ===
+
+This is a Programming Foundations course. Students solve problems using 
+bruteforce methods ONLY. Do NOT create skills for advanced algorithmic 
+patterns: Sliding Window, Two Pointers, Greedy Algorithm, Dynamic 
+Programming, Kadane's Algorithm, Divide and Conquer, Binary Search 
+optimization, Backtracking, Graph Algorithms, or Trie structures.
+
+If a problem could be solved with an advanced pattern, map it to the 
+fundamental bruteforce skills (e.g., nested_iteration, accumulator_pattern, 
+search_pattern, filter_pattern).
+
+REPETITION WITHOUT LOOPS: If a problem asks to repeat an action a small 
+fixed number of times (e.g., "print Hello 3 times"), and the question 
+belongs to a topic BEFORE "Loops" (Topic 5) in the curriculum, map it 
+to basic_output (repeated print statements), NOT to loop_iteration. 
+Only use loop_iteration when the question is FROM Topic 5 or later, 
+OR when the repetition count is variable/large.`,
+
+  curriculumSequence: `
+=== CURRICULUM SEQUENCE ===
+
+Topics are taught in this order. Use this to inform prerequisite edges -- 
+skills from earlier topics should generally be prerequisites for skills 
+in later topics:
+
+1. Introduction to Python
+2. I/O Basics
+3. Operators & Conditional Statements
+4. Nested Conditions
+5. Loops
+6. Loop Control Statements
+7. Comparing Strings & Naming Variables
+8. Lists
+9. Functions
+10. Recursion
+11. Tuples & Sets
+12. Intro to Matrices & Shorthand Expressions
+13. Dictionaries
+14. Introduction to Object Oriented Programming
+15. Abstraction and Polymorphism
+16. Miscellaneous Topics
+17. Problem Solving`,
+
+  inputFormatDescription: `
+=== INPUT FORMAT ===
+
+Questions are provided in a simple structured format with these sections:
+- Question: The task description
+- Input: Expected input format/types
+- Output: Expected output format/types  
+- Explanation: Solution approach, algorithm description, or hints
+
+Multiple questions are separated by new "Question:" sections.
+
+Use ALL sections when performing IPA analysis:
+- Explanation informs the DECIDE and EXECUTE steps with solution strategy
+- Input/Output sections clarify data type handling requirements`,
+
+  exampleIPA: `
+=== EXAMPLE IPA/LTA ANALYSIS ===
+
+Question (structured format):
+Question: Count frequency of each word in a sentence.
+Input: A string containing words separated by spaces.
+Output: A dictionary mapping each word to its frequency count.
+Explanation: Split the string by spaces, iterate through words, and use a dictionary to track counts. Normalize case for consistency.
+
+IPA Trace:
+1. PERCEIVE: Input is a string with spaces separating words (from Input section)
+2. ENCODE: Split string into list of words, normalize case (from Explanation)
+3. RETRIEVE: Dictionary can map word → count (from Output section)
+4. DECIDE: Use accumulator pattern with dictionary (from Explanation)
+5. EXECUTE: For each word, check if in dict, then increment or initialize
+6. MONITOR: Verify counts are correct, handle empty input
+
+LTA Extraction:
+- PERCEIVE step requires: string_recognition (declarative)
+- ENCODE step requires: string_split_method (procedural)
+- RETRIEVE step requires: dictionary_concept (declarative)
+- DECIDE step requires: accumulator_pattern_selection (strategic)
+- EXECUTE step requires: dictionary_operations (procedural), loop_iteration (procedural)
+- MONITOR step requires: edge_case_handling (conditional)
+
+After normalization, this maps to skills like:
+- string_methods (core, procedural)
+- dictionary_operations (core, procedural)
+- loop_iteration (core, procedural)
+- accumulator_pattern (applied, strategic)`,
+
+  curriculumTopics: [
+    "Introduction to Python",
+    "I/O Basics",
+    "Operators & Conditional Statements",
+    "Nested Conditions",
+    "Loops",
+    "Loop Control Statements",
+    "Comparing Strings & Naming Variables",
+    "Lists",
+    "Functions",
+    "Recursion",
+    "Tuples & Sets",
+    "Intro to Matrices & Shorthand Expressions",
+    "Dictionaries",
+    "Introduction to Object Oriented Programming",
+    "Abstraction and Polymorphism",
+    "Miscellaneous Topics",
+    "Problem Solving",
+  ],
+
+  skillTopicMap: {
+    variable_assignment: 1,
+    type_recognition: 1,
+    basic_output: 2,
+    basic_input: 2,
+    type_conversion: 2,
+    string_concatenation: 2,
+    string_indexing: 2,
+    string_slicing: 2,
+    string_repetition: 2,
+    sequence_length_retrieval: 2,
+    arithmetic_operations: 3,
+    comparison_operators: 3,
+    boolean_logic: 3,
+    conditional_branching: 3,
+    conditional_expression: 3,
+    numeric_rounding: 3,
+    nested_conditions: 4,
+    loop_iteration: 5,
+    accumulator_pattern: 5,
+    search_pattern: 5,
+    filter_pattern: 5,
+    transform_pattern: 5,
+    input_parsing: 5,
+    nested_iteration: 5,
+    geometric_pattern_generation: 5,
+    integer_digit_extraction: 5,
+    loop_control_statements: 6,
+    string_methods: 7,
+    formatted_output: 7,
+    output_formatting: 7,
+    character_encoding_conversion: 7,
+    list_operations: 8,
+    list_comprehension: 8,
+    list_aggregation: 8,
+    list_sorting: 8,
+    sequence_rotation: 8,
+    function_definition: 9,
+    function_calls: 9,
+    recursion: 10,
+    tuple_operations: 11,
+    set_operations: 11,
+    matrix_operations: 12,
+    matrix_construction: 12,
+    matrix_element_access: 12,
+    matrix_transposition: 12,
+    matrix_rotation: 12,
+    matrix_diagonal_traversal: 12,
+    dictionary_operations: 13,
+    class_definition: 14,
+    object_methods: 14,
+    encapsulation_concepts: 14,
+    abstraction: 15,
+    polymorphism: 15,
+    inheritance: 15,
+    class_inheritance: 15,
+    abstract_class_interaction: 15,
+    method_overriding: 15,
+    file_io: 16,
+    exception_handling: 16,
+    datetime_manipulation: 16,
+    problem_solving: 17,
+    algorithmic_thinking: 17,
+    debugging: 17,
+    backtracking_pattern: 17,
+    deferred_modification_pattern: 17,
+    stateful_computation_simulation: 17,
+    subproblem_enumeration_pattern: 17,
+  },
+
+  independentFoundational: new Set([
+    'variable_assignment', 'basic_output', 'arithmetic_operations', 'type_recognition'
+  ]),
+
+  mandatoryEdges: [
+    { from: 'variable_assignment', to: 'basic_input', reason: 'input() requires storing the result in a variable' },
+    { from: 'variable_assignment', to: 'type_conversion', reason: 'type conversion operates on values stored in variables' },
+    { from: 'variable_assignment', to: 'string_concatenation', reason: 'concatenation operates on values in variables' },
+    { from: 'variable_assignment', to: 'string_indexing', reason: 'indexing requires a string stored in a variable' },
+    { from: 'variable_assignment', to: 'string_repetition', reason: 'repetition operates on strings in variables' },
+    { from: 'variable_assignment', to: 'sequence_length_retrieval', reason: 'len() operates on values stored in variables' },
+    { from: 'type_recognition', to: 'type_conversion', reason: 'must recognize types before converting between them' },
+    { from: 'arithmetic_operations', to: 'comparison_operators', reason: 'comparisons often involve computed values' },
+    { from: 'comparison_operators', to: 'conditional_branching', reason: 'conditions use comparison operators' },
+    { from: 'conditional_branching', to: 'nested_conditions', reason: 'nesting requires understanding single conditions' },
+    { from: 'variable_assignment', to: 'loop_iteration', reason: 'loops operate on variables' },
+    { from: 'loop_iteration', to: 'accumulator_pattern', reason: 'accumulating requires looping' },
+    { from: 'loop_iteration', to: 'search_pattern', reason: 'searching requires iterating' },
+    { from: 'string_indexing', to: 'string_slicing', reason: 'slicing builds on indexing concepts' },
+    { from: 'conditional_branching', to: 'filter_pattern', reason: 'filtering requires if/else logic' },
+    { from: 'basic_output', to: 'formatted_output', reason: 'formatted output builds on basic print knowledge' },
+    { from: 'loop_iteration', to: 'nested_iteration', reason: 'nested loops require understanding single loops' },
+    { from: 'loop_iteration', to: 'set_operations', reason: 'building sets requires iteration' },
+    { from: 'list_operations', to: 'set_operations', reason: 'sets are often created from lists' },
+    { from: 'loop_iteration', to: 'list_operations', reason: 'list building requires looping' },
+    { from: 'loop_iteration', to: 'filter_pattern', reason: 'filtering requires iterating' },
+    { from: 'loop_iteration', to: 'transform_pattern', reason: 'transforming requires iterating' },
+    { from: 'conditional_branching', to: 'loop_iteration', reason: 'loops use conditions for termination' },
+    { from: 'class_definition', to: 'abstraction', reason: 'abstraction builds on class concepts' },
+    { from: 'class_definition', to: 'polymorphism', reason: 'polymorphism requires OOP basics' },
+    { from: 'class_definition', to: 'inheritance', reason: 'inheritance requires class knowledge' },
+  ],
+};
+
+// ============================================================
+// WEB DOMAIN CONFIG (HTML/CSS/JS/React/GenAI)
+// ============================================================
+
+const WEB_CONFIG: DomainConfig = {
+  skillCatalog: `
+=== REFERENCE SKILL CATALOG (MAP TO THESE FIRST) ===
+
+Before creating ANY new skill, check if it maps to this catalog:
+
+HTML:
+- html_document_structure: DOCTYPE, html, head, body tags
+- html_elements: headings, paragraphs, lists, links, images, div, span
+- html_attributes: id, class, src, href, alt, style attributes
+- html_forms: form, input, textarea, select, button, labels
+- html_tables: table, tr, td, th, thead, tbody
+- html_semantic_elements: header, footer, nav, main, section, article, aside
+
+CSS:
+- css_selectors: element, class, id, descendant, pseudo-class selectors
+- css_properties: color, font, background, border, margin, padding
+- css_box_model: margin, border, padding, content, width/height
+- css_flexbox: display flex, justify-content, align-items, flex-direction
+- css_grid: display grid, grid-template, gap, grid areas
+- css_positioning: static, relative, absolute, fixed, sticky, z-index
+- css_responsive_design: media queries, viewport units, fluid layouts
+- css_media_queries: breakpoints, min-width, max-width queries
+- css_animations: keyframes, animation properties, timing functions
+- css_transitions: transition properties, hover effects, timing
+
+JavaScript:
+- js_variables: let, const, var, data types, scope
+- js_operators: arithmetic, comparison, logical, ternary
+- js_conditionals: if/else, switch, ternary expressions
+- js_loops: for, while, do-while, for...of, for...in
+- js_arrays: creation, methods (push, pop, map, filter, reduce)
+- js_objects: creation, properties, methods, destructuring
+- js_functions: declaration, expression, arrow functions, parameters
+- js_string_methods: split, join, trim, replace, includes, template literals
+- js_dom_manipulation: querySelector, createElement, innerHTML, classList
+- js_event_handling: addEventListener, event types, event delegation
+- js_async_await: async functions, await, error handling
+- js_promises: creation, then/catch, Promise.all
+- js_fetch_api: fetch, GET/POST requests, response handling
+- js_modules: import/export, default exports, named exports
+- js_classes: class syntax, constructor, methods, inheritance
+- js_error_handling: try/catch/finally, custom errors
+
+React:
+- react_components: functional components, JSX syntax
+- react_jsx: JSX expressions, conditional rendering, lists
+- react_state: useState, state management, immutability
+- react_props: prop passing, destructuring, children
+- react_effects: useEffect, side effects, cleanup
+- react_routing: React Router, routes, navigation
+- react_lists_keys: rendering lists, key prop
+
+Gen AI:
+- ai_prompt_engineering: prompt design, context, instructions
+- ai_api_integration: calling AI APIs, handling responses
+- ai_workflow_design: chaining AI calls, processing pipelines
+
+ONLY create a new skill if NONE of the above apply.
+When creating new skills, they must be AT THIS SAME LEVEL of abstraction.
+
+IMPORTANT: The catalog is for NAMING CONSISTENCY only. Do NOT create nodes
+for skills that are not required by the given questions.`,
+
+  scopeConstraint: `
+=== WEB DEVELOPMENT SCOPE CONSTRAINT ===
+
+This is a web development course covering HTML, CSS, JavaScript, Dynamic 
+Web Apps, React JS, and Generative AI integration. Students build 
+real-world web applications.
+
+Skills should reflect web development concepts at the appropriate level 
+of abstraction. Do NOT create hyper-specific skills for individual CSS 
+properties or HTML tags — group them into transferable capabilities.`,
+
+  curriculumSequence: '', // No curriculum sequence yet - will be provided later
+
+  inputFormatDescription: `
+=== INPUT FORMAT ===
+
+Questions may be in EITHER format:
+
+FORMAT 1 - Structured (with headers):
+- Question: The task description
+- Input: Expected input format/types
+- Output: Expected output format/types
+- Explanation: Solution approach
+
+FORMAT 2 - Free-form:
+Questions are plain text descriptions of web development tasks, 
+design challenges, or coding problems. They may describe UI to build,
+features to implement, or concepts to demonstrate.
+
+Both formats are valid. Analyze whatever is provided.`,
+
+  exampleIPA: `
+=== EXAMPLE IPA/LTA ANALYSIS ===
+
+Question (free-form):
+Create a responsive navigation bar with a hamburger menu for mobile. 
+The nav should have links to Home, About, and Contact pages. Use flexbox 
+for desktop layout and a toggle button for mobile.
+
+IPA Trace:
+1. PERCEIVE: Need a nav bar with 3 links, responsive with mobile hamburger
+2. ENCODE: Structure as nav element with ul/li for links, button for toggle
+3. RETRIEVE: Flexbox for layout, media queries for responsive, JS for toggle
+4. DECIDE: Use semantic HTML nav, CSS flexbox + media query, JS click handler
+5. EXECUTE: Build HTML structure, CSS flex layout, media query breakpoint, JS toggle
+6. MONITOR: Test responsive behavior, verify hamburger works
+
+LTA Extraction:
+- PERCEIVE: html_semantic_elements (declarative)
+- ENCODE: html_elements (procedural)
+- RETRIEVE: css_flexbox, css_media_queries (declarative)
+- DECIDE: css_responsive_design (strategic)
+- EXECUTE: js_dom_manipulation, js_event_handling (procedural)
+- MONITOR: css_responsive_design (conditional)
+
+After normalization:
+- html_semantic_elements (foundational)
+- html_elements (foundational)
+- css_flexbox (core)
+- css_media_queries (core)
+- css_responsive_design (applied)
+- js_dom_manipulation (core)
+- js_event_handling (core)`,
+
+  curriculumTopics: [],
+
+  skillTopicMap: {},
+
+  independentFoundational: new Set([
+    'html_document_structure', 'html_elements', 'css_selectors', 'css_properties',
+    'js_variables', 'js_operators'
+  ]),
+
+  mandatoryEdges: [
+    { from: 'html_elements', to: 'html_forms', reason: 'forms use HTML elements' },
+    { from: 'html_elements', to: 'html_tables', reason: 'tables use HTML elements' },
+    { from: 'html_elements', to: 'html_semantic_elements', reason: 'semantic elements build on basic element knowledge' },
+    { from: 'html_attributes', to: 'html_forms', reason: 'forms require attribute knowledge' },
+    { from: 'css_selectors', to: 'css_properties', reason: 'applying properties requires selector knowledge' },
+    { from: 'css_properties', to: 'css_box_model', reason: 'box model uses CSS properties' },
+    { from: 'css_box_model', to: 'css_flexbox', reason: 'flexbox builds on box model understanding' },
+    { from: 'css_box_model', to: 'css_grid', reason: 'grid builds on box model understanding' },
+    { from: 'css_properties', to: 'css_positioning', reason: 'positioning uses CSS properties' },
+    { from: 'css_properties', to: 'css_transitions', reason: 'transitions animate CSS properties' },
+    { from: 'css_transitions', to: 'css_animations', reason: 'animations build on transition concepts' },
+    { from: 'css_flexbox', to: 'css_responsive_design', reason: 'responsive design uses flexbox' },
+    { from: 'css_media_queries', to: 'css_responsive_design', reason: 'responsive design uses media queries' },
+    { from: 'js_variables', to: 'js_conditionals', reason: 'conditionals operate on variables' },
+    { from: 'js_variables', to: 'js_loops', reason: 'loops operate on variables' },
+    { from: 'js_variables', to: 'js_functions', reason: 'functions use variables' },
+    { from: 'js_conditionals', to: 'js_loops', reason: 'loops use conditional logic' },
+    { from: 'js_functions', to: 'js_dom_manipulation', reason: 'DOM manipulation uses functions' },
+    { from: 'js_dom_manipulation', to: 'js_event_handling', reason: 'event handling requires DOM access' },
+    { from: 'js_functions', to: 'js_async_await', reason: 'async/await uses function concepts' },
+    { from: 'js_promises', to: 'js_async_await', reason: 'async/await is syntactic sugar for promises' },
+    { from: 'js_async_await', to: 'js_fetch_api', reason: 'fetch API uses async/await' },
+    { from: 'js_functions', to: 'js_classes', reason: 'classes use function concepts' },
+    { from: 'js_objects', to: 'js_classes', reason: 'classes are object blueprints' },
+    { from: 'html_elements', to: 'react_jsx', reason: 'JSX builds on HTML knowledge' },
+    { from: 'js_functions', to: 'react_components', reason: 'React components are functions' },
+    { from: 'react_components', to: 'react_state', reason: 'state management requires component knowledge' },
+    { from: 'react_components', to: 'react_props', reason: 'props require component knowledge' },
+    { from: 'react_state', to: 'react_effects', reason: 'effects respond to state changes' },
+    { from: 'js_fetch_api', to: 'ai_api_integration', reason: 'AI API integration uses fetch' },
+    { from: 'ai_prompt_engineering', to: 'ai_workflow_design', reason: 'workflow design builds on prompt engineering' },
+    { from: 'ai_api_integration', to: 'ai_workflow_design', reason: 'workflow design chains API calls' },
+  ],
+};
+
+// ============================================================
+// SHARED PROMPT SECTIONS
+// ============================================================
+
+function buildSystemPrompt(config: DomainConfig): string {
+  return `You are a Knowledge Graph Engineer using the IPA/LTA methodology to build cognitive skill maps.
+
+${config.inputFormatDescription}
+
+=== OVERVIEW ===
+
+You will analyze questions through a structured 4-phase pipeline:
+1. IPA: Trace the cognitive algorithm for each question
+2. LTA: Extract knowledge requirements from each cognitive step
+3. Normalize: Unify synonyms, ensure atomicity, assign tiers
+4. Build DAG: Construct prerequisite edges with strict necessity criteria
+
+${config.skillCatalog}
 
 === PHASE 1: INFORMATION PROCESSING ANALYSIS (IPA) ===
 
@@ -186,37 +586,16 @@ PREREQUISITE means COGNITIVE DEPENDENCY, not execution order:
 
 MANDATORY PREREQUISITE EDGES -- You MUST include these edges whenever 
 both the source and target nodes exist in your output:
-- variable_assignment -> basic_input (input() requires storing the result)
-- variable_assignment -> type_conversion (you convert values stored in variables)
-- variable_assignment -> string_concatenation (you concatenate values in variables)
-- variable_assignment -> string_indexing (indexing requires a string stored in a variable)
-- variable_assignment -> string_repetition (repetition operates on strings in variables)
-- variable_assignment -> sequence_length_retrieval (len() operates on values stored in variables)
-- type_recognition -> type_conversion (must recognize types before converting)
-- arithmetic_operations -> comparison_operators (comparisons often involve computed values)
-- comparison_operators -> conditional_branching (conditions use comparisons)
-- conditional_branching -> nested_conditions (nesting requires understanding single conditions)
-- variable_assignment -> loop_iteration (loops operate on variables)
-- loop_iteration -> accumulator_pattern (accumulating requires looping)
-- loop_iteration -> search_pattern (searching requires iterating)
-- string_indexing -> string_slicing (slicing builds on indexing concepts)
-- conditional_branching -> filter_pattern (filtering requires if/else)
-- basic_output -> formatted_output (if formatted_output exists)
+${config.mandatoryEdges.map(e => `- ${e.from} -> ${e.to} (${e.reason})`).join('\n')}
 
 If both nodes in a pair above appear in your output, the edge MUST 
 be present. Omitting it is an error.
 
-WRONG edges (execution order, not learning dependency):
-- string_concatenation -> basic_output (you don't need concat to learn print())
-- basic_output -> variable_assignment (you don't need print to learn x = 5)
-- arithmetic_operations -> basic_output (you don't need math to learn print())
-
 INDEPENDENCE RULE: These specific foundational skills are independent 
 entry points and should NOT require each other as prerequisites:
-  variable_assignment, basic_output, arithmetic_operations, type_recognition
-However, skills that BUILD on these foundations (like basic_input, 
-type_conversion, string_concatenation) SHOULD have appropriate prerequisite 
-edges pointing back to the foundational skills they depend on.
+  ${Array.from(config.independentFoundational).join(', ')}
+However, skills that BUILD on these foundations SHOULD have appropriate 
+prerequisite edges pointing back to the foundational skills they depend on.
 
 MINIMUM CONNECTIVITY: Every non-foundational node MUST have at least 
 one incoming prerequisite edge. If a skill has no prerequisites, it 
@@ -300,8 +679,7 @@ SELF-CHECK BEFORE RETURNING (mandatory):
    If ratio < 1.5, you are UNDER-CONNECTED. Go back and add 
    missing edges from the MANDATORY list above.
 2. List every node with zero incoming edges. Each one MUST be 
-   one of these foundational skills: variable_assignment, basic_output, 
-   arithmetic_operations, type_recognition.
+   one of these foundational skills: ${Array.from(config.independentFoundational).join(', ')}.
    If any non-foundational node has zero incoming edges, add the 
    appropriate prerequisite edge.
 3. Verify every MANDATORY edge pair: if both nodes exist, the 
@@ -324,17 +702,7 @@ For EACH question, estimate the cognitive load distribution across its required 
    - If 1 primary: PRIMARY skill gets 0.6, SECONDARY skills split remaining 0.4
    - If 2 primaries: Each PRIMARY gets 0.3 (0.6 total), SECONDARY skills split 0.4
    
-4. EXAMPLE (1 primary):
-   Question testing: [loop_iteration, dictionary_operations, accumulator_pattern]
-   Primary skills: ["accumulator_pattern"] (the strategic challenge)
-   Weights: { "accumulator_pattern": 0.6, "loop_iteration": 0.2, "dictionary_operations": 0.2 }
-
-5. EXAMPLE (2 primaries):
-   Question testing: [loop_iteration, dictionary_operations, accumulator_pattern, conditional_branching]
-   Primary skills: ["accumulator_pattern", "dictionary_operations"] (both are core challenges)
-   Weights: { "accumulator_pattern": 0.3, "dictionary_operations": 0.3, "loop_iteration": 0.2, "conditional_branching": 0.2 }
-   
-6. ALWAYS output primarySkills as an ARRAY in questionPaths (e.g., ["skill1"] or ["skill1", "skill2"])
+4. ALWAYS output primarySkills as an ARRAY in questionPaths
 
 === QUALITY VALIDATION (MANDATORY - FAIL = REDO) ===
 
@@ -350,86 +718,17 @@ Before outputting, you MUST verify and FIX if any check fails:
    If FAIL → merge them into one
    
 4. CATALOG CHECK: Every new node (not in catalog) must be justified
-   Ask: "Why couldn't this map to an existing catalog skill?"
 
-5. Edge Density: Aim for 1.5-2.5 edges per node. Every non-foundational 
-   node should have at least one incoming edge.
+5. Edge Density: Aim for 1.5-2.5 edges per node
 6. DAG Property: No cycles in edge graph
 7. Level Distribution: Nodes spread across 4-6 levels
 8. Necessity: Every edge passes the "WITHOUT X?" test
 
-=== EXAMPLE IPA/LTA ANALYSIS ===
+${config.exampleIPA}
 
-Question (structured format):
-Question: Count frequency of each word in a sentence.
-Input: A string containing words separated by spaces.
-Output: A dictionary mapping each word to its frequency count.
-Explanation: Split the string by spaces, iterate through words, and use a dictionary to track counts. Normalize case for consistency.
+${config.scopeConstraint}
 
-IPA Trace:
-1. PERCEIVE: Input is a string with spaces separating words (from Input section)
-2. ENCODE: Split string into list of words, normalize case (from Explanation)
-3. RETRIEVE: Dictionary can map word → count (from Output section)
-4. DECIDE: Use accumulator pattern with dictionary (from Explanation)
-5. EXECUTE: For each word, check if in dict, then increment or initialize
-6. MONITOR: Verify counts are correct, handle empty input
-
-LTA Extraction:
-- PERCEIVE step requires: string_recognition (declarative)
-- ENCODE step requires: string_split_method (procedural)
-- RETRIEVE step requires: dictionary_concept (declarative)
-- DECIDE step requires: accumulator_pattern_selection (strategic)
-- EXECUTE step requires: dictionary_operations (procedural), loop_iteration (procedural)
-- MONITOR step requires: edge_case_handling (conditional)
-
-After normalization, this maps to skills like:
-- string_methods (core, procedural)
-- dictionary_operations (core, procedural)
-- loop_iteration (core, procedural)
-- accumulator_pattern (applied, strategic)
-
-=== PROGRAMMING FOUNDATIONS SCOPE CONSTRAINT ===
-
-This is a Programming Foundations course. Students solve problems using 
-bruteforce methods ONLY. Do NOT create skills for advanced algorithmic 
-patterns: Sliding Window, Two Pointers, Greedy Algorithm, Dynamic 
-Programming, Kadane's Algorithm, Divide and Conquer, Binary Search 
-optimization, Backtracking, Graph Algorithms, or Trie structures.
-
-If a problem could be solved with an advanced pattern, map it to the 
-fundamental bruteforce skills (e.g., nested_iteration, accumulator_pattern, 
-search_pattern, filter_pattern).
-
-REPETITION WITHOUT LOOPS: If a problem asks to repeat an action a small 
-fixed number of times (e.g., "print Hello 3 times"), and the question 
-belongs to a topic BEFORE "Loops" (Topic 5) in the curriculum, map it 
-to basic_output (repeated print statements), NOT to loop_iteration. 
-Only use loop_iteration when the question is FROM Topic 5 or later, 
-OR when the repetition count is variable/large.
-
-=== CURRICULUM SEQUENCE ===
-
-Topics are taught in this order. Use this to inform prerequisite edges -- 
-skills from earlier topics should generally be prerequisites for skills 
-in later topics:
-
-1. Introduction to Python
-2. I/O Basics
-3. Operators & Conditional Statements
-4. Nested Conditions
-5. Loops
-6. Loop Control Statements
-7. Comparing Strings & Naming Variables
-8. Lists
-9. Functions
-10. Recursion
-11. Tuples & Sets
-12. Intro to Matrices & Shorthand Expressions
-13. Dictionaries
-14. Introduction to Object Oriented Programming
-15. Abstraction and Polymorphism
-16. Miscellaneous Topics
-17. Problem Solving
+${config.curriculumSequence}
 
 === TEST CASES (OPTIONAL INPUT) ===
 
@@ -452,106 +751,22 @@ Some questions may include test cases as input/output pairs. When present:
 If no test cases are provided for a question, analyze based on question text alone.
 
 Output ONLY valid JSON, no explanation.`;
+}
 
-const CURRICULUM_TOPICS = [
-  "Introduction to Python",
-  "I/O Basics",
-  "Operators & Conditional Statements",
-  "Nested Conditions",
-  "Loops",
-  "Loop Control Statements",
-  "Comparing Strings & Naming Variables",
-  "Lists",
-  "Functions",
-  "Recursion",
-  "Tuples & Sets",
-  "Intro to Matrices & Shorthand Expressions",
-  "Dictionaries",
-  "Introduction to Object Oriented Programming",
-  "Abstraction and Polymorphism",
-  "Miscellaneous Topics",
-  "Problem Solving",
-];
+// ============================================================
+// SHARED UTILITY FUNCTIONS
+// ============================================================
 
-// Hard enforcement: maps each known skill to its earliest allowed topic position
-const SKILL_TOPIC_MAP: Record<string, number> = {
-  variable_assignment: 1,
-  type_recognition: 1,
-  basic_output: 2,
-  basic_input: 2,
-  type_conversion: 2,
-  string_concatenation: 2,
-  string_indexing: 2,
-  string_slicing: 2,
-  string_repetition: 2,
-  sequence_length_retrieval: 2,
-  arithmetic_operations: 3,
-  comparison_operators: 3,
-  boolean_logic: 3,
-  conditional_branching: 3,
-  conditional_expression: 3,
-  numeric_rounding: 3,
-  nested_conditions: 4,
-  loop_iteration: 5,
-  accumulator_pattern: 5,
-  search_pattern: 5,
-  filter_pattern: 5,
-  transform_pattern: 5,
-  input_parsing: 5,
-  nested_iteration: 5,
-  geometric_pattern_generation: 5,
-  integer_digit_extraction: 5,
-  loop_control_statements: 6,
-  string_methods: 7,
-  formatted_output: 7,
-  output_formatting: 7,
-  character_encoding_conversion: 7,
-  list_operations: 8,
-  list_comprehension: 8,
-  list_aggregation: 8,
-  list_sorting: 8,
-  sequence_rotation: 8,
-  function_definition: 9,
-  function_calls: 9,
-  recursion: 10,
-  tuple_operations: 11,
-  set_operations: 11,
-  matrix_operations: 12,
-  matrix_construction: 12,
-  matrix_element_access: 12,
-  matrix_transposition: 12,
-  matrix_rotation: 12,
-  matrix_diagonal_traversal: 12,
-  dictionary_operations: 13,
-  class_definition: 14,
-  object_methods: 14,
-  encapsulation_concepts: 14,
-  abstraction: 15,
-  polymorphism: 15,
-  inheritance: 15,
-  class_inheritance: 15,
-  abstract_class_interaction: 15,
-  method_overriding: 15,
-  file_io: 16,
-  exception_handling: 16,
-  datetime_manipulation: 16,
-  problem_solving: 17,
-  algorithmic_thinking: 17,
-  debugging: 17,
-  backtracking_pattern: 17,
-  deferred_modification_pattern: 17,
-  stateful_computation_simulation: 17,
-  subproblem_enumeration_pattern: 17,
-};
+function getDomainConfig(domain: string): DomainConfig {
+  return domain === 'web' ? WEB_CONFIG : PYTHON_CONFIG;
+}
 
-// Independent foundational skills that should never have edges between each other
-const INDEPENDENT_FOUNDATIONAL = new Set([
-  'variable_assignment', 'basic_output', 'arithmetic_operations', 'type_recognition'
-]);
-
-function getCurriculumPosition(topic: string): number {
+function getCurriculumPosition(topic: string, config: DomainConfig): number {
+  if (config.curriculumTopics.length === 0) return -1;
   const lower = topic.toLowerCase();
-  const idx = CURRICULUM_TOPICS.findIndex(t => t.toLowerCase() === lower || lower.includes(t.toLowerCase()) || t.toLowerCase().includes(lower));
+  const idx = config.curriculumTopics.findIndex(t => 
+    t.toLowerCase() === lower || lower.includes(t.toLowerCase()) || t.toLowerCase().includes(lower)
+  );
   return idx >= 0 ? idx + 1 : -1;
 }
 
@@ -595,16 +810,9 @@ function isLikelyTruncatedJson(text: string): boolean {
   return openCurly !== closeCurly || openSquare !== closeSquare;
 }
 
-/**
- * Attempt to repair truncated JSON by completing partial structures
- */
 function attemptJsonRepair(text: string): any | null {
   console.log("[IPA/LTA] Attempting JSON repair for truncated response...");
-  
-  // Find the last complete object or array
   let repaired = text.trim();
-  
-  // Count and balance braces/brackets
   let openCurly = 0;
   let openSquare = 0;
   let lastValidPos = 0;
@@ -623,25 +831,14 @@ function attemptJsonRepair(text: string): any | null {
     }
   }
   
-  // Truncate to last valid position and try to close
   if (lastValidPos > 0 && lastValidPos < repaired.length) {
     repaired = repaired.substring(0, lastValidPos);
   }
   
-  // Add closing brackets/braces as needed
-  while (openSquare > 0) {
-    repaired += ']';
-    openSquare--;
-  }
-  while (openCurly > 0) {
-    repaired += '}';
-    openCurly--;
-  }
+  while (openSquare > 0) { repaired += ']'; openSquare--; }
+  while (openCurly > 0) { repaired += '}'; openCurly--; }
   
-  // Clean up trailing commas
-  repaired = repaired
-    .replace(/,\s*}/g, '}')
-    .replace(/,\s*]/g, ']');
+  repaired = repaired.replace(/,\s*}/g, '}').replace(/,\s*]/g, ']');
   
   try {
     const parsed = JSON.parse(repaired);
@@ -653,27 +850,12 @@ function attemptJsonRepair(text: string): any | null {
   }
 }
 
-/**
- * Calculate appropriate max_tokens based on input size
- * Generous allocation to prevent truncation
- */
 function calculateMaxTokens(questionCount: number, isIncremental: boolean, existingNodeCount: number = 0): number {
-  // Each question needs ~1200 tokens for complete output (nodes + edges + paths + descriptions)
-  // Complex multi-line questions with OOP concepts need more space
   const tokensPerQuestion = 1500;
-  
-  // Base overhead for JSON structure
   const baseOverhead = 6000;
-  
-  // Extra for incremental mode - scales with existing node count
-  // Each existing node adds context that needs to be processed
   const incrementalOverhead = isIncremental ? 3000 + (existingNodeCount * 50) : 0;
-  
   const estimated = baseOverhead + incrementalOverhead + (questionCount * tokensPerQuestion);
-  
-  // Use generous limits - minimum 16000, cap at 40000 (model supports up to 65k)
   const maxTokens = Math.min(Math.max(estimated, 16000), 40000);
-  
   console.log(`[IPA/LTA] Calculated max_tokens: ${maxTokens} for ${questionCount} questions (existing nodes: ${existingNodeCount})`);
   return maxTokens;
 }
@@ -690,7 +872,6 @@ function extractJsonFromResponse(response: string): any {
   if (jsonStart === -1 || jsonEnd === -1) {
     const arrayStart = cleaned.indexOf("[");
     const arrayEnd = cleaned.lastIndexOf("]");
-
     if (arrayStart === -1 || arrayEnd === -1) {
       throw new Error("No JSON object or array found in response");
     }
@@ -720,7 +901,6 @@ function extractJsonFromResponse(response: string): any {
       console.error("Failed to parse JSON even after fixes. First 500 chars:", cleaned.substring(0, 500));
       console.error("Last 500 chars:", cleaned.substring(cleaned.length - 500));
 
-      // Try JSON repair for truncated responses
       if (isLikelyTruncatedJson(cleaned)) {
         const repaired = attemptJsonRepair(cleaned);
         if (repaired) {
@@ -744,19 +924,13 @@ interface ExistingNode {
   description?: string;
 }
 
-/**
- * Transitive reduction: for each edge A->C, check if C is reachable
- * from A via other edges. If yes, A->C is redundant and removed.
- */
 function transitiveReduce(edges: { from: string; to: string; [k: string]: unknown }[]): typeof edges {
-  // Build adjacency list
   const adj = new Map<string, Set<string>>();
   for (const e of edges) {
     if (!adj.has(e.from)) adj.set(e.from, new Set());
     adj.get(e.from)!.add(e.to);
   }
 
-  // BFS reachability check excluding the direct edge
   function isReachableWithout(start: string, target: string): boolean {
     const visited = new Set<string>();
     const queue = [start];
@@ -764,7 +938,6 @@ function transitiveReduce(edges: { from: string; to: string; [k: string]: unknow
     while (queue.length > 0) {
       const node = queue.shift()!;
       for (const neighbor of adj.get(node) || []) {
-        // Skip the direct edge we're testing
         if (node === start && neighbor === target) continue;
         if (neighbor === target) return true;
         if (!visited.has(neighbor)) {
@@ -779,7 +952,6 @@ function transitiveReduce(edges: { from: string; to: string; [k: string]: unknow
   const reduced = edges.filter(e => {
     if (isReachableWithout(e.from, e.to)) {
       console.warn(`[IPA/LTA] Transitive reduction: removed ${e.from} -> ${e.to}`);
-      // Also remove from adjacency so subsequent checks use reduced graph
       adj.get(e.from)?.delete(e.to);
       return false;
     }
@@ -790,10 +962,6 @@ function transitiveReduce(edges: { from: string; to: string; [k: string]: unknow
   return reduced;
 }
 
-/**
- * Break cycles using Kahn's algorithm (topological sort).
- * Any edges remaining after all processable nodes are removed form cycles.
- */
 function breakCycles(edges: { from: string; to: string; [k: string]: unknown }[]): typeof edges {
   let currentEdges = [...edges];
   let iteration = 0;
@@ -801,7 +969,6 @@ function breakCycles(edges: { from: string; to: string; [k: string]: unknown }[]
 
   while (iteration < maxIterations) {
     iteration++;
-    // Build in-degree map
     const allNodes = new Set<string>();
     const inDegree = new Map<string, number>();
     const adj = new Map<string, string[]>();
@@ -815,7 +982,6 @@ function breakCycles(edges: { from: string; to: string; [k: string]: unknown }[]
       adj.get(e.from)!.push(e.to);
     }
 
-    // Kahn's: queue nodes with in-degree 0
     const queue: string[] = [];
     for (const node of allNodes) {
       if ((inDegree.get(node) || 0) === 0) queue.push(node);
@@ -832,15 +998,11 @@ function breakCycles(edges: { from: string; to: string; [k: string]: unknown }[]
       }
     }
 
-    // If all nodes processed, no cycles
     if (processed.size === allNodes.size) break;
 
-    // Find cycle-forming edges (both endpoints unprocessed)
     const cycleEdges = currentEdges.filter(e => !processed.has(e.from) && !processed.has(e.to));
-    
     if (cycleEdges.length === 0) break;
 
-    // Remove the last cycle edge (heuristic: least important)
     const removed = cycleEdges[cycleEdges.length - 1];
     console.warn(`[IPA/LTA] Cycle breaking: removed ${removed.from} -> ${removed.to}`);
     currentEdges = currentEdges.filter(e => !(e.from === removed.from && e.to === removed.to));
@@ -852,10 +1014,6 @@ function breakCycles(edges: { from: string; to: string; [k: string]: unknown }[]
   return currentEdges;
 }
 
-/**
- * Recompute node levels from the final edge structure.
- * level = 0 if no incoming edges, else 1 + max(level of prerequisites)
- */
 function recomputeLevels(nodes: { id: string; level: number; [k: string]: unknown }[], edges: { from: string; to: string }[]): void {
   const incoming = new Map<string, string[]>();
   for (const e of edges) {
@@ -868,7 +1026,7 @@ function recomputeLevels(nodes: { id: string; level: number; [k: string]: unknow
 
   function getLevel(id: string, visited: Set<string>): number {
     if (levelMap.has(id)) return levelMap.get(id)!;
-    if (visited.has(id)) return 0; // safety: break infinite recursion
+    if (visited.has(id)) return 0;
     visited.add(id);
     
     const prereqs = (incoming.get(id) || []).filter(p => nodeIds.has(p));
@@ -884,48 +1042,16 @@ function recomputeLevels(nodes: { id: string; level: number; [k: string]: unknow
   console.log(`[IPA/LTA] Recomputed levels: max depth = ${Math.max(0, ...nodes.map(n => n.level))}`);
 }
 
-/**
- * Mandatory prerequisite edges - injected as safety net after AI response parsing.
- * If both nodes exist in the graph but the edge is missing, it gets added.
- */
-const MANDATORY_EDGES: Array<{ from: string; to: string; reason: string }> = [
-  { from: 'variable_assignment', to: 'basic_input', reason: 'input() requires storing the result in a variable' },
-  { from: 'variable_assignment', to: 'type_conversion', reason: 'type conversion operates on values stored in variables' },
-  { from: 'variable_assignment', to: 'string_concatenation', reason: 'concatenation operates on values in variables' },
-  { from: 'variable_assignment', to: 'string_indexing', reason: 'indexing requires a string stored in a variable' },
-  { from: 'variable_assignment', to: 'string_repetition', reason: 'repetition operates on strings in variables' },
-  { from: 'variable_assignment', to: 'sequence_length_retrieval', reason: 'len() operates on values stored in variables' },
-  { from: 'type_recognition', to: 'type_conversion', reason: 'must recognize types before converting between them' },
-  { from: 'arithmetic_operations', to: 'comparison_operators', reason: 'comparisons often involve computed values' },
-  { from: 'comparison_operators', to: 'conditional_branching', reason: 'conditions use comparison operators' },
-  { from: 'conditional_branching', to: 'nested_conditions', reason: 'nesting requires understanding single conditions' },
-  { from: 'variable_assignment', to: 'loop_iteration', reason: 'loops operate on variables' },
-  { from: 'loop_iteration', to: 'accumulator_pattern', reason: 'accumulating requires looping' },
-  { from: 'loop_iteration', to: 'search_pattern', reason: 'searching requires iterating' },
-  { from: 'string_indexing', to: 'string_slicing', reason: 'slicing builds on indexing concepts' },
-  { from: 'conditional_branching', to: 'filter_pattern', reason: 'filtering requires if/else logic' },
-  { from: 'basic_output', to: 'formatted_output', reason: 'formatted output builds on basic print knowledge' },
-  { from: 'loop_iteration', to: 'nested_iteration', reason: 'nested loops require understanding single loops' },
-  { from: 'loop_iteration', to: 'set_operations', reason: 'building sets requires iteration' },
-  { from: 'list_operations', to: 'set_operations', reason: 'sets are often created from lists' },
-  { from: 'loop_iteration', to: 'list_operations', reason: 'list building requires looping' },
-  { from: 'loop_iteration', to: 'filter_pattern', reason: 'filtering requires iterating' },
-  { from: 'loop_iteration', to: 'transform_pattern', reason: 'transforming requires iterating' },
-  { from: 'conditional_branching', to: 'loop_iteration', reason: 'loops use conditions for termination' },
-  { from: 'class_definition', to: 'abstraction', reason: 'abstraction builds on class concepts' },
-  { from: 'class_definition', to: 'polymorphism', reason: 'polymorphism requires OOP basics' },
-  { from: 'class_definition', to: 'inheritance', reason: 'inheritance requires class knowledge' },
-];
-
 function injectMandatoryEdges(
   nodes: Array<{ id: string; [k: string]: unknown }>,
-  edges: Array<{ from: string; to: string; [k: string]: unknown }>
+  edges: Array<{ from: string; to: string; [k: string]: unknown }>,
+  config: DomainConfig
 ): typeof edges {
   const nodeIds = new Set(nodes.map(n => n.id));
   const edgeSet = new Set(edges.map(e => `${e.from}->${e.to}`));
   let injected = 0;
 
-  for (const me of MANDATORY_EDGES) {
+  for (const me of config.mandatoryEdges) {
     if (nodeIds.has(me.from) && nodeIds.has(me.to)) {
       const key = `${me.from}->${me.to}`;
       if (!edgeSet.has(key)) {
@@ -943,14 +1069,17 @@ function injectMandatoryEdges(
   return edges;
 }
 
+// ============================================================
+// MAIN HANDLER
+// ============================================================
+
 serve(async (req) => {
   if (req.method === "OPTIONS") {
     return new Response(null, { headers: corsHeaders });
   }
 
   try {
-    // Safely parse request body with error handling
-    let body: { questions?: string[]; existingNodes?: ExistingNode[]; topicMap?: Record<string, string> };
+    let body: { questions?: string[]; existingNodes?: ExistingNode[]; topicMap?: Record<string, string>; domain?: string };
     try {
       const text = await req.text();
       if (!text || text.trim() === '') {
@@ -968,7 +1097,8 @@ serve(async (req) => {
       );
     }
     
-    const { questions, existingNodes, topicMap } = body;
+    const { questions, existingNodes, topicMap, domain } = body;
+    const config = getDomainConfig(domain || 'python');
     
     if (!questions || !Array.isArray(questions) || questions.length === 0) {
       return new Response(
@@ -984,13 +1114,12 @@ serve(async (req) => {
     }
 
     const isIncremental = existingNodes && existingNodes.length > 0;
-    console.log(`[IPA/LTA] Generating knowledge graph for ${questions.length} questions (incremental: ${isIncremental}, existing skills: ${existingNodes?.length || 0})`);
+    console.log(`[IPA/LTA] Generating knowledge graph for ${questions.length} questions (domain: ${domain || 'python'}, incremental: ${isIncremental}, existing skills: ${existingNodes?.length || 0})`);
 
-    // Build the prompt based on mode
-    let fullSystemPrompt = systemPrompt;
+    // Build the prompt based on mode and domain
+    let fullSystemPrompt = buildSystemPrompt(config);
     
     if (isIncremental) {
-      // Build richer node context with tier and description for better semantic matching
       const nodeList = existingNodes!
         .map(n => `- ${n.id}: "${n.name}"${n.tier ? ` [${n.tier}]` : ''}${n.description ? ` - ${n.description.substring(0, 60)}...` : ''}`)
         .join('\n');
@@ -1003,14 +1132,13 @@ serve(async (req) => {
     // Format questions with topic context if topicMap is provided
     let questionsBlock: string;
     if (topicMap && Object.keys(topicMap).length > 0) {
-      // Group questions by topic for clearer prompt
       let currentTopic = '';
       const lines: string[] = [];
       questions.forEach((q: string, i: number) => {
         const topic = topicMap[String(i)] || 'General';
         if (topic !== currentTopic) {
           currentTopic = topic;
-          const pos = getCurriculumPosition(topic);
+          const pos = getCurriculumPosition(topic, config);
           lines.push(`\n--- Topic: ${topic}${pos > 0 ? ` (Position ${pos} in curriculum)` : ''} ---`);
         }
         lines.push(`${i + 1}. ${q}`);
@@ -1073,7 +1201,6 @@ Generate the knowledge graph JSON.`;
           lastError = errorData.error?.message || `AI error (${response.status})`;
           console.error(`[IPA/LTA] AI attempt ${attempt}/${MAX_RETRIES} failed:`, response.status, JSON.stringify(errorData));
 
-          // Non-retryable errors
           if (response.status === 429) {
             return new Response(JSON.stringify({ error: "Too many requests. Please wait a moment and try again." }), {
               status: 429, headers: { ...corsHeaders, "Content-Type": "application/json" },
@@ -1090,7 +1217,6 @@ Generate the knowledge graph JSON.`;
             });
           }
 
-          // Retryable 5xx
           if (response.status >= 500 && attempt < MAX_RETRIES) {
             const delay = attempt * 2000;
             console.log(`[IPA/LTA] Retrying in ${delay}ms...`);
@@ -1103,14 +1229,12 @@ Generate the knowledge graph JSON.`;
           });
         }
 
-        // Parse the response body
         const rawText = await response.text();
         if (!rawText || rawText.trim().length === 0) {
           console.warn(`[IPA/LTA] Empty response body on attempt ${attempt}/${MAX_RETRIES}`);
           lastError = "AI returned an empty response";
           if (attempt < MAX_RETRIES) {
             const delay = attempt * 2000;
-            console.log(`[IPA/LTA] Retrying in ${delay}ms...`);
             await new Promise(r => setTimeout(r, delay));
             continue;
           }
@@ -1130,7 +1254,6 @@ Generate the knowledge graph JSON.`;
 
         content = data.choices?.[0]?.message?.content;
 
-        // Handle upstream provider errors wrapped in a 200 response
         const choiceError = data.choices?.[0]?.error;
         if ((!content || content.trim() === '') && choiceError) {
           const providerMsg = choiceError.message || 'Unknown provider error';
@@ -1161,7 +1284,6 @@ Generate the knowledge graph JSON.`;
           );
         }
 
-        // Valid content received — break out of retry loop
         break;
 
       } catch (fetchErr) {
@@ -1184,19 +1306,18 @@ Generate the knowledge graph JSON.`;
       graphData = extractJsonFromResponse(content);
       
       // === PROGRAMMATIC POST-GENERATION NODE FILTER ===
-      // Strip nodes that belong to topics beyond the current batch's max topic position
-      if (graphData.globalNodes && Array.isArray(graphData.globalNodes) && topicMap && Object.keys(topicMap).length > 0) {
-        // Determine max topic position from the topicMap sent by the client
+      // Only apply topic filtering if the domain has a skill topic map
+      if (graphData.globalNodes && Array.isArray(graphData.globalNodes) && topicMap && Object.keys(topicMap).length > 0 && Object.keys(config.skillTopicMap).length > 0) {
         let maxTopicPosition = 0;
         for (const topic of Object.values(topicMap)) {
-          const pos = getCurriculumPosition(topic as string);
+          const pos = getCurriculumPosition(topic as string, config);
           if (pos > maxTopicPosition) maxTopicPosition = pos;
         }
         
         if (maxTopicPosition > 0) {
           const removedNodes = new Set<string>();
           graphData.globalNodes = graphData.globalNodes.filter((node: { id: string }) => {
-            const allowedTopic = SKILL_TOPIC_MAP[node.id];
+            const allowedTopic = config.skillTopicMap[node.id];
             if (allowedTopic !== undefined && allowedTopic > maxTopicPosition) {
               console.warn(`[IPA/LTA] Topic filter: removed node "${node.id}" (topic ${allowedTopic}) — exceeds max topic position ${maxTopicPosition}`);
               removedNodes.add(node.id);
@@ -1205,7 +1326,6 @@ Generate the knowledge graph JSON.`;
             return true;
           });
           
-          // Strip edges referencing removed nodes
           if (removedNodes.size > 0 && graphData.edges && Array.isArray(graphData.edges)) {
             graphData.edges = graphData.edges.filter((e: { from: string; to: string }) => {
               if (removedNodes.has(e.from) || removedNodes.has(e.to)) {
@@ -1216,7 +1336,6 @@ Generate the knowledge graph JSON.`;
             });
           }
           
-          // Strip removed nodes from questionPaths
           if (removedNodes.size > 0 && graphData.questionPaths) {
             for (const [question, path] of Object.entries(graphData.questionPaths)) {
               if (Array.isArray(path)) {
@@ -1238,11 +1357,10 @@ Generate the knowledge graph JSON.`;
       }
       
       // === INDEPENDENCE RULE ENFORCEMENT ===
-      // Strip edges where the TARGET is a foundational skill — foundational skills must have NO prerequisites
       if (graphData.edges && Array.isArray(graphData.edges)) {
         const beforeIndep = graphData.edges.length;
         graphData.edges = graphData.edges.filter((e: { from: string; to: string }) => {
-          if (INDEPENDENT_FOUNDATIONAL.has(e.to)) {
+          if (config.independentFoundational.has(e.to)) {
             console.warn(`[IPA/LTA] Independence rule: removed edge ${e.from} -> ${e.to} (target is foundational)`);
             return false;
           }
@@ -1253,7 +1371,7 @@ Generate the knowledge graph JSON.`;
         }
       }
       
-      // Inject mandatory edges as safety net (combine new + existing nodes for incremental mode)
+      // Inject mandatory edges
       if (graphData.globalNodes && Array.isArray(graphData.globalNodes) && graphData.edges && Array.isArray(graphData.edges)) {
         const allNodesForInjection = [...graphData.globalNodes];
         if (existingNodes) {
@@ -1263,7 +1381,7 @@ Generate the knowledge graph JSON.`;
             }
           }
         }
-        graphData.edges = injectMandatoryEdges(allNodesForInjection, graphData.edges);
+        graphData.edges = injectMandatoryEdges(allNodesForInjection, graphData.edges, config);
       }
 
       // Post-processing: strip bidirectional edges to enforce DAG
@@ -1276,20 +1394,15 @@ Generate the knowledge graph JSON.`;
             console.warn(`[IPA/LTA] Stripped cycle/duplicate edge: ${edge.from} -> ${edge.to}`);
             return false;
           }
-        edgeSet.add(key);
+          edgeSet.add(key);
           return true;
         });
 
-        // Transitive reduction: remove edge A->C if path A->...->C exists
         graphData.edges = transitiveReduce(graphData.edges);
-
-        // Cycle breaking: remove back-edges to enforce true DAG
         graphData.edges = breakCycles(graphData.edges);
 
-        // Orphan edge cleanup: remove edges referencing non-existent nodes
         if (graphData.globalNodes && Array.isArray(graphData.globalNodes)) {
           const nodeIds = new Set(graphData.globalNodes.map((n: { id: string }) => n.id));
-          // Include existing nodes so injected edges between them aren't removed
           if (existingNodes) {
             for (const en of existingNodes) nodeIds.add(en.id);
           }
@@ -1301,7 +1414,6 @@ Generate the knowledge graph JSON.`;
             console.warn(`[IPA/LTA] Orphan cleanup: removed ${beforeOrphan - graphData.edges.length} dangling edges`);
           }
 
-          // Recompute levels from final edge structure
           recomputeLevels(graphData.globalNodes, graphData.edges);
         }
       }
@@ -1319,7 +1431,6 @@ Generate the knowledge graph JSON.`;
       throw parseError;
     }
 
-    // Log IPA/LTA specific metrics
     const nodeCount = graphData.globalNodes?.length || 0;
     const edgeCount = graphData.edges?.length || 0;
     const questionCount = Object.keys(graphData.questionPaths || {}).length;
