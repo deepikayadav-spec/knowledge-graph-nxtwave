@@ -1,72 +1,84 @@
 
-# Diagnosis: Turbo Mode IS Working, But Needs Optimization
 
-## What the Logs Show
+# Map KPs to Exact Subtopics and Topics for Web Curriculum
 
-Parallel processing IS running -- 3 batches fire concurrently (confirmed by console log `Mode: TURBO, batch size: 8, concurrency: 3` and 3 simultaneous edge function boots). However, two problems are eating the speed gains:
+## What Will Happen
 
-1. **Batch size 8 causes token truncation**: One of the 3 parallel batches hit `finish_reason: length`, requiring JSON repair. This means the AI ran out of output tokens trying to process 8 questions at once, producing incomplete results that need recovery.
+The backend function that auto-groups skills will be updated with your exact 5 topics and 36 subtopics. When triggered for the "LKG IO New" graph, it will deterministically assign all 51 KPs to the correct subtopic and topic -- no AI generation needed for this domain.
 
-2. **Failed batches get retried sequentially**: After a wave completes, any failed/truncated batches are retried one at a time, turning a parallel wave into a sequential bottleneck.
+## Mapping Table
 
-## Proposed Fixes
+### Topic 1: HTML (4 KPs)
+| Subtopic | KPs |
+|----------|-----|
+| Introduction to HTML | html_semantic_elements |
+| HTML Elements | html_elements |
+| HTML Forms and Tables | html_forms |
+| HTML Attributes and General | html_attributes |
 
-### 1. Reduce turbo batch size from 8 to 5
+### Topic 2: CSS (10 KPs)
+| Subtopic | KPs |
+|----------|-----|
+| Introduction To CSS And CSS Selectors | css_selectors |
+| CSS Properties | css_properties |
+| CSS Display And Position | css_positioning |
+| CSS Layouts And Box Model | css_box_model |
+| CSS Selectors | css_specificity |
+| CSS Flexbox | css_flexbox |
+| CSS Grid | css_grid |
+| CSS Media Queries | css_media_queries, css_responsive_design |
+| CSS General | css_transforms, css_utility_frameworks |
 
-File: `src/hooks/useBatchGeneration.ts`
+### Topic 3: JS (14 KPs)
+| Subtopic | KPs |
+|----------|-----|
+| Introduction to JavaScript | js_closures |
+| DOM And Events | js_dom_manipulation, js_event_handling |
+| Schedulers and Callback Functions | js_timed_events |
+| Storage Mechanisms | js_browser_storage |
+| Network and HTTP Requests | js_fetch_api |
+| Asynchronous JS and Error Handling | js_async_await, js_promises, js_error_handling |
+| JS General | js_modules, js_classes, js_constructor_functions, js_date_object_manipulation |
 
-- Change `TURBO_BATCH_SIZE` from 8 to 5
-- This prevents token truncation (the AI can fully process 5 questions without hitting output limits)
-- More batches, but each succeeds on first try -- no retries needed
-- Total batches: ~66 instead of ~41, but at concurrency 3 that is ~22 waves (only 8 more than before)
+### Topic 4: JS Coding (13 KPs)
+| Subtopic | KPs |
+|----------|-----|
+| Variables | js_variables |
+| Data Types | js_string_methods, js_arrays, js_objects, js_in_place_manipulation |
+| Operators | js_operators |
+| Conditional Statements | js_conditionals |
+| Functions | js_functions |
+| Loops | js_loops, js_loop_control_statements, nested_iteration |
+| Recursion | js_recursion |
 
-### 2. Increase concurrency from 3 to 4
+### Topic 5: React (10 KPs)
+| Subtopic | KPs |
+|----------|-----|
+| Introduction to React | react_jsx |
+| React Components and Props | react_components, react_props |
+| useState Hook | react_state |
+| More React Hooks | react_context_api |
+| React Router | react_routing |
+| Authentication and Authorisation | react_protected_routes |
+| React Lists and Forms | react_lists_keys |
 
-File: `src/hooks/useBatchGeneration.ts`
+### Unmapped (3 KPs) -> "Other Skills"
+ai_prompt_engineering, ai_api_integration, ai_workflow_design
 
-- Change `TURBO_CONCURRENCY` from 3 to 4
-- With smaller batch sizes (5 instead of 8), the API is less likely to rate-limit
-- 66 batches / 4 = ~17 waves -- roughly same as before but without truncation failures
-- If rate limiting does occur, the existing backoff logic handles it
+Note: useEffect Hook, React General, and a few other subtopics have no KPs currently mapped and will be created as empty subtopics (they will populate when new questions add those KPs).
 
-### 3. Skip failed batch retries in turbo mode (log and continue)
+## Technical Changes
 
-File: `src/hooks/useBatchGeneration.ts`
+### File: `supabase/functions/auto-group-skills/index.ts`
 
-- Instead of retrying failed batches immediately after each wave (sequential retry loop at lines 564-590), push them to a retry queue
-- Process all retry batches in a single final wave at the end
-- This prevents one failed batch from blocking the next wave
+1. Add `WEB_CURRICULUM_TOPICS` array (your 5 topics) and `WEB_SUBTOPICS` array (your 36 subtopics)
+2. Add `WEB_SUBTOPIC_TOPIC_MAP` linking each subtopic index to its parent topic index
+3. Add `WEB_SKILL_SUBTOPIC_MAP` mapping each skill_id directly to a subtopic index (deterministic, no AI needed)
+4. Add domain detection: count how many skills match the web map vs. Python map, pick the one with more matches
+5. For web domain: skip AI subtopic generation entirely -- create topics, then create subtopics from the fixed list, then assign KPs using the deterministic map
+6. Keep Python path unchanged (existing behavior)
 
-### 4. Add timing logs for wave completion
+### After Deployment
 
-File: `src/hooks/useBatchGeneration.ts`
+The function will be deployed and then invoked for graph `df547747-1481-44ba-a936-83793fe349e7` (LKG IO New). The existing UI (HierarchicalMasteryView, Subtopic/Topic graph views) will immediately display the proper hierarchy.
 
-- Add `console.log` with wall-clock time for each wave so you can verify actual speedup
-- Format: `[Turbo] Wave N completed in Xs (Y batches succeeded, Z failed)`
-
-## Expected Performance After Fix
-
-| Metric | Current Turbo | Optimized Turbo |
-|---|---|---|
-| Batch size | 8 | 5 |
-| Concurrency | 3 | 4 |
-| Truncation rate | ~33% of batches | ~0% |
-| Total batches | 41 | 66 |
-| Effective waves | 14 + retries | 17 |
-| Est. time per wave | 2.5 min + retry overhead | 1.5-2 min (smaller batches) |
-| Est. total time | 35-50 min (with retries) | 25-35 min (no retries) |
-
-## Technical Details
-
-### Why Smaller Batches Are Faster Overall
-
-The `generate-graph` edge function requests `max_tokens: 18000` for 8 questions. With complex multi-line coding questions, the AI often runs out of output space, producing truncated JSON that needs:
-- JSON repair logic (string matching, bracket closing)
-- Partial response recovery
-- Sometimes a full sequential retry
-
-5 questions per batch stay well within the token budget, so every batch succeeds on the first attempt. The elimination of retries more than compensates for the extra waves.
-
-### Files Changed
-
-1. `src/hooks/useBatchGeneration.ts` -- constants, retry strategy, timing logs
