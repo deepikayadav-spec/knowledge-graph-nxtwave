@@ -137,10 +137,14 @@ Create a React component that fetches data from an API and displays it in a card
 
 export function QuickQuestionInput({ onGenerate, isLoading, isLandingMode = false, graphId }: QuickQuestionInputProps) {
   const [questionsText, setQuestionsText] = useState('');
+  const [parsedQuestions, setParsedQuestions] = useState<string[]>([]);
   const [isOpen, setIsOpen] = useState(false);
   const [domain, setDomain] = useState<DomainType>('python');
   const [isExtractingPdf, setIsExtractingPdf] = useState(false);
   const [duplicateCheck, setDuplicateCheck] = useState<DuplicateCheck>({ newCount: 0, duplicateCount: 0, isChecking: false });
+
+  const getCurrentQuestions = () =>
+    parsedQuestions.length > 0 ? parsedQuestions : parseQuestionsFromText(questionsText);
   const containerRef = useRef<HTMLDivElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const checkTimeoutRef = useRef<NodeJS.Timeout | null>(null);
@@ -151,7 +155,7 @@ export function QuickQuestionInput({ onGenerate, isLoading, isLandingMode = fals
       clearTimeout(checkTimeoutRef.current);
     }
 
-    const questions = parseQuestionsFromText(questionsText);
+    const questions = getCurrentQuestions();
     
     if (questions.length === 0 || !graphId) {
       setDuplicateCheck({ newCount: 0, duplicateCount: 0, isChecking: false });
@@ -200,16 +204,17 @@ export function QuickQuestionInput({ onGenerate, isLoading, isLandingMode = fals
         clearTimeout(checkTimeoutRef.current);
       }
     };
-  }, [questionsText, graphId]);
+  }, [questionsText, graphId, parsedQuestions]);
 
   const handleSubmit = () => {
     if (!questionsText.trim()) return;
     
-    const questions = parseQuestionsFromText(questionsText);
+    const questions = getCurrentQuestions();
     if (questions.length === 0) return;
     
     onGenerate(questions, domain);
     setQuestionsText('');
+    setParsedQuestions([]);
     setIsOpen(false);
   };
 
@@ -365,6 +370,7 @@ export function QuickQuestionInput({ onGenerate, isLoading, isLandingMode = fals
     });
 
     // Append to existing content
+    setParsedQuestions(prev => [...prev, ...allQuestions]);
     setQuestionsText(prev => {
       const trimmed = prev.trim();
       return trimmed ? trimmed + '\n\n' + allQuestions.join('\n\n') : allQuestions.join('\n\n');
@@ -379,7 +385,7 @@ export function QuickQuestionInput({ onGenerate, isLoading, isLandingMode = fals
     }
   };
 
-  const questionCount = parseQuestionsFromText(questionsText).length;
+  const questionCount = getCurrentQuestions().length;
   const placeholder = domain === 'web' ? WEB_PLACEHOLDER : PYTHON_PLACEHOLDER;
 
   const DomainSelector = ({ compact = false }: { compact?: boolean }) => (
@@ -422,7 +428,7 @@ export function QuickQuestionInput({ onGenerate, isLoading, isLandingMode = fals
           <Textarea
             placeholder={placeholder}
             value={questionsText}
-            onChange={(e) => setQuestionsText(e.target.value)}
+            onChange={(e) => { setQuestionsText(e.target.value); setParsedQuestions([]); }}
             className="min-h-[200px] text-sm resize-none font-mono"
             onKeyDown={handleKeyDown}
           />
@@ -534,7 +540,7 @@ export function QuickQuestionInput({ onGenerate, isLoading, isLandingMode = fals
                 : `Topic: Lists\n\nQuestion:\n...\n\nInput:\n...\n\nOutput:\n...\n\nExplanation:\n...`
               }
               value={questionsText}
-              onChange={(e) => setQuestionsText(e.target.value)}
+              onChange={(e) => { setQuestionsText(e.target.value); setParsedQuestions([]); }}
               className="min-h-[80px] text-sm resize-none font-mono"
               onKeyDown={handleKeyDown}
             />
