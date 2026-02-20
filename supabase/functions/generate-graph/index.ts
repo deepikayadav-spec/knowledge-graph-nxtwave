@@ -1428,134 +1428,168 @@ Generate the knowledge graph JSON.`;
       }
     }
 
+    // Retry the entire AI call if JSON parsing fails (model sometimes outputs malformed JSON)
+    const JSON_PARSE_RETRIES = 3;
     let graphData;
-    try {
-      graphData = extractJsonFromResponse(content);
-      
-      // === PROGRAMMATIC POST-GENERATION NODE FILTER ===
-      // Only apply topic filtering if the domain has a skill topic map
-      if (graphData.globalNodes && Array.isArray(graphData.globalNodes) && topicMap && Object.keys(topicMap).length > 0 && Object.keys(config.skillTopicMap).length > 0) {
-        let maxTopicPosition = 0;
-        for (const topic of Object.values(topicMap)) {
-          const pos = getCurriculumPosition(topic as string, config);
-          if (pos > maxTopicPosition) maxTopicPosition = pos;
+    
+    for (let parseAttempt = 1; parseAttempt <= JSON_PARSE_RETRIES; parseAttempt++) {
+      try {
+        graphData = extractJsonFromResponse(content);
+        break; // success
+      } catch (parseError) {
+        console.error(`[IPA/LTA] JSON extraction error (attempt ${parseAttempt}/${JSON_PARSE_RETRIES}):`, parseError);
+        
+        if (parseAttempt >= JSON_PARSE_RETRIES) {
+          return new Response(
+            JSON.stringify({ error: "AI returned malformed JSON after multiple attempts. Please try again." }),
+            { status: 502, headers: { ...corsHeaders, "Content-Type": "application/json" } }
+          );
         }
         
-        if (maxTopicPosition > 0) {
-          const removedNodes = new Set<string>();
-          graphData.globalNodes = graphData.globalNodes.filter((node: { id: string }) => {
-            const allowedTopic = config.skillTopicMap[node.id];
-            if (allowedTopic !== undefined && allowedTopic > maxTopicPosition) {
-              console.warn(`[IPA/LTA] Topic filter: removed node "${node.id}" (topic ${allowedTopic}) — exceeds max topic position ${maxTopicPosition}`);
-              removedNodes.add(node.id);
+        // Re-call the AI to get a fresh response
+        console.log(`[IPA/LTA] Re-requesting AI response due to malformed JSON...`);
+        const retryResponse = await fetch("https://generativelanguage.googleapis.com/v1beta/openai/chat/completions", {
+          method: "POST",
+          headers: {
+            "Authorization": `Bearer ${GEMINI_API_KEY}`,
+            "Content-Type": "application/json",
+          },
+          body: JSON.stringify({
+            model,
+            messages: [
+              { role: "system", content: fullSystemPrompt },
+              { role: "user", content: userPrompt },
+            ],
+            max_tokens: maxTokens,
+            temperature: 0.2,
+          }),
+        });
+        
+        if (!retryResponse.ok) {
+          console.error(`[IPA/LTA] Retry AI call failed: ${retryResponse.status}`);
+          continue;
+        }
+        
+        const retryData = await retryResponse.json();
+        content = retryData.choices?.[0]?.message?.content;
+        if (!content || content.trim() === '') {
+          console.warn(`[IPA/LTA] Retry returned empty content`);
+          continue;
+        }
+      }
+    }
+
+    // === PROGRAMMATIC POST-GENERATION NODE FILTER ===
+    // Only apply topic filtering if the domain has a skill topic map
+    if (graphData.globalNodes && Array.isArray(graphData.globalNodes) && topicMap && Object.keys(topicMap).length > 0 && Object.keys(config.skillTopicMap).length > 0) {
+      let maxTopicPosition = 0;
+      for (const topic of Object.values(topicMap)) {
+        const pos = getCurriculumPosition(topic as string, config);
+        if (pos > maxTopicPosition) maxTopicPosition = pos;
+      }
+      
+      if (maxTopicPosition > 0) {
+        const removedNodes = new Set<string>();
+        graphData.globalNodes = graphData.globalNodes.filter((node: { id: string }) => {
+          const allowedTopic = config.skillTopicMap[node.id];
+          if (allowedTopic !== undefined && allowedTopic > maxTopicPosition) {
+            console.warn(`[IPA/LTA] Topic filter: removed node "${node.id}" (topic ${allowedTopic}) — exceeds max topic position ${maxTopicPosition}`);
+            removedNodes.add(node.id);
+            return false;
+          }
+          return true;
+        });
+        
+        if (removedNodes.size > 0 && graphData.edges && Array.isArray(graphData.edges)) {
+          graphData.edges = graphData.edges.filter((e: { from: string; to: string }) => {
+            if (removedNodes.has(e.from) || removedNodes.has(e.to)) {
+              console.warn(`[IPA/LTA] Topic filter: removed edge ${e.from} -> ${e.to}`);
               return false;
             }
             return true;
           });
-          
-          if (removedNodes.size > 0 && graphData.edges && Array.isArray(graphData.edges)) {
-            graphData.edges = graphData.edges.filter((e: { from: string; to: string }) => {
-              if (removedNodes.has(e.from) || removedNodes.has(e.to)) {
-                console.warn(`[IPA/LTA] Topic filter: removed edge ${e.from} -> ${e.to}`);
-                return false;
+        }
+        
+        if (removedNodes.size > 0 && graphData.questionPaths) {
+          for (const [question, path] of Object.entries(graphData.questionPaths)) {
+            if (Array.isArray(path)) {
+              graphData.questionPaths[question] = (path as string[]).filter((id: string) => !removedNodes.has(id));
+            } else {
+              const p = path as any;
+              if (p.requiredNodes) p.requiredNodes = p.requiredNodes.filter((id: string) => !removedNodes.has(id));
+              if (p.executionOrder) p.executionOrder = p.executionOrder.filter((id: string) => !removedNodes.has(id));
+              if (p.skillWeights) {
+                for (const id of removedNodes) delete p.skillWeights[id];
               }
-              return true;
-            });
-          }
-          
-          if (removedNodes.size > 0 && graphData.questionPaths) {
-            for (const [question, path] of Object.entries(graphData.questionPaths)) {
-              if (Array.isArray(path)) {
-                graphData.questionPaths[question] = (path as string[]).filter((id: string) => !removedNodes.has(id));
-              } else {
-                const p = path as any;
-                if (p.requiredNodes) p.requiredNodes = p.requiredNodes.filter((id: string) => !removedNodes.has(id));
-                if (p.executionOrder) p.executionOrder = p.executionOrder.filter((id: string) => !removedNodes.has(id));
-                if (p.skillWeights) {
-                  for (const id of removedNodes) delete p.skillWeights[id];
-                }
-                if (p.primarySkills) p.primarySkills = p.primarySkills.filter((id: string) => !removedNodes.has(id));
-              }
+              if (p.primarySkills) p.primarySkills = p.primarySkills.filter((id: string) => !removedNodes.has(id));
             }
           }
-          
-          console.log(`[IPA/LTA] Topic filter: removed ${removedNodes.size} out-of-sequence nodes (max topic: ${maxTopicPosition})`);
         }
+        
+        console.log(`[IPA/LTA] Topic filter: removed ${removedNodes.size} out-of-sequence nodes (max topic: ${maxTopicPosition})`);
       }
-      
-      // === INDEPENDENCE RULE ENFORCEMENT ===
-      if (graphData.edges && Array.isArray(graphData.edges)) {
-        const beforeIndep = graphData.edges.length;
-        graphData.edges = graphData.edges.filter((e: { from: string; to: string }) => {
-          if (config.independentFoundational.has(e.to)) {
-            console.warn(`[IPA/LTA] Independence rule: removed edge ${e.from} -> ${e.to} (target is foundational)`);
-            return false;
+    }
+    
+    // === INDEPENDENCE RULE ENFORCEMENT ===
+    if (graphData.edges && Array.isArray(graphData.edges)) {
+      const beforeIndep = graphData.edges.length;
+      graphData.edges = graphData.edges.filter((e: { from: string; to: string }) => {
+        if (config.independentFoundational.has(e.to)) {
+          console.warn(`[IPA/LTA] Independence rule: removed edge ${e.from} -> ${e.to} (target is foundational)`);
+          return false;
+        }
+        return true;
+      });
+      if (graphData.edges.length < beforeIndep) {
+        console.log(`[IPA/LTA] Independence rule: removed ${beforeIndep - graphData.edges.length} edges pointing into foundational skills`);
+      }
+    }
+    
+    // Inject mandatory edges
+    if (graphData.globalNodes && Array.isArray(graphData.globalNodes) && graphData.edges && Array.isArray(graphData.edges)) {
+      const allNodesForInjection = [...graphData.globalNodes];
+      if (existingNodes) {
+        for (const en of existingNodes) {
+          if (!allNodesForInjection.some((n: { id: string }) => n.id === en.id)) {
+            allNodesForInjection.push(en as any);
           }
-          return true;
-        });
-        if (graphData.edges.length < beforeIndep) {
-          console.log(`[IPA/LTA] Independence rule: removed ${beforeIndep - graphData.edges.length} edges pointing into foundational skills`);
         }
       }
-      
-      // Inject mandatory edges
-      if (graphData.globalNodes && Array.isArray(graphData.globalNodes) && graphData.edges && Array.isArray(graphData.edges)) {
-        const allNodesForInjection = [...graphData.globalNodes];
+      graphData.edges = injectMandatoryEdges(allNodesForInjection, graphData.edges, config);
+    }
+
+    // Post-processing: strip bidirectional edges to enforce DAG
+    if (graphData.edges && Array.isArray(graphData.edges)) {
+      const edgeSet = new Set<string>();
+      graphData.edges = graphData.edges.filter((edge: { from: string; to: string }) => {
+        const key = `${edge.from}:${edge.to}`;
+        const reverseKey = `${edge.to}:${edge.from}`;
+        if (edgeSet.has(key) || edgeSet.has(reverseKey) || edge.from === edge.to) {
+          console.warn(`[IPA/LTA] Stripped cycle/duplicate edge: ${edge.from} -> ${edge.to}`);
+          return false;
+        }
+        edgeSet.add(key);
+        return true;
+      });
+
+      graphData.edges = transitiveReduce(graphData.edges);
+      graphData.edges = breakCycles(graphData.edges);
+
+      if (graphData.globalNodes && Array.isArray(graphData.globalNodes)) {
+        const nodeIds = new Set(graphData.globalNodes.map((n: { id: string }) => n.id));
         if (existingNodes) {
-          for (const en of existingNodes) {
-            if (!allNodesForInjection.some((n: { id: string }) => n.id === en.id)) {
-              allNodesForInjection.push(en as any);
-            }
-          }
+          for (const en of existingNodes) nodeIds.add(en.id);
         }
-        graphData.edges = injectMandatoryEdges(allNodesForInjection, graphData.edges, config);
-      }
-
-      // Post-processing: strip bidirectional edges to enforce DAG
-      if (graphData.edges && Array.isArray(graphData.edges)) {
-        const edgeSet = new Set<string>();
-        graphData.edges = graphData.edges.filter((edge: { from: string; to: string }) => {
-          const key = `${edge.from}:${edge.to}`;
-          const reverseKey = `${edge.to}:${edge.from}`;
-          if (edgeSet.has(key) || edgeSet.has(reverseKey) || edge.from === edge.to) {
-            console.warn(`[IPA/LTA] Stripped cycle/duplicate edge: ${edge.from} -> ${edge.to}`);
-            return false;
-          }
-          edgeSet.add(key);
-          return true;
-        });
-
-        graphData.edges = transitiveReduce(graphData.edges);
-        graphData.edges = breakCycles(graphData.edges);
-
-        if (graphData.globalNodes && Array.isArray(graphData.globalNodes)) {
-          const nodeIds = new Set(graphData.globalNodes.map((n: { id: string }) => n.id));
-          if (existingNodes) {
-            for (const en of existingNodes) nodeIds.add(en.id);
-          }
-          const beforeOrphan = graphData.edges.length;
-          graphData.edges = graphData.edges.filter((e: { from: string; to: string }) => 
-            nodeIds.has(e.from) && nodeIds.has(e.to)
-          );
-          if (graphData.edges.length < beforeOrphan) {
-            console.warn(`[IPA/LTA] Orphan cleanup: removed ${beforeOrphan - graphData.edges.length} dangling edges`);
-          }
-
-          recomputeLevels(graphData.globalNodes, graphData.edges);
+        const beforeOrphan = graphData.edges.length;
+        graphData.edges = graphData.edges.filter((e: { from: string; to: string }) => 
+          nodeIds.has(e.from) && nodeIds.has(e.to)
+        );
+        if (graphData.edges.length < beforeOrphan) {
+          console.warn(`[IPA/LTA] Orphan cleanup: removed ${beforeOrphan - graphData.edges.length} dangling edges`);
         }
-      }
-    } catch (parseError) {
-      console.error("[IPA/LTA] JSON extraction error:", parseError);
 
-      const msg = parseError instanceof Error ? parseError.message : String(parseError);
-      if (msg.toLowerCase().includes("truncated")) {
-        return new Response(JSON.stringify({ error: msg }), {
-          status: 413,
-          headers: { ...corsHeaders, "Content-Type": "application/json" },
-        });
+        recomputeLevels(graphData.globalNodes, graphData.edges);
       }
-
-      throw parseError;
     }
 
     const nodeCount = graphData.globalNodes?.length || 0;
