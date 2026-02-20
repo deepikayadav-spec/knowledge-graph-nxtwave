@@ -302,6 +302,7 @@ export function QuickQuestionInput({ onGenerate, isLoading, isLandingMode = fals
                 result += `Topic: ${q.topic}\n\n`;
               }
 
+              result += 'Question:\n';
               result += content;
 
               // Append test cases so IPA/LTA can analyze them
