@@ -985,7 +985,7 @@ function calculateMaxTokens(questionCount: number, isIncremental: boolean, exist
   const baseOverhead = 6000;
   const incrementalOverhead = isIncremental ? 3000 + (existingNodeCount * 50) : 0;
   const estimated = baseOverhead + incrementalOverhead + (questionCount * tokensPerQuestion);
-  const maxTokens = Math.min(Math.max(estimated, 16000), 40000);
+  const maxTokens = Math.min(Math.max(estimated, 16000), 65536);
   console.log(`[IPA/LTA] Calculated max_tokens: ${maxTokens} for ${questionCount} questions (existing nodes: ${existingNodeCount})`);
   return maxTokens;
 }
