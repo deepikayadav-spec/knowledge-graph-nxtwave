@@ -25,18 +25,22 @@ export function extractCoreQuestion(fullBlock: string): string {
   
   // If we found "Question" header, get the next non-header line
   if (questionStartIdx >= 0 && questionStartIdx < lines.length) {
-    // Find the question text (before Input/Output/Explanation)
+    // Collect all content lines before section headers
+    const contentLines: string[] = [];
     for (let i = questionStartIdx; i < lines.length; i++) {
       const line = lines[i];
-      // Stop at section headers
       if (/^(Input|Output|Explanation|Test Cases)\s*:?\s*$/i.test(line)) break;
-      if (line.length > 0) return line.toLowerCase();
+      if (line.length > 0) contentLines.push(line);
+    }
+    if (contentLines.length > 0) {
+      return contentLines.join(' ').toLowerCase().substring(0, 500);
     }
   }
   
-  // Fallback for plain text questions (no headers)
-  // Return first non-empty line that isn't a header
-  return lines.find(l => 
-    !/^(Question|Input|Output|Explanation|Test Cases)\s*:?\s*$/i.test(l)
-  )?.toLowerCase() || fullBlock.trim().toLowerCase();
+  // Fallback: collect all non-header lines
+  const contentLines = lines.filter(l =>
+    !/^(Question|Input|Output|Explanation|Test Cases|Topic)\s*:?\s*$/i.test(l)
+  );
+  return contentLines.join(' ').toLowerCase().substring(0, 500)
+    || fullBlock.trim().toLowerCase();
 }
