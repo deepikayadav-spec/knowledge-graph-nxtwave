@@ -14,9 +14,14 @@ export interface StudentAttempt {
   studentId: string;
   questionId: string;
   isCorrect: boolean;
-  solutionScore: number;           // 0-1, replaces binary correct/wrong for calculations
+  solutionScore: number;           // 0-1, legacy field kept for backward compat
   independenceLevel: IndependenceLevel;
   attemptedAt: Date;
+  // New granular independence inputs
+  solutionViewed?: boolean;
+  aiTutorCount?: number;
+  totalSubmissions?: number;
+  independenceScore?: number;      // Computed from the 3 inputs above
 }
 
 // Knowledge Point mastery for a student

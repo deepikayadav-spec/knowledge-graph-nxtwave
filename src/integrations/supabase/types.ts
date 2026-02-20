@@ -335,37 +335,49 @@ export type Database = {
       }
       student_attempts: {
         Row: {
+          ai_tutor_count: number
           attempted_at: string
           class_id: string | null
           graph_id: string
           id: string
           independence_level: string
+          independence_score: number
           is_correct: boolean
           question_id: string
           solution_score: number
+          solution_viewed: boolean
           student_id: string
+          total_submissions: number
         }
         Insert: {
+          ai_tutor_count?: number
           attempted_at?: string
           class_id?: string | null
           graph_id: string
           id?: string
           independence_level: string
+          independence_score?: number
           is_correct: boolean
           question_id: string
           solution_score?: number
+          solution_viewed?: boolean
           student_id: string
+          total_submissions?: number
         }
         Update: {
+          ai_tutor_count?: number
           attempted_at?: string
           class_id?: string | null
           graph_id?: string
           id?: string
           independence_level?: string
+          independence_score?: number
           is_correct?: boolean
           question_id?: string
           solution_score?: number
+          solution_viewed?: boolean
           student_id?: string
+          total_submissions?: number
         }
         Relationships: [
           {
@@ -434,6 +446,54 @@ export type Database = {
             columns: ["graph_id"]
             isOneToOne: false
             referencedRelation: "knowledge_graphs"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      topic_score_ranges: {
+        Row: {
+          graph_id: string
+          id: string
+          max_score: number
+          min_score: number
+          topic_id: string
+          topic_name: string
+          unique_questions: number
+          updated_at: string
+        }
+        Insert: {
+          graph_id: string
+          id?: string
+          max_score?: number
+          min_score?: number
+          topic_id: string
+          topic_name: string
+          unique_questions?: number
+          updated_at?: string
+        }
+        Update: {
+          graph_id?: string
+          id?: string
+          max_score?: number
+          min_score?: number
+          topic_id?: string
+          topic_name?: string
+          unique_questions?: number
+          updated_at?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "topic_score_ranges_graph_id_fkey"
+            columns: ["graph_id"]
+            isOneToOne: false
+            referencedRelation: "knowledge_graphs"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "topic_score_ranges_topic_id_fkey"
+            columns: ["topic_id"]
+            isOneToOne: false
+            referencedRelation: "skill_topics"
             referencedColumns: ["id"]
           },
         ]

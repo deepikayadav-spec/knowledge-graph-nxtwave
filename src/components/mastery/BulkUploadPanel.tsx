@@ -7,6 +7,7 @@ import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { useToast } from '@/hooks/use-toast';
 import { Upload, FileText, AlertCircle, CheckCircle2 } from 'lucide-react';
 import { calculateAndPersistMastery, buildQuestionsMap } from '@/lib/mastery/persistMastery';
+import { calculateIndependenceScore } from '@/lib/mastery/constants';
 import type { BulkUploadRow, BulkUploadValidation, IndependenceLevel, StudentAttempt } from '@/types/mastery';
 
 interface BulkUploadPanelProps {
@@ -20,11 +21,10 @@ const EXPECTED_COLUMNS = [
   'student_name',
   'question_text',
   'is_correct',
-  'independence_level',
   'attempted_at',
 ];
 
-const OPTIONAL_COLUMNS = ['solution_score'];
+const OPTIONAL_COLUMNS = ['solution_viewed', 'ai_tutor_count', 'total_submissions', 'independence_level', 'solution_score'];
 
 const INDEPENDENCE_LEVEL_MAP: Record<string, IndependenceLevel> = {
   independent: 'independent',
@@ -91,6 +91,10 @@ function validateAndParse(
   });
 
   // Check for optional columns
+  const solutionViewedIdx = header.indexOf('solution_viewed');
+  const aiTutorCountIdx = header.indexOf('ai_tutor_count');
+  const totalSubmissionsIdx = header.indexOf('total_submissions');
+  const independenceLevelIdx = header.indexOf('independence_level');
   const solutionScoreIdx = header.indexOf('solution_score');
 
   if (!result.valid) return result;
@@ -104,21 +108,44 @@ function validateAndParse(
     const studentName = row[columnIndices['student_name']]?.trim();
     const questionText = row[columnIndices['question_text']]?.trim();
     const isCorrectStr = row[columnIndices['is_correct']]?.trim().toLowerCase();
-    const independenceLevelStr = row[columnIndices['independence_level']]?.trim().toLowerCase();
     const attemptedAtStr = row[columnIndices['attempted_at']]?.trim();
 
-    // Parse optional solution_score (0-100 in CSV, converted to 0-1)
-    let solutionScore = 1.0; // Default: full score (backward compat)
-    if (solutionScoreIdx !== -1 && row[solutionScoreIdx]) {
-      const parsed = parseFloat(row[solutionScoreIdx].trim());
-      if (!isNaN(parsed)) {
-        solutionScore = Math.max(0, Math.min(100, parsed)) / 100;
-      }
-    } else {
-      // Derive from is_correct if no solution_score column
-      const isCorrect = isCorrectStr === 'true' || isCorrectStr === '1' || isCorrectStr === 'yes';
-      solutionScore = isCorrect ? 1.0 : 0.0;
+    // Parse optional granular independence fields
+    let solutionViewed = false;
+    let aiTutorCount = 0;
+    let totalSubmissions = 1;
+
+    if (solutionViewedIdx !== -1 && row[solutionViewedIdx]) {
+      const v = row[solutionViewedIdx].trim().toLowerCase();
+      solutionViewed = v === 'true' || v === '1' || v === 'yes';
     }
+    if (aiTutorCountIdx !== -1 && row[aiTutorCountIdx]) {
+      const parsed = parseInt(row[aiTutorCountIdx].trim());
+      if (!isNaN(parsed)) aiTutorCount = Math.max(0, parsed);
+    }
+    if (totalSubmissionsIdx !== -1 && row[totalSubmissionsIdx]) {
+      const parsed = parseInt(row[totalSubmissionsIdx].trim());
+      if (!isNaN(parsed)) totalSubmissions = Math.max(0, parsed);
+    }
+
+    // Compute independence score from granular inputs
+    const independenceScore = calculateIndependenceScore(solutionViewed, aiTutorCount, totalSubmissions);
+
+    // Derive independence level for backward compat
+    let independenceLevel: IndependenceLevel = 'independent';
+    if (independenceLevelIdx !== -1 && row[independenceLevelIdx]) {
+      const mapped = INDEPENDENCE_LEVEL_MAP[row[independenceLevelIdx].trim().toLowerCase()];
+      if (mapped) independenceLevel = mapped;
+    } else {
+      // Derive from granular inputs
+      if (solutionViewed) independenceLevel = 'solution_driven';
+      else if (aiTutorCount >= 3) independenceLevel = 'heavily_assisted';
+      else if (aiTutorCount >= 1) independenceLevel = 'lightly_scaffolded';
+    }
+
+    // Binary scoring: solution_score derived from is_correct
+    const isCorrect = isCorrectStr === 'true' || isCorrectStr === '1' || isCorrectStr === 'yes';
+    const solutionScore = isCorrect ? 1.0 : 0.0;
 
     // Validate student_id
     if (!studentId) {
@@ -156,25 +183,12 @@ function validateAndParse(
         row: i + 1, 
         message: `Question not found in graph: "${questionText.substring(0, 50)}..."` 
       });
-      continue; // Skip but don't fail
-    }
-
-    // Validate is_correct
-    const isCorrect = isCorrectStr === 'true' || isCorrectStr === '1' || isCorrectStr === 'yes';
-    if (!['true', 'false', '1', '0', 'yes', 'no'].includes(isCorrectStr)) {
-      result.errors.push({ row: i + 1, field: 'is_correct', message: `Invalid value: ${isCorrectStr}` });
-      result.valid = false;
       continue;
     }
 
-    // Validate independence_level
-    const independenceLevel = INDEPENDENCE_LEVEL_MAP[independenceLevelStr];
-    if (!independenceLevel) {
-      result.errors.push({ 
-        row: i + 1, 
-        field: 'independence_level', 
-        message: `Invalid value: ${independenceLevelStr}. Use: independent, lightly_scaffolded, heavily_assisted, or solution_driven` 
-      });
+    // Validate is_correct
+    if (!['true', 'false', '1', '0', 'yes', 'no'].includes(isCorrectStr)) {
+      result.errors.push({ row: i + 1, field: 'is_correct', message: `Invalid value: ${isCorrectStr}` });
       result.valid = false;
       continue;
     }
@@ -406,10 +420,10 @@ export function BulkUploadPanel({
             />
           </label>
           <p className="text-xs text-muted-foreground mt-2">
-            Required: student_id, student_name, question_text, is_correct, independence_level, attempted_at
+            Required: student_id, student_name, question_text, is_correct, attempted_at
           </p>
           <p className="text-xs text-muted-foreground">
-            Optional: solution_score (0-100, defaults to 100 if correct / 0 if wrong)
+            Optional: solution_viewed, ai_tutor_count, total_submissions
           </p>
         </div>
 

@@ -93,3 +93,42 @@ export const CODING_RUBRIC_DIMENSIONS: RubricDimension[] = [
 ];
 
 export const CODING_RUBRIC_TOTAL = 10;
+
+/**
+ * Calculate independence score based on granular inputs.
+ * 
+ * Rules:
+ * - Solution viewed → Solution-Driven (0.1-0.3)
+ * - Not viewed, no AI tutor → Independent (1.0)
+ * - Not viewed, 1-2 AI tutor uses → Lightly Scaffolded (0.6-0.8)
+ * - Not viewed, 3+ AI tutor uses → Heavily Scaffolded (0.3-0.5)
+ */
+export function calculateIndependenceScore(
+  solutionViewed: boolean,
+  aiTutorCount: number,
+  totalSubmissions: number
+): number {
+  if (solutionViewed) {
+    // Solution-Driven
+    if (totalSubmissions <= 1) return 0.1;
+    if (totalSubmissions <= 4) return 0.2;
+    return 0.3;
+  }
+
+  if (aiTutorCount === 0) {
+    // Independent
+    return 1.0;
+  }
+
+  if (aiTutorCount <= 2) {
+    // Lightly Scaffolded
+    if (totalSubmissions <= 1) return 0.6;
+    if (totalSubmissions <= 4) return 0.7;
+    return 0.8;
+  }
+
+  // Heavily Scaffolded (ai_tutor_count >= 3)
+  if (totalSubmissions <= 1) return 0.3;
+  if (totalSubmissions <= 4) return 0.4;
+  return 0.5;
+}
