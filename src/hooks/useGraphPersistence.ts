@@ -64,14 +64,19 @@ export function useGraphPersistence() {
 
       if (existingId) {
         // Update existing graph
+        const updatePayload: any = {
+          name,
+          description: description || null,
+          total_skills: skillCount,
+        };
+        // Only update total_questions if the in-memory graph actually has questions
+        if (questionCount > 0) {
+          updatePayload.total_questions = questionCount;
+        }
+
         const { error: updateError } = await supabase
           .from('knowledge_graphs')
-          .update({
-            name,
-            description: description || null,
-            total_skills: skillCount,
-            total_questions: questionCount,
-          })
+          .update(updatePayload)
           .eq('id', existingId);
 
         if (updateError) throw updateError;
@@ -87,12 +92,22 @@ export function useGraphPersistence() {
           if (s.subtopic_id) subtopicMap.set(s.skill_id, s.subtopic_id);
         });
 
-        // Delete existing skills, edges, and questions for this graph
-        await Promise.all([
-          supabase.from('skills').delete().eq('graph_id', existingId),
-          supabase.from('skill_edges').delete().eq('graph_id', existingId),
-          supabase.from('questions').delete().eq('graph_id', existingId),
-        ]);
+        // Delete existing skills (always re-inserted with subtopic restoration)
+        const deleteOps = [
+          supabase.from('skills').delete().eq('graph_id', existingId).then(),
+        ];
+
+        // Only delete edges if graph has edges to re-insert
+        if (graph.edges.length > 0) {
+          deleteOps.push(supabase.from('skill_edges').delete().eq('graph_id', existingId).then());
+        }
+
+        // Only delete questions if graph has questions to re-insert
+        if (Object.keys(graph.questionPaths || {}).length > 0) {
+          deleteOps.push(supabase.from('questions').delete().eq('graph_id', existingId).then());
+        }
+
+        await Promise.all(deleteOps);
       } else {
         // Create new graph
         const { data: newGraph, error: createError } = await supabase
