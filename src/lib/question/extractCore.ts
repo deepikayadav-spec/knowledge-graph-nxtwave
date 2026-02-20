@@ -4,8 +4,15 @@
  * comes from the database (plain) or a file import (with headers).
  */
 export function extractCoreQuestion(fullBlock: string): string {
-  // Strip HTML tags first (database often stores <br/> tags)
-  const cleaned = fullBlock.replace(/<br\s*\/?>/gi, '\n');
+  // Strip ALL HTML tags and decode entities for consistent fingerprinting
+  let cleaned = fullBlock.replace(/<br\s*\/?>/gi, '\n');
+  cleaned = cleaned.replace(/<[^>]+>/gi, ' ');
+  cleaned = cleaned.replace(/&nbsp;/gi, ' ');
+  cleaned = cleaned.replace(/&amp;/gi, '&');
+  cleaned = cleaned.replace(/&lt;/gi, '<');
+  cleaned = cleaned.replace(/&gt;/gi, '>');
+  cleaned = cleaned.replace(/&quot;/gi, '"');
+  cleaned = cleaned.replace(/&#(\d+);/g, (_, n) => String.fromCharCode(Number(n)));
   const lines = cleaned.split('\n').map(l => l.trim()).filter(l => l);
 
   const contentLines: string[] = [];
