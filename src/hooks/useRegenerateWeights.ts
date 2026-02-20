@@ -66,7 +66,7 @@ export function useRegenerateWeights(): UseRegenerateWeightsReturn {
         batches.push(questions.slice(i, i + AI_BATCH_SIZE));
       }
 
-      const allResults: Record<string, { primarySkills: string[]; skillWeights: Record<string, number> }> = {};
+      const allResults: Record<string, { skillWeights: Record<string, number> }> = {};
       let failedBatches = 0;
       let lastError = '';
 
@@ -166,7 +166,6 @@ export function useRegenerateWeights(): UseRegenerateWeightsReturn {
             supabase
               .from('questions')
               .update({
-                primary_skills: weights.primarySkills?.slice(0, 2) || [],
                 skill_weights: weights.skillWeights || {},
               })
               .eq('id', questionId)
@@ -208,7 +207,7 @@ export function useRegenerateWeights(): UseRegenerateWeightsReturn {
 
       toast({
         title: 'Weights regenerated',
-        description: `Updated primary skills and weights for ${updated} questions${skippedMsg}${errorMsg}.`,
+        description: `Updated weights for ${updated} questions${skippedMsg}${errorMsg}.`,
       });
 
       setTimeout(() => {

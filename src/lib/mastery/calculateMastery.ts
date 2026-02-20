@@ -52,10 +52,9 @@ export function processAttempt(
   question: QuestionWithWeights,
   currentMastery: Map<string, KPMastery>
 ): Map<string, KPMastery> {
-  // Get weights (AI-generated or calculated defaults)
+  // Get weights (AI-generated or equal split)
   const weights = mergeWeights(
     question.skills,
-    question.primarySkills,
     question.skillWeights
   );
   
