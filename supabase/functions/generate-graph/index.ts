@@ -1329,6 +1329,13 @@ Generate the knowledge graph JSON.`;
           console.error(`[IPA/LTA] AI attempt ${attempt}/${MAX_RETRIES} failed:`, response.status, JSON.stringify(errorData));
 
           if (response.status === 429) {
+            if (attempt < MAX_RETRIES) {
+              const retryAfter = response.headers.get('Retry-After');
+              const waitMs = retryAfter ? parseInt(retryAfter) * 1000 : Math.pow(2, attempt) * 10000;
+              console.log(`[IPA/LTA] Rate limited (429). Waiting ${waitMs / 1000}s before retry ${attempt + 1}/${MAX_RETRIES}...`);
+              await new Promise(r => setTimeout(r, waitMs));
+              continue;
+            }
             return new Response(JSON.stringify({ error: "Too many requests. Please wait a moment and try again." }), {
               status: 429, headers: { ...corsHeaders, "Content-Type": "application/json" },
             });
