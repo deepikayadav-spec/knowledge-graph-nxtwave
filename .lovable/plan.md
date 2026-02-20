@@ -1,64 +1,38 @@
 
 
-# Restore Edges for LKG IO New (No Re-import Needed)
+# Switch All Edge Functions from Lovable AI Gateway to Direct Gemini API
 
-## Approach
+## What's changing
 
-Your 51 KPs are intact. We can generate edges in two steps:
+All 6 edge functions currently call `https://ai.gateway.lovable.dev/v1/chat/completions` with `LOVABLE_API_KEY`. We'll switch them to call `https://generativelanguage.googleapis.com/v1beta/openai/chat/completions` with your existing `GEMINI_API_KEY` instead.
 
-### Step 1: Insert Mandatory Edges Directly via SQL
+The Gemini API supports OpenAI-compatible endpoints, so the request/response format stays the same -- only the URL and auth header change.
 
-The WEB_CONFIG already defines 33 mandatory prerequisite edges. Of those, the following match your existing 51 skills (both `from` and `to` exist):
+## Affected Functions
 
-| From | To | Reason |
-|------|-----|--------|
-| html_elements | html_forms | forms use HTML elements |
-| html_elements | html_semantic_elements | semantic elements build on basic elements |
-| html_attributes | html_forms | forms require attribute knowledge |
-| css_selectors | css_properties | applying properties requires selectors |
-| css_properties | css_box_model | box model uses CSS properties |
-| css_box_model | css_flexbox | flexbox builds on box model |
-| css_box_model | css_grid | grid builds on box model |
-| css_properties | css_positioning | positioning uses CSS properties |
-| css_flexbox | css_responsive_design | responsive design uses flexbox |
-| css_media_queries | css_responsive_design | responsive design uses media queries |
-| js_variables | js_conditionals | conditionals operate on variables |
-| js_variables | js_loops | loops operate on variables |
-| js_variables | js_functions | functions use variables |
-| js_conditionals | js_loops | loops use conditional logic |
-| js_functions | js_dom_manipulation | DOM manipulation uses functions |
-| js_dom_manipulation | js_event_handling | event handling requires DOM access |
-| js_functions | js_async_await | async/await uses function concepts |
-| js_promises | js_async_await | async/await is sugar for promises |
-| js_async_await | js_fetch_api | fetch API uses async/await |
-| js_functions | js_classes | classes use function concepts |
-| js_objects | js_classes | classes are object blueprints |
-| html_elements | react_jsx | JSX builds on HTML knowledge |
-| js_functions | react_components | React components are functions |
-| react_components | react_state | state requires component knowledge |
-| react_components | react_props | props require component knowledge |
-| react_state | react_routing | routing works with state (via react_effects) |
-| js_fetch_api | ai_api_integration | AI API integration uses fetch |
-| ai_prompt_engineering | ai_workflow_design | workflow design builds on prompts |
-| ai_api_integration | ai_workflow_design | workflow design chains API calls |
+| Function | Models Used |
+|----------|------------|
+| generate-graph | gemini-2.5-flash |
+| analyze-difficulty | gemini-2.5-flash |
+| regenerate-weights | gemini-2.5-flash |
+| auto-group-skills | gemini-2.5-flash |
+| classify-questions | gemini-2.5-flash-lite |
+| extract-questions | gemini-2.5-flash |
 
-That gives ~29 edges from mandatory rules alone.
+## Changes per function (identical pattern)
 
-### Step 2: Add Additional Logical Edges via SQL
+In each file, two things change:
 
-For the remaining skills not covered by mandatory edges (css_specificity, css_transforms, css_utility_frameworks, js_arrays, js_browser_storage, js_closures, js_constructor_functions, js_date_object_manipulation, js_error_handling, js_in_place_manipulation, js_loop_control_statements, js_modules, js_operators, js_recursion, js_string_methods, js_timed_events, nested_iteration, react_context_api, react_lists_keys, react_protected_routes, react_routing), I will add logical prerequisite edges following the curriculum sequence and tier hierarchy.
+1. **API URL**: `https://ai.gateway.lovable.dev/v1/chat/completions` becomes `https://generativelanguage.googleapis.com/v1beta/openai/chat/completions`
 
-This brings us to roughly 60-70 edges total (~1.2-1.4 per node), which is a solid starting point.
+2. **Auth key**: `LOVABLE_API_KEY` becomes `GEMINI_API_KEY`
 
-### Step 3: Recompute Levels
+3. **Model names**: Strip the `google/` prefix (e.g. `google/gemini-2.5-flash` becomes `gemini-2.5-flash`, `google/gemini-2.5-flash-lite` becomes `gemini-2.5-flash-lite`)
 
-After inserting edges, trigger a level recomputation so nodes are positioned correctly on the graph based on their prerequisite depth.
+No other logic changes. Error handling for 402/429 remains as-is since Gemini also returns these codes.
 
-## Implementation
+## Technical Details
 
-All done via a single SQL INSERT into `skill_edges` -- no edge function call needed, no questions required. The edges are deterministic based on the curriculum structure and skill relationships.
-
-### File Changes: None
-
-This is purely a database operation -- inserting rows into `skill_edges` for graph_id `df547747-1481-44ba-a936-83793fe349e7`.
-
+- The Gemini OpenAI-compatible endpoint accepts the same `messages`, `temperature`, `max_tokens` payload format
+- Your `GEMINI_API_KEY` secret is already configured in the backend
+- All 6 function files will be updated and redeployed automatically
