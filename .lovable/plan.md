@@ -1,83 +1,64 @@
 
-# Fix: Preserve Groupings and Score Ranges Across Graph Saves
 
-## Root Cause
+# Urgent: Fix Autosave Destroying Edges/Questions + Prevent Future Loss
 
-The `saveGraph` function in `useGraphPersistence.ts` performs a destructive **delete-all + re-insert** cycle for skills every time the graph is saved (including autosave every 30 seconds):
+## Current Situation
 
-```
-// Line 78-83: This destroys subtopic_id on every save!
-await supabase.from('skills').delete().eq('graph_id', existingId);
-// ... then re-inserts skills WITHOUT subtopic_id
-```
+- **"LKG IO New"** has 51 skills, **0 edges, 0 questions** in the database
+- The 224 questions and all edges were permanently deleted by the autosave
+- There is no database backup to restore from -- the data must be re-imported
 
-The newly inserted skills have `subtopic_id = null`, which erases the grouping assignments. The topics and subtopics still exist in the database, but no skills point to them anymore. This is why you see empty groupings on reload.
+## Root Cause (lines 90-95 of useGraphPersistence.ts)
 
-## Fix Strategy
+Every save (including autosave every 30s) unconditionally deletes ALL edges and questions, then tries to re-insert from the in-memory graph. But the in-memory graph often has 0 edges and 0 questions (they're managed separately), so the delete wipes them and nothing gets re-inserted.
 
-### Change 1: Preserve `subtopic_id` during graph saves (`src/hooks/useGraphPersistence.ts`)
+## Fix Plan
 
-Instead of delete + re-insert (which loses `subtopic_id`), the save function will:
+### File: `src/hooks/useGraphPersistence.ts`
 
-1. Before deleting skills, read the current `skill_id -> subtopic_id` mapping from the database
-2. After re-inserting skills, restore the `subtopic_id` values using the saved mapping
+**Change 1: Conditional deletion (lines 90-95)**
 
-This is a minimal change -- just add a query before delete and an update after insert.
-
-Specifically:
-- Before line 78: Query `skills` table for `skill_id, subtopic_id` where `subtopic_id IS NOT NULL`
-- After skills insert (line 119): Loop through the saved mappings and update each skill's `subtopic_id`
-
-The same pattern applies to the `copyGraph` function (line 362-378) which also drops `subtopic_id` when copying skills.
-
-### Change 2: Preserve score ranges (no code change needed)
-
-The `topic_score_ranges` table already persists correctly. The problem is that when auto-group runs again (because groupings appear lost), it creates NEW topic IDs, making old score ranges orphaned. Once Change 1 is in place, auto-group won't need to be re-run, so score ranges will stay valid.
-
-As an extra safety measure, after auto-group runs, the app already auto-recalculates score ranges (this was added in the previous session). So even if auto-group does run, the ranges will be refreshed.
-
-## Technical Details
-
-### `src/hooks/useGraphPersistence.ts` - `saveGraph` function
-
-Before the delete block (around line 78), add:
+Only delete edges/questions if the in-memory graph actually has replacements:
 
 ```typescript
-// Preserve subtopic_id mappings before deleting skills
-const { data: existingSkills } = await supabase
-  .from('skills')
-  .select('skill_id, subtopic_id')
-  .eq('graph_id', existingId)
-  .not('subtopic_id', 'is', null);
+// Always delete skills (they always get re-inserted with subtopic restoration)
+const deleteOps = [
+  supabase.from('skills').delete().eq('graph_id', existingId),
+];
 
-const subtopicMap = new Map<string, string>();
-(existingSkills || []).forEach(s => {
-  if (s.subtopic_id) subtopicMap.set(s.skill_id, s.subtopic_id);
-});
+// Only delete edges if graph has edges to re-insert
+if (graph.edges.length > 0) {
+  deleteOps.push(supabase.from('skill_edges').delete().eq('graph_id', existingId));
+}
+
+// Only delete questions if graph has questions to re-insert
+if (Object.keys(graph.questionPaths || {}).length > 0) {
+  deleteOps.push(supabase.from('questions').delete().eq('graph_id', existingId));
+}
+
+await Promise.all(deleteOps);
 ```
 
-After skills insert (around line 119), add:
+**Change 2: Protect metadata counts (lines 67-74)**
+
+Don't overwrite `total_questions` with 0 when the in-memory graph has no questions:
 
 ```typescript
-// Restore subtopic_id mappings
-if (subtopicMap.size > 0) {
-  for (const [skillId, subtopicId] of subtopicMap.entries()) {
-    await supabase
-      .from('skills')
-      .update({ subtopic_id: subtopicId })
-      .eq('graph_id', graphId)
-      .eq('skill_id', skillId);
-  }
+const updatePayload: any = {
+  name,
+  description: description || null,
+  total_skills: skillCount,
+};
+// Only update total_questions if the in-memory graph actually has questions
+if (questionCount > 0) {
+  updatePayload.total_questions = questionCount;
 }
 ```
-
-### `src/hooks/useGraphPersistence.ts` - `copyGraph` function
-
-Similarly update the copy function to carry over `subtopic_id` from source skills when inserting into the new graph (by including `subtopic_id` in the insert payload for skills that had a mapping -- though the subtopic IDs would need to be from the source graph's subtopics, which aren't copied. So for copy, we skip this -- subtopic_id is graph-specific).
 
 ## Summary
 
 - **1 file changed**: `src/hooks/useGraphPersistence.ts`
-- **Root cause**: Delete-and-reinsert pattern wiping `subtopic_id` on every autosave
-- **Fix**: Save the mapping before delete, restore after insert
-- **Effect**: Groupings and score ranges persist permanently across saves and page reloads
+- **2 changes**: conditional deletion + metadata protection
+- **Effect**: Autosave will never again wipe edges/questions from the database
+- **Next step**: After this fix, you will need to re-import the 224 questions into "LKG IO New"
+
