@@ -10,7 +10,12 @@ export function extractCoreQuestion(fullBlock: string): string {
 
   const contentLines: string[] = [];
 
-  for (const line of lines) {
+  for (let line of lines) {
+    // Normalize: strip leading numbering like "1. ", "2. "
+    line = line.replace(/^\d+\.\s+/, '');
+    // Normalize: strip markdown headers like "## ", "### "
+    line = line.replace(/^#+\s+/, '');
+
     // Skip "Topic: ..." lines entirely
     if (/^Topic\s*:\s*/i.test(line)) continue;
 
