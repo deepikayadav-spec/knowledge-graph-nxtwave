@@ -271,8 +271,8 @@ export function KnowledgeGraphApp() {
     }
   }, [deleteGraph, currentGraphId]);
 
-  const handleGenerate = useCallback(async (questions: string[], domain?: string) => {
-    await generate(questions, false, currentGraphId || undefined, domain);
+  const handleGenerate = useCallback(async (questions: string[], domain?: string, turbo?: boolean) => {
+    await generate(questions, false, currentGraphId || undefined, domain, turbo);
   }, [generate, currentGraphId]);
 
   const handleRemoveQuestion = useCallback((questionText: string) => {

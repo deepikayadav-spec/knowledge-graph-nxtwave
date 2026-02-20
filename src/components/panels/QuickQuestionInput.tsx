@@ -13,7 +13,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@
 export type DomainType = 'python' | 'web';
 
 interface QuickQuestionInputProps {
-  onGenerate: (questions: string[], domain: DomainType) => void;
+  onGenerate: (questions: string[], domain: DomainType, turbo?: boolean) => void;
   isLoading: boolean;
   isLandingMode?: boolean;
   graphId?: string | null;
@@ -212,7 +212,8 @@ export function QuickQuestionInput({ onGenerate, isLoading, isLandingMode = fals
     const questions = getCurrentQuestions();
     if (questions.length === 0) return;
     
-    onGenerate(questions, domain);
+    const turbo = questions.length > 30;
+    onGenerate(questions, domain, turbo);
     setQuestionsText('');
     setParsedQuestions([]);
     setIsOpen(false);
