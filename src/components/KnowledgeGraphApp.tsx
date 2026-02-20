@@ -18,6 +18,7 @@ import { useSkillGrouping } from '@/hooks/useSkillGrouping';
 import { useStudentMastery } from '@/hooks/useStudentMastery';
 import { buildSubtopicView, buildTopicView, type SuperNode } from '@/lib/graph/groupedView';
 import { loadTopicScoreRanges, calculateAndPersistTopicScoreRanges } from '@/lib/mastery/topicScoreRanges';
+import { TopicScoreTable } from './panels/TopicScoreTable';
 import type { TopicScoreRange } from '@/types/grouping';
 import { Network, Sparkles, Trash2, GraduationCap, Plus, Pencil, CheckCircle, Wand2 } from 'lucide-react';
 import { Badge } from '@/components/ui/badge';
@@ -61,6 +62,7 @@ export function KnowledgeGraphApp() {
   const [isEditMode, setIsEditMode] = useState(false);
   const [isAutoGrouping, setIsAutoGrouping] = useState(false);
   const [topicScoreRanges, setTopicScoreRanges] = useState<TopicScoreRange[]>([]);
+  const [isRecalculating, setIsRecalculating] = useState(false);
 
   // Graph persistence
   const {
@@ -507,6 +509,10 @@ export function KnowledgeGraphApp() {
                 setIsAutoGrouping(true);
                 await groupingHook.autoGroupSkills();
                 setIsAutoGrouping(false);
+                // Recalculate topic score ranges after regrouping
+                if (currentGraphId) {
+                  calculateAndPersistTopicScoreRanges(currentGraphId).then(setTopicScoreRanges).catch(() => {});
+                }
               }}
             >
               <Wand2 className="h-3 w-3" />
@@ -605,6 +611,23 @@ export function KnowledgeGraphApp() {
             </div>
           )}
         </div>
+
+        {/* Topic Score Table */}
+        {topicScoreRanges.length > 0 && (
+          <TopicScoreTable
+            topicScoreRanges={topicScoreRanges}
+            onRecalculate={async () => {
+              if (!currentGraphId) return;
+              setIsRecalculating(true);
+              try {
+                const ranges = await calculateAndPersistTopicScoreRanges(currentGraphId);
+                setTopicScoreRanges(ranges);
+              } catch {}
+              setIsRecalculating(false);
+            }}
+            isRecalculating={isRecalculating}
+          />
+        )}
 
         {/* Mastery Sidebar */}
         {masteryMode && currentGraphId && selectedClassId && (
