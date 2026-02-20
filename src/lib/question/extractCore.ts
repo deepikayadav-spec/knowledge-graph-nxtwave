@@ -15,6 +15,10 @@ export function extractCoreQuestion(fullBlock: string): string {
     line = line.replace(/^\d+\.\s+/, '');
     // Normalize: strip markdown headers like "## ", "### "
     line = line.replace(/^#+\s+/, '');
+    // Skip code fence lines (``` or ```language)
+    if (/^```/.test(line)) continue;
+    // Collapse multiple whitespace into single space
+    line = line.replace(/\s{2,}/g, ' ');
 
     // Skip "Topic: ..." lines entirely
     if (/^Topic\s*:\s*/i.test(line)) continue;
