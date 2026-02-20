@@ -1,48 +1,46 @@
 
-
-# Fix Duplicate Detection: Normalize Question Fingerprints
+# Fix Duplicate Detection: Strip Code Fences and Clean Stubs
 
 ## Root Cause
 
-The duplicate detection fails because questions are stored in the database with **different prefixes** than how the file provides them:
+Two issues are preventing full duplicate detection:
 
-| DB stored format | File format | Match? |
-|-----------------|-------------|--------|
-| `1. Write a program that reads two numbers...` | `Write a program that reads two numbers...` | No -- leading "1. " |
-| `## Square Star Pattern` | `Square Star Pattern\n\nWrite a program that prints...` | No -- "## " prefix + DB is title-only |
-| `3. ## Multiplication Table Generator` | Full question content without numbering | No |
+### Issue 1: Code fences in file but not in DB (affects ~86 questions)
+The uploaded file wraps examples in markdown code fences:
+```text
+#### Sample Input:
+` ` `
+TechGadgets
+Smartphone Laptop Tablet
+` ` `
+```
 
-- **104 questions** in the DB start with numbering like `1. `, `2. `, `3. `, etc.
-- **32 questions** start with markdown headers like `## `, `# `
-- **5 questions** are stubs with text "1", "2", "3", "4", "5"
+But the database stores the same content **without** code fences:
+```text
+#### Sample Input:
 
-The `extractCoreQuestion` function does NOT strip these prefixes, so fingerprints differ between DB records and re-uploaded file content.
+TechGadgets
+Smartphone Laptop Tablet
+```
+
+The `extractCoreQuestion` function includes these `` ` ` ` `` lines as content, shifting the 500-character fingerprint window and causing mismatches.
+
+### Issue 2: 35 stub questions (title-only records)
+Questions like `## High Score Selector`, `## Square Star Pattern`, `1. Write a program...` exist as short stubs alongside their full-text duplicates. The stub fingerprint ("high score selector") differs from the full question fingerprint ("high score selector you are building a game...").
 
 ## Fix
 
-### File: `src/lib/question/extractCore.ts`
+### Step 1: Update `src/lib/question/extractCore.ts`
 
-Add two normalization steps at the start of the function, before fingerprinting:
+Add normalization rules inside the loop:
 
-1. **Strip leading numbering**: Remove patterns like `1. `, `2. `, `3. ` from the start of content lines
-2. **Strip markdown headers**: Remove `# `, `## `, `### `, etc. from lines
+1. **Skip code fence lines**: Lines that are just `` ` ` ` `` or `` ` ` `language `` should be skipped entirely (they carry no semantic content)
+2. **Collapse multiple whitespace**: Replace runs of 2+ spaces with a single space in the final fingerprint to handle minor spacing differences between file and DB
 
-Updated logic (added after line 12, inside the loop):
+### Step 2: Delete 35 stub questions from DB
 
-```text
-For each line:
-  - Strip leading "N. " numbering (e.g., "1. Write..." -> "Write...")
-  - Strip leading markdown "#" headers (e.g., "## Title" -> "Title")
-  - Then apply existing Topic/Question header stripping
-```
-
-This ensures the same core text produces the same fingerprint regardless of whether the source added numbering or markdown formatting.
-
-### Additionally: Clean up 5 stub questions
-
-Delete the 5 stub records (text = "1", "2", "3", "4", "5") from the database since they have no real content and their full-text versions already exist.
+Delete the 35 questions with `length(question_text) < 100` from the LKG IO New graph. These are title-only stubs that already have full-text versions in the DB (or will be re-imported from the file).
 
 ## Expected Result
 
-After this fix, re-uploading the file should correctly detect ~259 duplicates and queue only the ~67 genuinely missing questions for generation.
-
+After these changes, re-uploading the file should detect ~224 duplicates (259 real DB questions minus the 35 deleted stubs) and queue only the ~104 genuinely missing questions.
