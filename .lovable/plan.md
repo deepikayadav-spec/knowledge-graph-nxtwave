@@ -1,101 +1,40 @@
 
 
-# Fix: Duplicate Detection Mismatch Between Stored and Imported Questions
+# Multi-File Upload Support
 
-## Problem
+## Current Behavior
+The file input (`<input type="file">`) only accepts a single file at a time. Each upload replaces the textarea content with the new file's questions.
 
-When you upload the same file twice, duplicates are not detected. This happens because the question text stored in the database and the question text parsed from the file import have different formats, producing different fingerprints.
+## Changes
 
-**What gets stored in the database** (after first upload + generation):
-```
-In this question, let's practice HTML Lists and Void Elements...
-```
+### File: `src/components/panels/QuickQuestionInput.tsx`
 
-**What the file import produces** (second upload):
-```
-Topic: HTML Elements
+1. **Add `multiple` attribute** to both file input elements (lines 389-394 and 484-489):
+   ```html
+   <input type="file" accept=".txt,.csv,.pdf,.json" multiple ... />
+   ```
 
-Question:
-In this question, let's practice HTML Lists and Void Elements...
+2. **Update `handleFileUpload`** to loop through all selected files:
+   - Change from `e.target.files?.[0]` to iterating over `e.target.files`
+   - For each file: parse questions using the existing logic (CSV, JSON, PDF, or plain text)
+   - **Accumulate** all questions from all files, then append them to the existing textarea content (so uploading 3 files adds all their questions together)
+   - Show a single toast summarizing total questions found across all files
+   - PDF files will be processed sequentially (each requires async extraction)
+   - File size check applies per file
 
-Test Cases:
-- Page should consist of an HTML image element... (weight: 5)
-```
+3. **Update button label** from "Upload File" to "Upload Files" in both landing and collapsible modes.
 
-The `extractCoreQuestion` function handles these two formats via different code paths, producing different fingerprints -- so the duplicate check never matches.
+### File: `src/components/mastery/BulkUploadPanel.tsx`
 
-## Root Cause
+No changes needed here -- CSV bulk upload for student attempts is a different workflow that processes one file at a time intentionally (validation + confirmation step).
 
-1. The DB text has **no headers** -- so the function takes the fallback path and joins ALL lines
-2. The imported text has `Topic:` and `Question:` headers -- so the function takes the Question-header path and only collects lines between `Question:` and `Test Cases:`
-3. Additionally, the `Topic: HTML Elements` line is NOT filtered by the fallback regex because it only matches bare `Topic:` (without content after it)
+### Technical Details
 
-## Solution
+The updated `handleFileUpload` function will:
+- Collect all files from `e.target.files`
+- Process non-PDF files in parallel using `Promise.all`
+- Process PDF files sequentially (they invoke an edge function)
+- Concatenate all parsed questions with `\n\n` separators
+- Append to existing textarea content (preserving previously loaded questions)
+- Trigger the duplicate check automatically via the existing `useEffect` on `questionsText`
 
-Update `extractCoreQuestion` to normalize more aggressively so both formats produce the same fingerprint:
-
-1. **Strip `Topic: ...` lines** (with content) at the start, not just bare `Topic:` headers
-2. **Strip `Test Cases:` sections** and everything after them in both paths
-3. **Always strip the `Question:` header** before processing, so both paths converge
-
-### File: `src/lib/question/extractCore.ts`
-
-Replace the function with improved normalization:
-
-```typescript
-export function extractCoreQuestion(fullBlock: string): string {
-  // Strip HTML tags
-  const cleaned = fullBlock.replace(/<br\s*\/?>/gi, '\n');
-  const lines = cleaned.split('\n').map(l => l.trim()).filter(l => l);
-
-  // Remove Topic: lines (with or without content after)
-  // Remove Question: header lines
-  // Stop at section headers like Input, Output, Test Cases
-  const contentLines: string[] = [];
-  let pastQuestionHeader = false;
-  let foundQuestionHeader = false;
-
-  for (const line of lines) {
-    // Skip "Topic: ..." lines entirely
-    if (/^Topic\s*:\s*/i.test(line)) continue;
-
-    // Skip bare "Question" or "Question:" header
-    if (/^Question\s*:?\s*$/i.test(line)) {
-      foundQuestionHeader = true;
-      pastQuestionHeader = true;
-      continue;
-    }
-
-    // Handle "Question: actual content..." on same line
-    const inlineMatch = line.match(/^Question\s*:\s*(.+)/i);
-    if (inlineMatch) {
-      foundQuestionHeader = true;
-      pastQuestionHeader = true;
-      contentLines.push(inlineMatch[1]);
-      continue;
-    }
-
-    // Stop at section headers
-    if (/^(Input|Output|Explanation|Test Cases|Resources)\s*:?\s*$/i.test(line)) break;
-
-    contentLines.push(line);
-  }
-
-  if (contentLines.length > 0) {
-    return contentLines.join(' ').toLowerCase().substring(0, 500);
-  }
-
-  return fullBlock.trim().toLowerCase().substring(0, 500);
-}
-```
-
-Key changes:
-- `Topic: HTML Elements` lines are now always stripped (regex matches `Topic:` followed by any content)
-- `Question:` headers are always stripped regardless of format
-- `Test Cases:` acts as a stop point in all paths (added alongside Input/Output/Explanation)
-- `Resources` also acts as a stop point (many questions have a Resources section after the core content)
-- Single unified code path instead of branching -- both formats converge to the same fingerprint
-
-### No other files need to change
-
-The callers in `useBatchGeneration.ts` and `QuickQuestionInput.tsx` already use `extractCoreQuestion` correctly -- only the normalization logic inside it needs fixing.
