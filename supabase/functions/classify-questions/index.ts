@@ -95,14 +95,14 @@ Rules:
 - Pick the BEST matching topic based on what skills the question tests
 - Return ONLY the JSON array, no other text`;
 
-  const response = await fetch("https://ai.gateway.lovable.dev/v1/chat/completions", {
+  const response = await fetch("https://generativelanguage.googleapis.com/v1beta/openai/chat/completions", {
     method: "POST",
     headers: {
       Authorization: `Bearer ${apiKey}`,
       "Content-Type": "application/json",
     },
     body: JSON.stringify({
-      model: "google/gemini-2.5-flash-lite",
+      model: "gemini-2.5-flash-lite",
       messages: [
         { role: "system", content: "You are a curriculum classifier. Return only valid JSON." },
         { role: "user", content: prompt },
@@ -157,9 +157,9 @@ serve(async (req) => {
       );
     }
 
-    const apiKey = Deno.env.get("LOVABLE_API_KEY");
+    const apiKey = Deno.env.get("GEMINI_API_KEY");
     if (!apiKey) {
-      throw new Error("LOVABLE_API_KEY not configured");
+      throw new Error("GEMINI_API_KEY not configured");
     }
 
     const topics = getTopicsForDomain(domain);
