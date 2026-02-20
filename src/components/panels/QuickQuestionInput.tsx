@@ -24,9 +24,18 @@ function parseQuestionsFromText(text: string): string[] {
   const hasQuestionHeaders = /^Question\s*:?\s*$/im.test(text);
   
   if (hasQuestionHeaders) {
-    return text
-      .split(/(?=^Question\s*:?\s*$)/im)
-      .map(q => q.trim())
+    const parts = text.split(/(?=^Question\s*:?\s*$)/im);
+    return parts
+      .map((q, i) => {
+        const trimmed = q.trim();
+        // If this fragment doesn't contain a "Question:" header,
+        // it's a leading topic line -- prepend it to the next fragment
+        if (i < parts.length - 1 && !/^Question\s*:?\s*$/im.test(trimmed)) {
+          parts[i + 1] = trimmed + '\n\n' + parts[i + 1];
+          return '';
+        }
+        return trimmed;
+      })
       .filter(q => q.length > 0);
   }
   
