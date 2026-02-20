@@ -19,7 +19,13 @@ function extractCoreQuestion(fullBlock: string): string {
   for (let line of lines) {
     line = line.replace(/^\d+\.\s+/, "");
     line = line.replace(/^#+\s+/, "");
+    // Strip markdown bold **text**
+    line = line.replace(/\*\*(.+?)\*\*/g, "$1");
+    // Strip inline code backticks
+    line = line.replace(/`([^`]+)`/g, "$1");
     if (/^```/.test(line)) continue;
+    // Skip horizontal rules
+    if (/^[-=*]{3,}$/.test(line)) continue;
     line = line.replace(/\s{2,}/g, " ");
     if (/^Topic\s*:\s*/i.test(line)) continue;
     if (/^Question\s*:?\s*$/i.test(line)) continue;
@@ -28,8 +34,9 @@ function extractCoreQuestion(fullBlock: string): string {
       contentLines.push(inlineMatch[1]);
       continue;
     }
+    // Stop at section headers (expanded, prefix-based match)
     if (
-      /^(Input|Output|Explanation|Test Cases|Resources)\s*:?\s*$/i.test(line)
+      /^(Input|Output|Explanation|Test Cases|Resources|Sample Input|Sample Output|Expected Output|Input Format|Output Format|Constraints|Example|Note|Approach|Hint)\s*:?\s*/i.test(line)
     )
       break;
     contentLines.push(line);
