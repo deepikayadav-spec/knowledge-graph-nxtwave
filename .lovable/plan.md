@@ -1,39 +1,68 @@
 
 
-# Switch All Edge Functions to Direct Gemini API (Paid Tier)
+# Fix: Prevent Autosave from Deleting Edges and Questions During Batch Generation
 
-## Overview
+## Problem
 
-All 6 edge functions currently route through the Lovable AI gateway (which is out of credits). We'll switch them to call Google's Gemini API directly using your paid-tier `GEMINI_API_KEY`. This is the same change attempted before, but your paid tier eliminates the rate-limit issues.
+The autosave (30-second timer) uses a destructive "delete all, then re-insert" pattern for edges and questions. When batch generation is running and fails (e.g., 429 rate limit), the autosave can fire and wipe the database:
 
-## Pre-requisite
+1. Autosave deletes all edges and questions from DB
+2. Re-insertion depends on the in-memory graph state
+3. If the in-memory graph is in a transitional state (generation in progress or failed), edges/questions are lost permanently
 
-If your current `GEMINI_API_KEY` secret needs updating with the paid-tier key, we'll prompt you to enter it first.
+This is what happened to your "LKG IO New" graph -- the autosave ran mid-generation, wiped 146 questions and all edges, and had nothing to re-insert.
 
-## Changes (identical pattern across all 6 functions)
+## Solution: Disable Autosave During Generation
 
-Each function gets 3 small edits:
+Add a simple guard that pauses autosave while batch generation is active.
 
-1. **API URL**: `https://ai.gateway.lovable.dev/v1/chat/completions` changes to `https://generativelanguage.googleapis.com/v1beta/openai/chat/completions`
-2. **Secret name**: `LOVABLE_API_KEY` changes to `GEMINI_API_KEY`
-3. **Model names**: Strip `google/` prefix (e.g. `google/gemini-2.5-flash` becomes `gemini-2.5-flash`)
+### Changes
 
-No other logic changes needed -- the Gemini OpenAI-compatible endpoint accepts the same request/response format.
+**1. `src/components/KnowledgeGraphApp.tsx`**
+- Pass `progress.isProcessing` to the autosave hook's `enabled` option so autosave is disabled while generation is running
 
-## Affected Functions
+```
+enabled: !!currentGraphId && !progress.isProcessing
+```
 
-| Function | Model |
-|----------|-------|
-| generate-graph | gemini-2.5-flash |
-| analyze-difficulty | gemini-2.5-flash |
-| regenerate-weights | gemini-2.5-flash |
-| auto-group-skills | gemini-2.5-flash |
-| classify-questions | gemini-2.5-flash-lite |
-| extract-questions | gemini-2.5-flash |
+**2. `src/hooks/useAutosave.ts`**
+- Add a snapshot guard: skip saving if the graph has 0 edges AND 0 questions but the graph metadata shows it previously had data. This prevents the destructive "save empty state" scenario even outside of generation.
+
+**3. `src/hooks/useGraphPersistence.ts` (saveGraph function)**
+- Add a safety check: refuse to delete edges/questions from DB if the in-memory graph has fewer items than the DB. This is a last-resort guard against accidental data loss.
+- Specifically: before deleting, check the DB count. If DB has 100+ edges but the in-memory graph has 0, skip the destructive save and log a warning.
+
+### Data Recovery
+
+Unfortunately, the deleted edges and questions for "LKG IO New" cannot be recovered from the database -- the DELETE operations already executed. You will need to re-generate the graph from the original questions.
 
 ## Technical Details
 
-- The `GEMINI_API_KEY` secret already exists in the project. If it needs to be updated, you'll be prompted to enter the new value.
-- All functions will be redeployed automatically after the code changes.
-- Error handling (429/402 responses) remains in place since Gemini returns the same status codes.
+The key change is in `KnowledgeGraphApp.tsx` line ~133-135:
+
+```typescript
+// Before (autosave runs even during generation)
+enabled: !!currentGraphId
+
+// After (autosave paused during generation)  
+enabled: !!currentGraphId && !progress.isProcessing
+```
+
+And a safety guard in `useGraphPersistence.ts` saveGraph (around line 96):
+
+```typescript
+// Before deleting edges/questions, verify we're not about to lose data
+if (graph.edges.length === 0 && graph.globalNodes.length > 0) {
+  const { count } = await supabase
+    .from('skill_edges')
+    .select('*', { count: 'exact', head: true })
+    .eq('graph_id', existingId);
+  if (count && count > 0) {
+    console.warn('[saveGraph] Refusing to delete edges: DB has data but in-memory is empty');
+    // Skip edge deletion -- preserve DB state
+  }
+}
+```
+
+This two-layer approach (disable during generation + safety guard) ensures data can never be accidentally wiped again.
 
