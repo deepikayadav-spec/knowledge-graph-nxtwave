@@ -8,12 +8,12 @@ import { extractCoreQuestion } from '@/lib/question/extractCore';
 // Adaptive batch sizing based on existing node count
 const BASE_BATCH_SIZE = 5;
 const MIN_BATCH_SIZE = 3;
-const DELAY_BETWEEN_BATCHES_MS = 2000;
+const DELAY_BETWEEN_BATCHES_MS = 800;
 
 // Turbo mode constants
 const TURBO_BATCH_SIZE = 5;
-const TURBO_CONCURRENCY = 1;
-const TURBO_DELAY_MS = 4000;
+const TURBO_CONCURRENCY = 4;
+const TURBO_DELAY_MS = 300;
 const TURBO_QUESTION_THRESHOLD = 30;
 const EXISTING_NODES_CAP = 80;
 
