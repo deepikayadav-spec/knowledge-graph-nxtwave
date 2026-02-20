@@ -56,6 +56,11 @@ export function GenerationProgress({
           <Loader2 className="h-4 w-4 animate-spin text-primary" />
           <span className="text-sm font-medium text-foreground">
             Processing batch {progress.currentBatch} of {progress.totalBatches}
+            {progress.concurrentBatches && progress.concurrentBatches > 1 && (
+              <span className="text-xs text-muted-foreground ml-1">
+                (⚡ {progress.concurrentBatches}x parallel)
+              </span>
+            )}
           </span>
         </div>
         {onPause && (

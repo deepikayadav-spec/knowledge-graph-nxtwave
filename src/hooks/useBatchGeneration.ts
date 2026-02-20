@@ -4,14 +4,21 @@ import { mergeGraphs } from '@/lib/graph/mergeGraphs';
 import { supabase } from '@/integrations/supabase/client';
 import { toast } from '@/hooks/use-toast';
 import { extractCoreQuestion } from '@/lib/question/extractCore';
+
 // Adaptive batch sizing based on existing node count
-const BASE_BATCH_SIZE = 5; // Default for fresh graphs
-const MIN_BATCH_SIZE = 3;  // Minimum for very large existing graphs
+const BASE_BATCH_SIZE = 5;
+const MIN_BATCH_SIZE = 3;
 const DELAY_BETWEEN_BATCHES_MS = 2000;
+
+// Turbo mode constants
+const TURBO_BATCH_SIZE = 8;
+const TURBO_CONCURRENCY = 3;
+const TURBO_DELAY_MS = 500;
+const TURBO_QUESTION_THRESHOLD = 30;
+const EXISTING_NODES_CAP = 80;
 
 /**
  * Parse Topic: headers from question list.
- * Returns cleaned questions (without Topic: lines) and a map of question index -> topic name.
  */
 function parseTopicHeaders(questions: string[]): {
   cleanQuestions: string[];
@@ -38,16 +45,13 @@ function parseTopicHeaders(questions: string[]): {
   return { cleanQuestions, topicMap };
 }
 
-/**
- * Calculate optimal batch size based on existing skill count
- * Smaller batches when there are many existing skills to reduce context size
- */
 function getAdaptiveBatchSize(existingNodeCount: number): number {
   if (existingNodeCount > 50) return MIN_BATCH_SIZE;
   if (existingNodeCount > 20) return 4;
   if (existingNodeCount > 10) return 5;
   return BASE_BATCH_SIZE;
 }
+
 const LOCAL_STORAGE_KEY = 'kg-generation-checkpoint';
 
 export interface BatchProgress {
@@ -56,15 +60,18 @@ export interface BatchProgress {
   skillsDiscovered: number;
   estimatedTimeRemaining: string;
   isProcessing: boolean;
+  concurrentBatches?: number;
 }
 
 interface Checkpoint {
   questions: string[];
   processedBatches: number;
   accumulatedNodes: { id: string; name: string; tier?: string; description?: string }[];
-  partialGraph: KnowledgeGraph | null; // Store merged partial graph instead of all deltas
+  partialGraph: KnowledgeGraph | null;
   existingGraph: KnowledgeGraph | null;
   timestamp: number;
+  turbo?: boolean;
+  topicMap?: Record<number, string>;
 }
 
 // Default values for missing node fields
@@ -89,9 +96,6 @@ const DEFAULT_KNOWLEDGE_POINT: KnowledgePoint = {
   appearsInQuestions: [],
 };
 
-/**
- * Normalize a node to ensure all required fields exist
- */
 function normalizeNode(node: Partial<GraphNode> & { id: string; name: string }): GraphNode {
   return {
     ...node,
@@ -123,7 +127,7 @@ function normalizeGraphPayload(data: any): KnowledgeGraph {
     edges: data?.edges || [],
     courses: data?.courses || {},
     questionPaths: data?.questionPaths || {},
-    ipaByQuestion: undefined, // We no longer include IPA
+    ipaByQuestion: undefined,
   };
 }
 
@@ -148,6 +152,44 @@ async function sleep(ms: number): Promise<void> {
   return new Promise(resolve => setTimeout(resolve, ms));
 }
 
+/**
+ * Auto-classify questions into curriculum topics using AI
+ */
+async function autoClassifyQuestions(
+  questions: string[],
+  domain: string
+): Promise<Record<number, string>> {
+  console.log(`[Turbo] Auto-classifying ${questions.length} questions for domain: ${domain}`);
+  
+  const { data, error } = await supabase.functions.invoke('classify-questions', {
+    body: { questions, domain },
+  });
+
+  if (error) {
+    console.error('[Turbo] Classification failed:', error);
+    throw new Error('Auto-classification failed: ' + (error.message || 'Unknown error'));
+  }
+
+  if (data?.error) {
+    throw new Error('Auto-classification failed: ' + data.error);
+  }
+
+  const topicMap = data?.topicMap || {};
+  console.log(`[Turbo] Classified ${Object.keys(topicMap).length} questions into topics`);
+  return topicMap;
+}
+
+/**
+ * Cap existingNodes to most recent entries to prevent payload bloat
+ */
+function capExistingNodes(
+  nodes: { id: string; name: string; tier?: string; description?: string }[]
+): { id: string; name: string; tier?: string; description?: string }[] | undefined {
+  if (nodes.length === 0) return undefined;
+  if (nodes.length <= EXISTING_NODES_CAP) return nodes;
+  return nodes.slice(-EXISTING_NODES_CAP);
+}
+
 export function useBatchGeneration(
   existingGraph: KnowledgeGraph | null,
   onGraphUpdate: (graph: KnowledgeGraph) => void,
@@ -164,13 +206,11 @@ export function useBatchGeneration(
   const abortRef = useRef(false);
   const batchStartTimeRef = useRef<number>(0);
 
-  // Check for existing checkpoint
   const getCheckpoint = useCallback((): Checkpoint | null => {
     try {
       const stored = localStorage.getItem(LOCAL_STORAGE_KEY);
       if (!stored) return null;
       const checkpoint = JSON.parse(stored) as Checkpoint;
-      // Only use checkpoint if less than 1 hour old
       if (Date.now() - checkpoint.timestamp > 3600000) {
         localStorage.removeItem(LOCAL_STORAGE_KEY);
         return null;
@@ -197,10 +237,6 @@ export function useBatchGeneration(
     return getCheckpoint() !== null;
   }, [getCheckpoint]);
 
-  /**
-   * Check for duplicate questions in the database
-   * Returns an object with unique questions and duplicates found
-   */
   const checkDuplicateQuestions = useCallback(async (
     questions: string[],
     graphId?: string
@@ -210,7 +246,6 @@ export function useBatchGeneration(
     }
 
     try {
-      // Fetch existing questions for this graph
       const { data: existingQuestions, error } = await supabase
         .from('questions')
         .select('question_text')
@@ -221,8 +256,6 @@ export function useBatchGeneration(
         return { uniqueQuestions: questions, duplicates: [] };
       }
 
-      // Create a set of normalized existing question texts for fast lookup
-      // Apply extractCoreQuestion to BOTH user input and database records for consistent comparison
       const existingTexts = new Set(
         (existingQuestions || []).map(q => extractCoreQuestion(q.question_text))
       );
@@ -246,43 +279,101 @@ export function useBatchGeneration(
     }
   }, []);
 
+  /**
+   * Call generate-graph for a single batch with retry logic
+   */
+  const callBatchGenerate = useCallback(async (
+    batch: string[],
+    batchTopicMap: Record<string, string>,
+    accumulatedNodes: { id: string; name: string; tier?: string; description?: string }[],
+    domain?: string
+  ): Promise<any> => {
+    let retries = 0;
+    const maxRetries = 3;
+
+    while (retries < maxRetries) {
+      try {
+        const hasTopics = Object.values(batchTopicMap).some(t => t !== 'General');
+        const cappedNodes = capExistingNodes(accumulatedNodes);
+        
+        const response = await supabase.functions.invoke('generate-graph', {
+          body: {
+            questions: batch,
+            existingNodes: cappedNodes,
+            ...(hasTopics ? { topicMap: batchTopicMap } : {}),
+            ...(domain ? { domain } : {}),
+          },
+        });
+
+        if (response.error) {
+          const status = getInvokeHttpStatus(response.error);
+          if (status === 429) {
+            const waitTime = Math.pow(2, retries) * 30000;
+            console.log(`Rate limited. Waiting ${waitTime / 1000}s before retry...`);
+            await sleep(waitTime);
+            retries++;
+            continue;
+          }
+          if (status === 413 && batch.length > 1) {
+            throw new Error("Batch too large. Try reducing batch size.");
+          }
+          throw response.error;
+        }
+
+        if (response.data?.error) {
+          throw new Error(response.data.error);
+        }
+
+        return response.data;
+      } catch (err) {
+        retries++;
+        if (retries >= maxRetries) throw err;
+        await sleep(5000);
+      }
+    }
+  }, []);
+
   const generate = useCallback(async (
     questions: string[],
     resumeFromCheckpoint = false,
     graphId?: string,
-    domain?: string
+    domain?: string,
+    turbo?: boolean
   ) => {
     abortRef.current = false;
     batchStartTimeRef.current = Date.now();
 
     let checkpoint = resumeFromCheckpoint ? getCheckpoint() : null;
-    
+
     // Parse topic headers from raw questions
     const { cleanQuestions: parsedQuestions, topicMap: globalTopicMap } = parseTopicHeaders(
       checkpoint?.questions || questions
     );
+
+    // Auto-detect turbo mode for large question sets
+    const isTurbo = turbo ?? (parsedQuestions.length > TURBO_QUESTION_THRESHOLD);
     
-    // Check for duplicate questions (only for new questions, not checkpoint resume)
-    let questionsToProcess = checkpoint ? parsedQuestions : parsedQuestions;
-    let topicMapToUse = globalTopicMap;
-    
+    // Check for duplicate questions
+    let questionsToProcess = parsedQuestions;
+    let topicMapToUse = checkpoint?.topicMap || globalTopicMap;
+
     if (!resumeFromCheckpoint && graphId) {
       const { uniqueQuestions, duplicates } = await checkDuplicateQuestions(parsedQuestions, graphId);
-      
+
       if (duplicates.length > 0) {
         const truncatedList = duplicates.slice(0, 3).map(q => {
           const preview = q.split('\n')[0].substring(0, 50);
           return preview.length < q.split('\n')[0].length ? preview + '...' : preview;
         });
         const moreText = duplicates.length > 3 ? ` and ${duplicates.length - 3} more` : '';
-        
+
         toast({
           title: `${duplicates.length} duplicate question(s) skipped`,
           description: `Already exists: ${truncatedList.join(', ')}${moreText}`,
           variant: "default",
         });
       }
-      
+
       if (uniqueQuestions.length === 0) {
         toast({
           title: "No new questions",
@@ -291,7 +382,7 @@ export function useBatchGeneration(
         });
         return;
       }
-      
+
       // Rebuild topic map for unique questions only
       const uniqueSet = new Set(uniqueQuestions);
       const newTopicMap: Record<number, string> = {};
@@ -305,32 +396,58 @@ export function useBatchGeneration(
       questionsToProcess = uniqueQuestions;
       topicMapToUse = newTopicMap;
     }
-    
+
+    // Auto-classify if turbo mode and no topic headers detected
+    const hasRealTopics = Object.values(topicMapToUse).some(t => t !== 'General');
+    if (isTurbo && !hasRealTopics && !checkpoint?.topicMap) {
+      try {
+        toast({
+          title: "⚡ Turbo Mode: Classifying questions...",
+          description: `Auto-detecting topics for ${questionsToProcess.length} questions. This takes ~30-60 seconds.`,
+        });
+        
+        topicMapToUse = await autoClassifyQuestions(questionsToProcess, domain || 'python');
+        
+        toast({
+          title: "✅ Classification complete",
+          description: `Questions classified into curriculum topics. Starting parallel generation...`,
+        });
+      } catch (err) {
+        console.warn('[Turbo] Classification failed, proceeding without topics:', err);
+        toast({
+          title: "Classification skipped",
+          description: "Proceeding without topic classification. Generation will still work.",
+          variant: "default",
+        });
+      }
+    }
+
     // Initialize from checkpoint or fresh start
-    let accumulatedNodes: { id: string; name: string; tier?: string; description?: string }[] = 
-      checkpoint?.accumulatedNodes || 
+    let accumulatedNodes: { id: string; name: string; tier?: string; description?: string }[] =
+      checkpoint?.accumulatedNodes ||
       existingGraph?.globalNodes.map(n => ({
         id: n.id,
         name: n.name,
         tier: n.tier,
         description: n.description
       })) || [];
-    
-    // Use partial graph from checkpoint, or start with existing graph
+
     let partialGraph: KnowledgeGraph | null = checkpoint?.partialGraph || existingGraph;
     let processedBatches = checkpoint?.processedBatches || 0;
 
-    // Calculate adaptive batch size based on existing nodes
+    // Calculate batch size
     const existingNodeCount = accumulatedNodes.length;
-    const batchSize = getAdaptiveBatchSize(existingNodeCount);
-    console.log(`[BatchGeneration] Using batch size ${batchSize} for ${existingNodeCount} existing nodes`);
+    const batchSize = isTurbo ? TURBO_BATCH_SIZE : getAdaptiveBatchSize(existingNodeCount);
+    const delayMs = isTurbo ? TURBO_DELAY_MS : DELAY_BETWEEN_BATCHES_MS;
+    const concurrency = isTurbo ? TURBO_CONCURRENCY : 1;
+    
+    console.log(`[BatchGeneration] Mode: ${isTurbo ? 'TURBO' : 'standard'}, batch size: ${batchSize}, concurrency: ${concurrency}`);
 
-    // Create batches with adaptive sizing, tracking topic map per batch
+    // Create batches with topic maps
     const batches: string[][] = [];
     const batchTopicMaps: Record<string, string>[] = [];
     for (let i = 0; i < questionsToProcess.length; i += batchSize) {
       batches.push(questionsToProcess.slice(i, i + batchSize));
-      // Build batch-local topic map (indices 0..batchSize-1)
       const batchMap: Record<string, string> = {};
       for (let j = 0; j < batchSize && i + j < questionsToProcess.length; j++) {
         const globalIdx = i + j;
@@ -342,130 +459,196 @@ export function useBatchGeneration(
     }
 
     const totalBatches = batches.length;
-    
+
     setProgress({
       currentBatch: processedBatches,
       totalBatches,
       skillsDiscovered: accumulatedNodes.length - (existingGraph?.globalNodes.length || 0),
       estimatedTimeRemaining: 'Calculating...',
       isProcessing: true,
+      concurrentBatches: concurrency,
     });
 
     try {
-      for (let i = processedBatches; i < batches.length; i++) {
-        if (abortRef.current) {
-          toast({
-            title: "Generation paused",
-            description: `Progress saved. ${i} of ${totalBatches} batches completed.`,
+      if (isTurbo) {
+        // ====== TURBO: Parallel wave processing ======
+        for (let waveStart = processedBatches; waveStart < batches.length; waveStart += concurrency) {
+          if (abortRef.current) {
+            toast({
+              title: "Generation paused",
+              description: `Progress saved. ${waveStart} of ${totalBatches} batches completed.`,
+            });
+            return;
+          }
+
+          const waveEnd = Math.min(waveStart + concurrency, batches.length);
+          const waveBatchIndices = Array.from({ length: waveEnd - waveStart }, (_, i) => waveStart + i);
+
+          // Update progress
+          const elapsed = (Date.now() - batchStartTimeRef.current) / 1000;
+          const completedWaves = Math.floor((waveStart - processedBatches) / concurrency);
+          const avgTimePerWave = completedWaves > 0 ? elapsed / completedWaves : 20;
+          const remainingWaves = Math.ceil((totalBatches - waveStart) / concurrency);
+
+          setProgress({
+            currentBatch: waveStart + 1,
+            totalBatches,
+            skillsDiscovered: accumulatedNodes.length - (existingGraph?.globalNodes.length || 0),
+            estimatedTimeRemaining: formatTimeRemaining(avgTimePerWave * remainingWaves),
+            isProcessing: true,
+            concurrentBatches: waveBatchIndices.length,
           });
-          return;
-        }
 
-        const batch = batches[i];
-        const batchStartTime = Date.now();
+          // Fire all batches in this wave concurrently
+          const waveResults = await Promise.allSettled(
+            waveBatchIndices.map(idx =>
+              callBatchGenerate(batches[idx], batchTopicMaps[idx], accumulatedNodes, domain)
+            )
+          );
 
-        // Update progress
-        const elapsed = (Date.now() - batchStartTimeRef.current) / 1000;
-        const avgTimePerBatch = i > processedBatches ? elapsed / (i - processedBatches) : 15;
-        const remaining = avgTimePerBatch * (totalBatches - i);
+          // Check for rate limiting - if any batch got 429, back off entire wave
+          let hasRateLimit = false;
+          const retryBatches: number[] = [];
 
-        setProgress({
-          currentBatch: i + 1,
-          totalBatches,
-          skillsDiscovered: accumulatedNodes.length - (existingGraph?.globalNodes.length || 0),
-          estimatedTimeRemaining: formatTimeRemaining(remaining),
-          isProcessing: true,
-        });
+          for (let j = 0; j < waveResults.length; j++) {
+            const result = waveResults[j];
+            if (result.status === 'fulfilled' && result.value) {
+              const deltaGraph = normalizeGraphPayload(result.value);
+              partialGraph = partialGraph
+                ? mergeGraphs([partialGraph, deltaGraph])
+                : deltaGraph;
 
-        // Call API with retry logic
-        let retries = 0;
-        const maxRetries = 3;
-        let success = false;
-        let data: any = null;
-
-        while (!success && retries < maxRetries) {
-          try {
-            const batchTopicMap = batchTopicMaps[i];
-            const hasTopics = Object.values(batchTopicMap).some(t => t !== 'General');
-            const response = await supabase.functions.invoke('generate-graph', {
-              body: { 
-                questions: batch,
-                existingNodes: accumulatedNodes.length > 0 ? accumulatedNodes : undefined,
-                ...(hasTopics ? { topicMap: batchTopicMap } : {}),
-                ...(domain ? { domain } : {}),
-              },
-            });
-
-            if (response.error) {
-              const status = getInvokeHttpStatus(response.error);
-              
-              if (status === 429) {
-                // Rate limit - exponential backoff
-                const waitTime = Math.pow(2, retries) * 30000; // 30s, 60s, 120s
-                console.log(`Rate limited. Waiting ${waitTime/1000}s before retry...`);
-                await sleep(waitTime);
-                retries++;
-                continue;
+              for (const node of deltaGraph.globalNodes) {
+                if (!accumulatedNodes.some(n => n.id === node.id)) {
+                  accumulatedNodes.push({
+                    id: node.id,
+                    name: node.name,
+                    tier: node.tier,
+                    description: node.description
+                  });
+                }
               }
-              
-              if (status === 413 && batch.length > 1) {
-                // Batch too large - this shouldn't happen with batch size 50
-                // but handle gracefully by failing this batch
-                throw new Error("Batch too large. Try with fewer questions.");
+            } else if (result.status === 'rejected') {
+              const errMsg = result.reason?.message || '';
+              if (errMsg.includes('429') || errMsg.includes('rate')) {
+                hasRateLimit = true;
               }
-              
-              throw response.error;
+              console.error(`[Turbo] Batch ${waveBatchIndices[j]} failed:`, result.reason);
+              retryBatches.push(waveBatchIndices[j]);
             }
+          }
 
-            if (response.data?.error) {
-              throw new Error(response.data.error);
+          // Update UI after each wave
+          if (partialGraph) {
+            onGraphUpdate(partialGraph);
+          }
+
+          // Save checkpoint after each wave
+          saveCheckpoint({
+            questions: questionsToProcess,
+            processedBatches: waveEnd,
+            accumulatedNodes,
+            partialGraph,
+            existingGraph,
+            timestamp: Date.now(),
+            turbo: true,
+            topicMap: topicMapToUse,
+          });
+
+          // Rate limit backoff
+          if (hasRateLimit) {
+            console.log('[Turbo] Rate limited, backing off 30s...');
+            await sleep(30000);
+          }
+
+          // Retry failed batches sequentially
+          for (const retryIdx of retryBatches) {
+            if (abortRef.current) break;
+            try {
+              const data = await callBatchGenerate(batches[retryIdx], batchTopicMaps[retryIdx], accumulatedNodes, domain);
+              if (data) {
+                const deltaGraph = normalizeGraphPayload(data);
+                partialGraph = partialGraph
+                  ? mergeGraphs([partialGraph!, deltaGraph])
+                  : deltaGraph;
+
+                for (const node of deltaGraph.globalNodes) {
+                  if (!accumulatedNodes.some(n => n.id === node.id)) {
+                    accumulatedNodes.push({
+                      id: node.id,
+                      name: node.name,
+                      tier: node.tier,
+                      description: node.description
+                    });
+                  }
+                }
+                onGraphUpdate(partialGraph!);
+              }
+            } catch (retryErr) {
+              console.error(`[Turbo] Retry failed for batch ${retryIdx}:`, retryErr);
             }
+          }
 
-            data = response.data;
-            success = true;
-          } catch (err) {
-            retries++;
-            if (retries >= maxRetries) throw err;
-            await sleep(5000);
+          // Delay between waves
+          if (waveEnd < batches.length) {
+            await sleep(delayMs);
           }
         }
-
-        // Process successful response
-        const deltaGraph = normalizeGraphPayload(data);
-
-        // Merge immediately for live updates
-        partialGraph = partialGraph 
-          ? mergeGraphs([partialGraph, deltaGraph])
-          : deltaGraph;
-
-        // Update UI immediately so user sees progress
-        onGraphUpdate(partialGraph);
-
-        // Accumulate nodes for next batch
-        for (const node of deltaGraph.globalNodes) {
-          if (!accumulatedNodes.some(n => n.id === node.id)) {
-            accumulatedNodes.push({
-              id: node.id,
-              name: node.name,
-              tier: node.tier,
-              description: node.description
+      } else {
+        // ====== STANDARD: Sequential processing ======
+        for (let i = processedBatches; i < batches.length; i++) {
+          if (abortRef.current) {
+            toast({
+              title: "Generation paused",
+              description: `Progress saved. ${i} of ${totalBatches} batches completed.`,
             });
+            return;
           }
-        }
 
-        // Save checkpoint with partial graph (not all deltas - saves storage)
-        saveCheckpoint({
-          questions: questionsToProcess,
-          processedBatches: i + 1,
-          accumulatedNodes,
-          partialGraph,
-          existingGraph,
-          timestamp: Date.now(),
-        });
+          const elapsed = (Date.now() - batchStartTimeRef.current) / 1000;
+          const avgTimePerBatch = i > processedBatches ? elapsed / (i - processedBatches) : 15;
+          const remaining = avgTimePerBatch * (totalBatches - i);
 
-        // Delay between batches (except last one)
-        if (i < batches.length - 1) {
-          await sleep(DELAY_BETWEEN_BATCHES_MS);
+          setProgress({
+            currentBatch: i + 1,
+            totalBatches,
+            skillsDiscovered: accumulatedNodes.length - (existingGraph?.globalNodes.length || 0),
+            estimatedTimeRemaining: formatTimeRemaining(remaining),
+            isProcessing: true,
+          });
+
+          const data = await callBatchGenerate(batches[i], batchTopicMaps[i], accumulatedNodes, domain);
+          const deltaGraph = normalizeGraphPayload(data);
+
+          partialGraph = partialGraph
+            ? mergeGraphs([partialGraph, deltaGraph])
+            : deltaGraph;
+
+          onGraphUpdate(partialGraph);
+
+          for (const node of deltaGraph.globalNodes) {
+            if (!accumulatedNodes.some(n => n.id === node.id)) {
+              accumulatedNodes.push({
+                id: node.id,
+                name: node.name,
+                tier: node.tier,
+                description: node.description
+              });
+            }
+          }
+
+          saveCheckpoint({
+            questions: questionsToProcess,
+            processedBatches: i + 1,
+            accumulatedNodes,
+            partialGraph,
+            existingGraph,
+            timestamp: Date.now(),
+          });
+
+          if (i < batches.length - 1) {
+            await sleep(delayMs);
+          }
         }
       }
 
@@ -477,15 +660,14 @@ export function useBatchGeneration(
 
       toast({
         title: existingGraph ? "Graph updated!" : "Graph generated!",
-        description: `Added ${newSkillCount} skills. Total: ${finalGraph.globalNodes.length} skills, ${finalGraph.edges.length} relationships.`,
+        description: `Added ${newSkillCount} skills. Total: ${finalGraph.globalNodes.length} skills, ${finalGraph.edges.length} relationships.${isTurbo ? ' ⚡ Turbo Mode' : ''}`,
       });
 
-      // Trigger callback to refresh saved graphs list
       onGenerationComplete?.();
 
     } catch (error) {
       console.error('Batch generation error:', error);
-      
+
       toast({
         title: "Generation failed",
         description: error instanceof Error ? error.message : "Failed to generate knowledge graph.",
@@ -494,7 +676,7 @@ export function useBatchGeneration(
     } finally {
       setProgress(prev => ({ ...prev, isProcessing: false }));
     }
-  }, [existingGraph, onGraphUpdate, onGenerationComplete, getCheckpoint, saveCheckpoint, clearCheckpoint]);
+  }, [existingGraph, onGraphUpdate, onGenerationComplete, getCheckpoint, saveCheckpoint, clearCheckpoint, checkDuplicateQuestions, callBatchGenerate]);
 
   const abort = useCallback(() => {
     abortRef.current = true;
@@ -503,7 +685,7 @@ export function useBatchGeneration(
   const resume = useCallback(async () => {
     const checkpoint = getCheckpoint();
     if (checkpoint) {
-      await generate(checkpoint.questions, true);
+      await generate(checkpoint.questions, true, undefined, undefined, checkpoint.turbo);
     }
   }, [generate, getCheckpoint]);
 
