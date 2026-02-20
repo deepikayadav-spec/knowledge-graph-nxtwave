@@ -8,7 +8,14 @@ const corsHeaders = {
 
 /** Exact same logic as src/lib/question/extractCore.ts */
 function extractCoreQuestion(fullBlock: string): string {
-  const cleaned = fullBlock.replace(/<br\s*\/?>/gi, "\n");
+  let cleaned = fullBlock.replace(/<br\s*\/?>/gi, "\n");
+  cleaned = cleaned.replace(/<[^>]+>/gi, " ");
+  cleaned = cleaned.replace(/&nbsp;/gi, " ");
+  cleaned = cleaned.replace(/&amp;/gi, "&");
+  cleaned = cleaned.replace(/&lt;/gi, "<");
+  cleaned = cleaned.replace(/&gt;/gi, ">");
+  cleaned = cleaned.replace(/&quot;/gi, '"');
+  cleaned = cleaned.replace(/&#(\d+);/g, (_, n) => String.fromCharCode(Number(n)));
   const lines = cleaned
     .split("\n")
     .map((l) => l.trim())
