@@ -92,18 +92,44 @@ export function useGraphPersistence() {
           if (s.subtopic_id) subtopicMap.set(s.skill_id, s.subtopic_id);
         });
 
+        // Safety check: refuse to delete edges/questions if DB has data but in-memory is empty
+        let skipEdgeDeletion = false;
+        let skipQuestionDeletion = false;
+
+        if (graph.edges.length === 0) {
+          const { count: dbEdgeCount } = await supabase
+            .from('skill_edges')
+            .select('*', { count: 'exact', head: true })
+            .eq('graph_id', existingId);
+          if (dbEdgeCount && dbEdgeCount > 0) {
+            console.warn(`[saveGraph] Refusing to delete ${dbEdgeCount} edges: DB has data but in-memory graph has 0`);
+            skipEdgeDeletion = true;
+          }
+        }
+
+        if (Object.keys(graph.questionPaths || {}).length === 0) {
+          const { count: dbQuestionCount } = await supabase
+            .from('questions')
+            .select('*', { count: 'exact', head: true })
+            .eq('graph_id', existingId);
+          if (dbQuestionCount && dbQuestionCount > 0) {
+            console.warn(`[saveGraph] Refusing to delete ${dbQuestionCount} questions: DB has data but in-memory graph has 0`);
+            skipQuestionDeletion = true;
+          }
+        }
+
         // Delete existing skills (always re-inserted with subtopic restoration)
         const deleteOps = [
           supabase.from('skills').delete().eq('graph_id', existingId).then(),
         ];
 
-        // Only delete edges if graph has edges to re-insert
-        if (graph.edges.length > 0) {
+        // Only delete edges if graph has edges to re-insert AND safety check passed
+        if (graph.edges.length > 0 && !skipEdgeDeletion) {
           deleteOps.push(supabase.from('skill_edges').delete().eq('graph_id', existingId).then());
         }
 
-        // Only delete questions if graph has questions to re-insert
-        if (Object.keys(graph.questionPaths || {}).length > 0) {
+        // Only delete questions if graph has questions to re-insert AND safety check passed
+        if (Object.keys(graph.questionPaths || {}).length > 0 && !skipQuestionDeletion) {
           deleteOps.push(supabase.from('questions').delete().eq('graph_id', existingId).then());
         }
 

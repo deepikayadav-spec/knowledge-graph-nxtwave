@@ -70,6 +70,16 @@ export function useAutosave(
       return;
     }
 
+    // Snapshot guard: refuse to save an empty graph if it previously had data
+    const hasNoEdges = graph.edges.length === 0;
+    const hasNoQuestions = Object.keys(graph.questionPaths || {}).length === 0;
+    const hasNodes = graph.globalNodes.length > 0;
+    if (hasNoEdges && hasNoQuestions && hasNodes) {
+      console.warn('[Autosave] Skipping save: graph has nodes but 0 edges and 0 questions — likely a transitional state');
+      setStatus('idle');
+      return;
+    }
+
     isSavingRef.current = true;
     setStatus('saving');
 
