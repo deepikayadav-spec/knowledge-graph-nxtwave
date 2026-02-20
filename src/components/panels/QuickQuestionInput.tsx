@@ -214,143 +214,162 @@ export function QuickQuestionInput({ onGenerate, isLoading, isLandingMode = fals
   };
 
   const handleFileUpload = async (e: ChangeEvent<HTMLInputElement>) => {
-    const file = e.target.files?.[0];
-    if (!file) return;
+    const files = e.target.files;
+    if (!files || files.length === 0) return;
 
-    if (file.size > 5 * 1024 * 1024) {
-      toast({
-        title: "File too large",
-        description: "Maximum file size is 5MB.",
-        variant: "destructive",
-      });
-      return;
-    }
-
-    // Handle PDF files
-    if (file.name.endsWith('.pdf')) {
-      setIsExtractingPdf(true);
-      try {
-        const rawText = await extractTextFromPdf(file);
-        
-        if (rawText.trim().length < 20) {
-          toast({
-            title: "Could not extract text",
-            description: "The PDF appears to be image-based or empty. Please try a text-based PDF.",
-            variant: "destructive",
-          });
-          setIsExtractingPdf(false);
-          return;
-        }
-
-        // Send to extract-questions edge function for AI-powered extraction
+    // Validate file sizes
+    for (const file of Array.from(files)) {
+      if (file.size > 5 * 1024 * 1024) {
         toast({
-          title: "Extracting questions...",
-          description: "Using AI to identify questions from your PDF.",
-        });
-
-        const { data, error } = await supabase.functions.invoke('extract-questions', {
-          body: { text: rawText, domain },
-        });
-
-        if (error) {
-          throw error;
-        }
-
-        if (data?.questions && data.questions.length > 0) {
-          setQuestionsText(data.questions.join('\n\n'));
-          toast({
-            title: "PDF processed",
-            description: `Found ${data.questions.length} question(s). Review and click Generate.`,
-          });
-        } else {
-          toast({
-            title: "No questions found",
-            description: "AI couldn't identify distinct questions in the PDF. Try pasting the text manually.",
-            variant: "destructive",
-          });
-        }
-      } catch (err) {
-        console.error('PDF extraction error:', err);
-        toast({
-          title: "PDF extraction failed",
-          description: err instanceof Error ? err.message : "Failed to extract questions from PDF.",
+          title: "File too large",
+          description: `"${file.name}" exceeds the 5MB limit.`,
           variant: "destructive",
         });
+        e.target.value = '';
+        return;
+      }
+    }
+
+    const allQuestions: string[] = [];
+    const pdfFiles: File[] = [];
+    const textFiles: File[] = [];
+
+    for (const file of Array.from(files)) {
+      if (file.name.endsWith('.pdf')) {
+        pdfFiles.push(file);
+      } else {
+        textFiles.push(file);
+      }
+    }
+
+    // Process text/CSV/JSON files in parallel
+    if (textFiles.length > 0) {
+      const textResults = await Promise.all(
+        textFiles.map(
+          (file) =>
+            new Promise<string[]>((resolve) => {
+              const reader = new FileReader();
+              reader.onload = (event) => {
+                const text = event.target?.result as string;
+                let questions: string[] = [];
+
+                if (file.name.endsWith('.csv')) {
+                  questions = parseCSV(text);
+                } else {
+                  try {
+                    const parsed = JSON.parse(text);
+                    if (Array.isArray(parsed)) {
+                      questions = parsed.map(q => {
+                        if (typeof q === 'string') return q;
+
+                        const content = q.question_content || q.question || q.text || '';
+                        if (!content) return JSON.stringify(q);
+
+                        let result = '';
+                        if (q.subtopic) {
+                          result += `Topic: ${q.subtopic}\n\n`;
+                        } else if (q.topic) {
+                          result += `Topic: ${q.topic}\n\n`;
+                        }
+
+                        result += 'Question:\n';
+                        result += content;
+
+                        if (q.test_cases && Array.isArray(q.test_cases) && q.test_cases.length > 0) {
+                          result += '\n\nTest Cases:';
+                          for (const tc of q.test_cases) {
+                            const weight = tc.weightage ? ` (weight: ${tc.weightage})` : '';
+                            result += `\n- ${tc.display_text || tc.description || tc.text}${weight}`;
+                          }
+                        }
+
+                        return result.trim();
+                      }).filter(q => q.length > 0);
+                    } else {
+                      questions = parseQuestionsFromText(text);
+                    }
+                  } catch {
+                    questions = parseQuestionsFromText(text);
+                  }
+                }
+
+                resolve(questions);
+              };
+              reader.readAsText(file);
+            })
+        )
+      );
+
+      for (const questions of textResults) {
+        allQuestions.push(...questions);
+      }
+    }
+
+    // Process PDF files sequentially
+    if (pdfFiles.length > 0) {
+      setIsExtractingPdf(true);
+      try {
+        for (const file of pdfFiles) {
+          const rawText = await extractTextFromPdf(file);
+
+          if (rawText.trim().length < 20) {
+            toast({
+              title: "Could not extract text",
+              description: `"${file.name}" appears to be image-based or empty.`,
+              variant: "destructive",
+            });
+            continue;
+          }
+
+          toast({
+            title: "Extracting questions...",
+            description: `Using AI to identify questions from "${file.name}".`,
+          });
+
+          const { data, error } = await supabase.functions.invoke('extract-questions', {
+            body: { text: rawText, domain },
+          });
+
+          if (error) {
+            console.error('PDF extraction error:', error);
+            toast({
+              title: "PDF extraction failed",
+              description: `Failed to extract from "${file.name}".`,
+              variant: "destructive",
+            });
+            continue;
+          }
+
+          if (data?.questions && data.questions.length > 0) {
+            allQuestions.push(...data.questions);
+          }
+        }
       } finally {
         setIsExtractingPdf(false);
       }
+    }
+
+    if (allQuestions.length === 0) {
+      toast({
+        title: "No questions found",
+        description: "Could not parse questions from the selected file(s).",
+        variant: "destructive",
+      });
       e.target.value = '';
       return;
     }
 
-    // Handle text/CSV files
-    const reader = new FileReader();
-    reader.onload = (event) => {
-      const text = event.target?.result as string;
-      let questions: string[] = [];
+    toast({
+      title: "Files loaded",
+      description: `Found ${allQuestions.length} question(s) across ${files.length} file(s). Click Generate to process.`,
+    });
 
-      if (file.name.endsWith('.csv')) {
-        questions = parseCSV(text);
-      } else {
-        try {
-          const parsed = JSON.parse(text);
-          if (Array.isArray(parsed)) {
-            questions = parsed.map(q => {
-              if (typeof q === 'string') return q;
+    // Append to existing content
+    setQuestionsText(prev => {
+      const trimmed = prev.trim();
+      return trimmed ? trimmed + '\n\n' + allQuestions.join('\n\n') : allQuestions.join('\n\n');
+    });
 
-              // Support question_content field (NxtWave format)
-              const content = q.question_content || q.question || q.text || '';
-              if (!content) return JSON.stringify(q);
-
-              let result = '';
-
-              // Add topic/subtopic header for automatic grouping
-              if (q.subtopic) {
-                result += `Topic: ${q.subtopic}\n\n`;
-              } else if (q.topic) {
-                result += `Topic: ${q.topic}\n\n`;
-              }
-
-              result += 'Question:\n';
-              result += content;
-
-              // Append test cases so IPA/LTA can analyze them
-              if (q.test_cases && Array.isArray(q.test_cases) && q.test_cases.length > 0) {
-                result += '\n\nTest Cases:';
-                for (const tc of q.test_cases) {
-                  const weight = tc.weightage ? ` (weight: ${tc.weightage})` : '';
-                  result += `\n- ${tc.display_text || tc.description || tc.text}${weight}`;
-                }
-              }
-
-              return result.trim();
-            }).filter(q => q.length > 0);
-          } else {
-            questions = parseQuestionsFromText(text);
-          }
-        } catch {
-          questions = parseQuestionsFromText(text);
-        }
-      }
-
-      if (questions.length === 0) {
-        toast({
-          title: "No questions found",
-          description: "Could not parse questions from the file.",
-          variant: "destructive",
-        });
-        return;
-      }
-
-      toast({
-        title: "File loaded",
-        description: `Found ${questions.length} question(s). Click Generate to process.`,
-      });
-
-      setQuestionsText(questions.join('\n\n'));
-    };
-
-    reader.readAsText(file);
     e.target.value = '';
   };
 
@@ -390,6 +409,7 @@ export function QuickQuestionInput({ onGenerate, isLoading, isLandingMode = fals
             ref={fileInputRef}
             type="file"
             accept=".txt,.csv,.pdf,.json"
+            multiple
             onChange={handleFileUpload}
             className="hidden"
           />
@@ -446,7 +466,7 @@ export function QuickQuestionInput({ onGenerate, isLoading, isLandingMode = fals
                 ) : (
                   <Upload className="h-4 w-4" />
                 )}
-                Upload File
+                Upload Files
               </Button>
             </div>
             <Button
@@ -485,6 +505,7 @@ export function QuickQuestionInput({ onGenerate, isLoading, isLandingMode = fals
           ref={fileInputRef}
           type="file"
           accept=".txt,.csv,.pdf,.json"
+          multiple
           onChange={handleFileUpload}
           className="hidden"
         />
