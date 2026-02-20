@@ -47,6 +47,7 @@ export function KnowledgeGraphApp() {
 
   // Mastery tracking state
   const [masteryMode, setMasteryMode] = useState(false);
+  const [isGeneratingFlag, setIsGeneratingFlag] = useState(false);
   const [selectedClassId, setSelectedClassId] = useState<string | null>(null);
   const [selectedClassName, setSelectedClassName] = useState<string | null>(null);
   const [selectedStudentId, setSelectedStudentId] = useState<string | null>(null);
@@ -132,7 +133,7 @@ export function KnowledgeGraphApp() {
     triggerSave: autosaveTrigger,
   } = useAutosave(graph, currentGraphId, saveGraph, currentGraphName, {
     debounceMs: 30000,
-    enabled: !!currentGraphId,
+    enabled: !!currentGraphId && !isGeneratingFlag,
   });
 
   // Batch generation with progress tracking
@@ -151,7 +152,11 @@ export function KnowledgeGraphApp() {
     clearCheckpoint,
   } = useBatchGeneration(graph, handleGraphUpdate, fetchGraphs);
 
-  // Handle class selection
+  // Sync generation flag for autosave guard
+  useEffect(() => {
+    setIsGeneratingFlag(progress.isProcessing);
+  }, [progress.isProcessing]);
+
   const handleClassSelect = useCallback((classId: string, className: string) => {
     setSelectedClassId(classId);
     setSelectedClassName(className);
