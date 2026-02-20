@@ -60,6 +60,7 @@ export function useGraphPersistence() {
       const skillCount = graph.globalNodes.length;
 
       let graphId = existingId;
+      const subtopicMap = new Map<string, string>();
 
       if (existingId) {
         // Update existing graph
@@ -74,6 +75,17 @@ export function useGraphPersistence() {
           .eq('id', existingId);
 
         if (updateError) throw updateError;
+
+        // Preserve subtopic_id mappings before deleting skills
+        const { data: existingSkillMappings } = await supabase
+          .from('skills')
+          .select('skill_id, subtopic_id')
+          .eq('graph_id', existingId)
+          .not('subtopic_id', 'is', null);
+
+        (existingSkillMappings || []).forEach(s => {
+          if (s.subtopic_id) subtopicMap.set(s.skill_id, s.subtopic_id);
+        });
 
         // Delete existing skills, edges, and questions for this graph
         await Promise.all([
@@ -117,6 +129,17 @@ export function useGraphPersistence() {
           .insert(skillsToInsert);
 
         if (skillsError) throw skillsError;
+
+        // Restore subtopic_id mappings after re-insert
+        if (existingId && subtopicMap.size > 0) {
+          for (const [skillId, subtopicId] of subtopicMap.entries()) {
+            await supabase
+              .from('skills')
+              .update({ subtopic_id: subtopicId })
+              .eq('graph_id', graphId!)
+              .eq('skill_id', skillId);
+          }
+        }
       }
 
       // Insert edges
