@@ -1,10 +1,11 @@
-// Manual attempt logger panel with coding solution scoring rubric
+// Manual attempt logger panel with binary scoring + granular independence
 
 import { useState, useEffect, useMemo } from 'react';
 import { supabase } from '@/integrations/supabase/client';
 import { Button } from '@/components/ui/button';
 import { Label } from '@/components/ui/label';
-import { RadioGroup, RadioGroupItem } from '@/components/ui/radio-group';
+import { Input } from '@/components/ui/input';
+import { Switch } from '@/components/ui/switch';
 import {
   Select,
   SelectContent,
@@ -13,10 +14,11 @@ import {
   SelectValue,
 } from '@/components/ui/select';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
+import { Badge } from '@/components/ui/badge';
 import { useToast } from '@/hooks/use-toast';
 import { ClipboardCheck } from 'lucide-react';
-import { CODING_RUBRIC_DIMENSIONS, CODING_RUBRIC_TOTAL } from '@/lib/mastery/constants';
-import type { IndependenceLevel, QuestionWithWeights } from '@/types/mastery';
+import { calculateIndependenceScore } from '@/lib/mastery/constants';
+import type { QuestionWithWeights } from '@/types/mastery';
 
 interface AttemptLoggerPanelProps {
   graphId: string;
@@ -36,23 +38,29 @@ export function AttemptLoggerPanel({
   const { toast } = useToast();
   const [questions, setQuestions] = useState<QuestionWithWeights[]>([]);
   const [selectedQuestionId, setSelectedQuestionId] = useState<string>('');
-  const [independenceLevel, setIndependenceLevel] = useState<IndependenceLevel>('independent');
+  const [isCorrect, setIsCorrect] = useState(false);
+  const [solutionViewed, setSolutionViewed] = useState(false);
+  const [aiTutorCount, setAiTutorCount] = useState(0);
+  const [totalSubmissions, setTotalSubmissions] = useState(1);
   const [loading, setLoading] = useState(false);
   const [submitting, setSubmitting] = useState(false);
 
-  // Rubric state: marks selected per dimension (index-aligned with CODING_RUBRIC_DIMENSIONS)
-  const [rubricMarks, setRubricMarks] = useState<number[]>(
-    CODING_RUBRIC_DIMENSIONS.map(() => 0)
+  const independenceScore = useMemo(
+    () => calculateIndependenceScore(solutionViewed, aiTutorCount, totalSubmissions),
+    [solutionViewed, aiTutorCount, totalSubmissions]
   );
 
-  const totalMarks = useMemo(() => rubricMarks.reduce((s, m) => s + m, 0), [rubricMarks]);
-  const solutionScore = totalMarks / CODING_RUBRIC_TOTAL;
-  const solutionPercent = Math.round(solutionScore * 100);
+  // Derive independence level label
+  const independenceLabel = useMemo(() => {
+    if (solutionViewed) return 'Solution-Driven';
+    if (aiTutorCount === 0) return 'Independent';
+    if (aiTutorCount <= 2) return 'Lightly Scaffolded';
+    return 'Heavily Scaffolded';
+  }, [solutionViewed, aiTutorCount]);
 
   // Load questions for this graph
   useEffect(() => {
     if (!graphId) return;
-
     const loadQuestions = async () => {
       setLoading(true);
       try {
@@ -60,9 +68,7 @@ export function AttemptLoggerPanel({
           .from('questions')
           .select('id, graph_id, question_text, skills, primary_skills, skill_weights, weightage_multiplier')
           .eq('graph_id', graphId);
-
         if (error) throw error;
-
         setQuestions(
           (data || []).map(q => ({
             id: q.id,
@@ -80,23 +86,22 @@ export function AttemptLoggerPanel({
         setLoading(false);
       }
     };
-
     loadQuestions();
   }, [graphId]);
 
   const handleSubmit = async () => {
     if (!selectedQuestionId || !studentId) {
-      toast({
-        title: 'Missing information',
-        description: 'Please select a question',
-        variant: 'destructive',
-      });
+      toast({ title: 'Missing information', description: 'Please select a question', variant: 'destructive' });
       return;
     }
 
     setSubmitting(true);
     try {
-      const isCorrect = solutionScore >= 0.5;
+      // Derive independence level string for backward compat
+      let independenceLevel = 'independent';
+      if (solutionViewed) independenceLevel = 'solution_driven';
+      else if (aiTutorCount >= 3) independenceLevel = 'heavily_assisted';
+      else if (aiTutorCount >= 1) independenceLevel = 'lightly_scaffolded';
 
       const { error } = await supabase.from('student_attempts').insert({
         graph_id: graphId,
@@ -104,8 +109,12 @@ export function AttemptLoggerPanel({
         student_id: studentId,
         question_id: selectedQuestionId,
         is_correct: isCorrect,
-        solution_score: solutionScore,
+        solution_score: isCorrect ? 1.0 : 0.0,
         independence_level: independenceLevel,
+        solution_viewed: solutionViewed,
+        ai_tutor_count: aiTutorCount,
+        total_submissions: totalSubmissions,
+        independence_score: independenceScore,
         attempted_at: new Date().toISOString(),
       });
 
@@ -113,22 +122,20 @@ export function AttemptLoggerPanel({
 
       toast({
         title: 'Attempt recorded',
-        description: `Score ${solutionPercent}% logged for ${studentName}`,
+        description: `${isCorrect ? '✓ Correct' : '✗ Incorrect'} • Independence: ${independenceScore.toFixed(1)} (${independenceLabel})`,
       });
 
       // Reset form
       setSelectedQuestionId('');
-      setRubricMarks(CODING_RUBRIC_DIMENSIONS.map(() => 0));
-      setIndependenceLevel('independent');
+      setIsCorrect(false);
+      setSolutionViewed(false);
+      setAiTutorCount(0);
+      setTotalSubmissions(1);
 
       onAttemptRecorded?.();
     } catch (err) {
       console.error('Error recording attempt:', err);
-      toast({
-        title: 'Error',
-        description: 'Failed to record attempt',
-        variant: 'destructive',
-      });
+      toast({ title: 'Error', description: 'Failed to record attempt', variant: 'destructive' });
     } finally {
       setSubmitting(false);
     }
@@ -148,11 +155,7 @@ export function AttemptLoggerPanel({
         {/* Question Selection */}
         <div className="space-y-2">
           <Label>Question</Label>
-          <Select
-            value={selectedQuestionId}
-            onValueChange={setSelectedQuestionId}
-            disabled={loading}
-          >
+          <Select value={selectedQuestionId} onValueChange={setSelectedQuestionId} disabled={loading}>
             <SelectTrigger>
               <SelectValue placeholder="Select a question" />
             </SelectTrigger>
@@ -174,98 +177,56 @@ export function AttemptLoggerPanel({
           )}
         </div>
 
-        {/* Coding Solution Rubric */}
-        <div className="space-y-3">
-          <Label className="text-sm font-semibold">Solution Scoring Rubric</Label>
-          {CODING_RUBRIC_DIMENSIONS.map((dim, dimIdx) => (
-            <div key={dim.name} className="space-y-1">
-              <div className="flex items-center justify-between">
-                <span className="text-xs font-medium text-foreground">{dim.name}</span>
-                <span className="text-xs text-muted-foreground">
-                  {rubricMarks[dimIdx]} / {dim.maxMarks}
-                </span>
-              </div>
-              <RadioGroup
-                value={String(rubricMarks[dimIdx])}
-                onValueChange={(v) => {
-                  const newMarks = [...rubricMarks];
-                  newMarks[dimIdx] = parseFloat(v);
-                  setRubricMarks(newMarks);
-                }}
-                className="flex flex-wrap gap-2"
-              >
-                {dim.levels.map(level => (
-                  <div key={level.label} className="flex items-center space-x-1">
-                    <RadioGroupItem
-                      value={String(level.marks)}
-                      id={`${dim.name}-${level.label}`}
-                    />
-                    <Label
-                      htmlFor={`${dim.name}-${level.label}`}
-                      className="font-normal cursor-pointer text-xs"
-                    >
-                      {level.label} ({level.marks})
-                    </Label>
-                  </div>
-                ))}
-              </RadioGroup>
-            </div>
-          ))}
+        {/* Binary Score */}
+        <div className="flex items-center justify-between">
+          <Label htmlFor="is-correct">All Test Cases Pass?</Label>
+          <Switch id="is-correct" checked={isCorrect} onCheckedChange={setIsCorrect} />
+        </div>
 
-          {/* Live Score */}
+        {/* Independence Inputs */}
+        <div className="space-y-3 border rounded-lg p-3">
+          <Label className="text-sm font-semibold">Independence Factors</Label>
+          
+          <div className="flex items-center justify-between">
+            <Label htmlFor="solution-viewed" className="text-sm font-normal">Solution Viewed?</Label>
+            <Switch id="solution-viewed" checked={solutionViewed} onCheckedChange={setSolutionViewed} />
+          </div>
+
+          <div className="grid grid-cols-2 gap-3">
+            <div className="space-y-1">
+              <Label htmlFor="ai-tutor" className="text-xs">AI Tutor Uses</Label>
+              <Input
+                id="ai-tutor"
+                type="number"
+                min={0}
+                value={aiTutorCount}
+                onChange={(e) => setAiTutorCount(Math.max(0, parseInt(e.target.value) || 0))}
+              />
+            </div>
+            <div className="space-y-1">
+              <Label htmlFor="total-subs" className="text-xs">Total Submissions</Label>
+              <Input
+                id="total-subs"
+                type="number"
+                min={0}
+                value={totalSubmissions}
+                onChange={(e) => setTotalSubmissions(Math.max(0, parseInt(e.target.value) || 0))}
+              />
+            </div>
+          </div>
+
+          {/* Live Independence Score */}
           <div className="flex items-center justify-between bg-muted/50 rounded-md px-3 py-2">
-            <span className="text-sm font-medium">Solution Score</span>
-            <span className={`text-sm font-bold ${
-              solutionPercent >= 70 ? 'text-green-600 dark:text-green-400' :
-              solutionPercent >= 40 ? 'text-yellow-600 dark:text-yellow-400' :
-              'text-red-600 dark:text-red-400'
-            }`}>
-              {totalMarks} / {CODING_RUBRIC_TOTAL} = {solutionPercent}%
-            </span>
+            <span className="text-sm font-medium">Independence Score</span>
+            <div className="flex items-center gap-2">
+              <Badge variant="outline" className="text-xs">{independenceLabel}</Badge>
+              <span className="text-sm font-bold">{independenceScore.toFixed(1)}</span>
+            </div>
           </div>
         </div>
 
-        {/* Independence Level */}
-        <div className="space-y-2">
-          <Label>Independence Level</Label>
-          <RadioGroup
-            value={independenceLevel}
-            onValueChange={(v) => setIndependenceLevel(v as IndependenceLevel)}
-            className="flex flex-col space-y-1"
-          >
-            <div className="flex items-center space-x-2">
-              <RadioGroupItem value="independent" id="independent" />
-              <Label htmlFor="independent" className="font-normal cursor-pointer">
-                Independent (100% credit)
-              </Label>
-            </div>
-            <div className="flex items-center space-x-2">
-              <RadioGroupItem value="lightly_scaffolded" id="lightly_scaffolded" />
-              <Label htmlFor="lightly_scaffolded" className="font-normal cursor-pointer">
-                Lightly Scaffolded (70% credit)
-              </Label>
-            </div>
-            <div className="flex items-center space-x-2">
-              <RadioGroupItem value="heavily_assisted" id="heavily_assisted" />
-              <Label htmlFor="heavily_assisted" className="font-normal cursor-pointer">
-                Heavily Assisted (40% credit)
-              </Label>
-            </div>
-            <div className="flex items-center space-x-2">
-              <RadioGroupItem value="solution_driven" id="solution_driven" />
-              <Label htmlFor="solution_driven" className="font-normal cursor-pointer">
-                Solution-Driven (20% credit)
-              </Label>
-            </div>
-          </RadioGroup>
-        </div>
-
         {/* Submit Button */}
-        <Button
-          onClick={handleSubmit}
-          disabled={!selectedQuestionId || submitting}
-          className="w-full"
-        >
+        <Button onClick={handleSubmit} disabled={!selectedQuestionId || submitting} className="w-full">
           {submitting ? 'Recording...' : 'Record Attempt'}
         </Button>
       </CardContent>

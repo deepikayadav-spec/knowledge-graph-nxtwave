@@ -34,6 +34,17 @@ export interface AggregatedMastery {
   totalEarnedPoints: number;
 }
 
+export interface TopicScoreRange {
+  id: string;
+  graphId: string;
+  topicId: string;
+  topicName: string;
+  minScore: number;
+  maxScore: number;
+  uniqueQuestions: number;
+  updatedAt?: string;
+}
+
 // Color palette for subtopics/topics
 export const GROUPING_COLORS = [
   '#6366f1', // Indigo

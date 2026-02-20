@@ -59,29 +59,27 @@ export function processAttempt(
     question.skillWeights
   );
   
-  const independenceMultiplier = INDEPENDENCE_MULTIPLIERS[attempt.independenceLevel];
+  // Use computed independence_score if available, otherwise fall back to old multiplier
+  const independenceMultiplier = attempt.independenceScore ?? INDEPENDENCE_MULTIPLIERS[attempt.independenceLevel];
   
-  // Get weightage multiplier from question difficulty (defaults to 1.0)
-  const weightageMultiplier = question.weightageMultiplier || 1.0;
+  // Binary scoring: 1 if correct, 0 if not
+  const binaryScore = attempt.isCorrect ? 1 : 0;
   
   for (const [skillId, weight] of Object.entries(weights)) {
     // Get or create mastery record
     let mastery = currentMastery.get(skillId) || 
       createEmptyMastery(attempt.graphId, attempt.studentId, skillId);
     
-    // Scale weight by difficulty multiplier
-    const scaledWeight = weight * weightageMultiplier;
+    // Max points: what they could earn with perfect score + full independence
+    mastery.maxPoints += weight;
     
-    // Always add to max points (what they could have earned)
-    mastery.maxPoints += scaledWeight;
-    
-    // Contribution = scaledWeight × solutionScore × independenceMultiplier
-    const contribution = scaledWeight * attempt.solutionScore * independenceMultiplier;
+    // Contribution = weight × binaryScore × independenceScore
+    const contribution = weight * binaryScore * independenceMultiplier;
     mastery.earnedPoints += contribution;
     mastery.earnedPoints = Math.max(0, mastery.earnedPoints);
     
-    // Update stability only when solutionScore > 0 (some learning happened)
-    if (attempt.solutionScore > 0) {
+    // Update stability only when correct (some learning happened)
+    if (binaryScore > 0) {
       mastery.retrievalCount += 1;
       mastery.stability = updateStability(mastery.stability, mastery.lastReviewedAt);
       mastery.lastReviewedAt = attempt.attemptedAt;
