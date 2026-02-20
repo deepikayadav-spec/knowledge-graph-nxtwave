@@ -1,75 +1,101 @@
 
 
-# Fix: Duplicate Detection Using Full Question Text
+# Fix: Duplicate Detection Mismatch Between Stored and Imported Questions
 
 ## Problem
 
-The duplicate detection system (`extractCoreQuestion`) reduces each question to just its **first non-header line** for comparison. This causes two issues:
+When you upload the same file twice, duplicates are not detected. This happens because the question text stored in the database and the question text parsed from the file import have different formats, producing different fingerprints.
 
-1. **False positives (over-filtering)**: Multiple genuinely different questions that share the same opening sentence (e.g., "In this assignment, let's practice the Basic HTML Elements...") are treated as duplicates because only the first line is compared -- even though they have different images, instructions, and test cases.
+**What gets stored in the database** (after first upload + generation):
+```
+In this question, let's practice HTML Lists and Void Elements...
+```
 
-2. **False negatives (under-filtering)**: Questions that are truly the same but have slightly different first lines slip through.
+**What the file import produces** (second upload):
+```
+Topic: HTML Elements
 
-This affects both the real-time duplicate counter in the textarea and the pre-generation duplicate check.
+Question:
+In this question, let's practice HTML Lists and Void Elements...
+
+Test Cases:
+- Page should consist of an HTML image element... (weight: 5)
+```
+
+The `extractCoreQuestion` function handles these two formats via different code paths, producing different fingerprints -- so the duplicate check never matches.
 
 ## Root Cause
 
-In `src/lib/question/extractCore.ts`, the function returns only the first meaningful line of text (line 33: `if (line.length > 0) return line.toLowerCase()`). For structured questions without `Question:` headers (like those stored in the database after generation), it falls back to the first non-empty line (line 39-41).
+1. The DB text has **no headers** -- so the function takes the fallback path and joins ALL lines
+2. The imported text has `Topic:` and `Question:` headers -- so the function takes the Question-header path and only collects lines between `Question:` and `Test Cases:`
+3. Additionally, the `Topic: HTML Elements` line is NOT filtered by the fallback regex because it only matches bare `Topic:` (without content after it)
 
 ## Solution
 
-Change `extractCoreQuestion` to return **more of the question content** -- specifically, concatenate multiple content lines (up to a reasonable limit) before section headers like Input/Output/Explanation. This creates a more unique fingerprint for each question.
+Update `extractCoreQuestion` to normalize more aggressively so both formats produce the same fingerprint:
+
+1. **Strip `Topic: ...` lines** (with content) at the start, not just bare `Topic:` headers
+2. **Strip `Test Cases:` sections** and everything after them in both paths
+3. **Always strip the `Question:` header** before processing, so both paths converge
 
 ### File: `src/lib/question/extractCore.ts`
 
-**Current logic** (returns first content line only):
+Replace the function with improved normalization:
+
 ```typescript
-for (let i = questionStartIdx; i < lines.length; i++) {
-  const line = lines[i];
-  if (/^(Input|Output|Explanation|Test Cases)\s*:?\s*$/i.test(line)) break;
-  if (line.length > 0) return line.toLowerCase(); // Returns immediately
+export function extractCoreQuestion(fullBlock: string): string {
+  // Strip HTML tags
+  const cleaned = fullBlock.replace(/<br\s*\/?>/gi, '\n');
+  const lines = cleaned.split('\n').map(l => l.trim()).filter(l => l);
+
+  // Remove Topic: lines (with or without content after)
+  // Remove Question: header lines
+  // Stop at section headers like Input, Output, Test Cases
+  const contentLines: string[] = [];
+  let pastQuestionHeader = false;
+  let foundQuestionHeader = false;
+
+  for (const line of lines) {
+    // Skip "Topic: ..." lines entirely
+    if (/^Topic\s*:\s*/i.test(line)) continue;
+
+    // Skip bare "Question" or "Question:" header
+    if (/^Question\s*:?\s*$/i.test(line)) {
+      foundQuestionHeader = true;
+      pastQuestionHeader = true;
+      continue;
+    }
+
+    // Handle "Question: actual content..." on same line
+    const inlineMatch = line.match(/^Question\s*:\s*(.+)/i);
+    if (inlineMatch) {
+      foundQuestionHeader = true;
+      pastQuestionHeader = true;
+      contentLines.push(inlineMatch[1]);
+      continue;
+    }
+
+    // Stop at section headers
+    if (/^(Input|Output|Explanation|Test Cases|Resources)\s*:?\s*$/i.test(line)) break;
+
+    contentLines.push(line);
+  }
+
+  if (contentLines.length > 0) {
+    return contentLines.join(' ').toLowerCase().substring(0, 500);
+  }
+
+  return fullBlock.trim().toLowerCase().substring(0, 500);
 }
 ```
 
-**New logic** (collects all content lines before section headers):
-```typescript
-const contentLines: string[] = [];
-for (let i = questionStartIdx; i < lines.length; i++) {
-  const line = lines[i];
-  if (/^(Input|Output|Explanation|Test Cases)\s*:?\s*$/i.test(line)) break;
-  if (line.length > 0) contentLines.push(line);
-}
-if (contentLines.length > 0) {
-  return contentLines.join(' ').toLowerCase().substring(0, 500);
-}
-```
+Key changes:
+- `Topic: HTML Elements` lines are now always stripped (regex matches `Topic:` followed by any content)
+- `Question:` headers are always stripped regardless of format
+- `Test Cases:` acts as a stop point in all paths (added alongside Input/Output/Explanation)
+- `Resources` also acts as a stop point (many questions have a Resources section after the core content)
+- Single unified code path instead of branching -- both formats converge to the same fingerprint
 
-Apply the same change to the **fallback path** (for questions without `Question:` headers):
+### No other files need to change
 
-```typescript
-// Collect all non-header lines up to a limit
-const contentLines = lines.filter(l =>
-  !/^(Question|Input|Output|Explanation|Test Cases|Topic)\s*:?\s*$/i.test(l)
-);
-return contentLines.join(' ').toLowerCase().substring(0, 500)
-  || fullBlock.trim().toLowerCase();
-```
-
-### What this fixes
-
-- Three "Basic HTML Elements" practice questions will now include their unique image URLs and instructions in the comparison string, making them distinct
-- Questions numbered "1", "2", "3" etc. will still be correctly identified by their short text
-- The 500-character cap prevents excessive memory usage for very long questions
-
-### Files changed
-
-| File | Change |
-|---|---|
-| `src/lib/question/extractCore.ts` | Use multi-line content (up to 500 chars) instead of first line only |
-
-### What stays the same
-
-- The duplicate check logic in `useBatchGeneration.ts` and `QuickQuestionInput.tsx` remains unchanged -- they already call `extractCoreQuestion` correctly
-- Database schema unchanged
-- Edge functions unchanged
-
+The callers in `useBatchGeneration.ts` and `QuickQuestionInput.tsx` already use `extractCoreQuestion` correctly -- only the normalization logic inside it needs fixing.
