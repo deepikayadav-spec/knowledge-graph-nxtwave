@@ -1299,7 +1299,7 @@ CRITICAL: Do NOT include "ipaByQuestion" in your output. Output ONLY: globalNode
 
 Generate the knowledge graph JSON.`;
 
-    const model = "gemini-2.5-pro";
+    const model = "gemini-2.5-flash";
     const maxTokens = calculateMaxTokens(questions.length, isIncremental ?? false, existingNodes?.length || 0);
     
     const MAX_RETRIES = 3;
