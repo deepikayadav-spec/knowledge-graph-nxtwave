@@ -1,49 +1,51 @@
 
-# Display Min/Max Score on Topic Nodes + Confirm Persistence
 
-## Issue 1: Persistence (Already Working)
+# Fix Duplicate Detection: Strip All HTML Before Fingerprinting
 
-After investigation, the groupings **are persisting correctly** in the database. All 51 KPs have their `subtopic_id` set. The `useSkillGrouping` hook has `autoLoad=true`, which calls `loadGroupings()` on mount -- so every time you open the app, it loads the saved groupings from the database. You should NOT need to click "Auto Group" again unless you want to reset/recreate the groupings.
+## Problem
 
-No code changes needed here.
+The `extractCoreQuestion` function only strips `<br>` tags, but many questions in the database contain rich HTML: `<div>`, `<b>`, `<hr>`, `<img>`, `<MultiLineQuickTip>`, inline `style` attributes, etc. When the same question is re-imported from a file, the HTML formatting may differ slightly (or be absent), producing a different fingerprint and causing the duplicate check to miss the match.
 
-## Issue 2: Show Min/Max on Topic Node Click
+This explains why only 157 of 224 questions are detected -- the ~67 unmatched ones likely contain HTML that causes fingerprint divergence.
 
-When a user clicks a Topic super node on the graph canvas, the `SuperNodeDetailPanel` should display the topic's min score (always 0) and max score (unique question count).
+## Solution
 
-### Changes
+Make `extractCoreQuestion` aggressively strip ALL HTML tags and entities before fingerprinting. This ensures the same textual content produces an identical fingerprint regardless of HTML wrapping.
 
-**1. `src/components/KnowledgeGraphApp.tsx`**
-- Import `loadTopicScoreRanges` and add state for `topicScoreRanges`
-- Load score ranges when `currentGraphId` changes (similar to how MasterySidebar does it)
-- Pass `topicScoreRanges` to `SuperNodeDetailPanel`
+## Files to Change
 
-**2. `src/components/panels/SuperNodeDetailPanel.tsx`**
-- Accept an optional `scoreRange` prop (of type `TopicScoreRange | undefined`)
-- When the super node is a `topic` type and a score range exists, display:
-  - Min Score: 0
-  - Max Score: (unique question count)
-  - Unique Questions: count
-- Show this as a small info section between the header and the skill list
+### 1. `src/lib/question/extractCore.ts`
 
-**3. Trigger score range calculation**
-- After the data is confirmed persisted, run the score range calculation once for the LKG IO New graph so the `topic_score_ranges` table gets populated
-- This can be triggered from the existing "Recalculate Ranges" button in the Mastery sidebar, or we auto-calculate when ranges are empty on load
+Add aggressive HTML normalization at the top of the function, before any line-by-line processing:
 
-### Technical Details
+- Strip ALL HTML tags (not just `<br>`): `/<[^>]+>/gi` -- removes `<div>`, `<b>`, `<img ...>`, `<hr/>`, `<MultiLineQuickTip>`, etc.
+- Decode common HTML entities: `&amp;` to `&`, `&lt;` to `<`, `&gt;` to `>`, `&nbsp;` to space, `&#...;` numeric entities
+- Normalize all whitespace (collapse runs of spaces/newlines)
 
-The `SuperNodeDetailPanel` header section will gain a stats row for topic nodes:
+### 2. `supabase/functions/find-missing-questions/index.ts`
 
-```text
----------------------------------
-| [Icon] Topic Name             |
-| Topic  ·  12 knowledge points |
-| Min: 0  |  Max: 45  |  45 Qs |
----------------------------------
-| skill_1                       |
-| skill_2                       |
-| ...                           |
----------------------------------
+Apply the same HTML stripping logic to keep the edge function's copy of `extractCoreQuestion` in sync.
+
+## Technical Detail
+
+Current code (line 8):
+```typescript
+const cleaned = fullBlock.replace(/<br\s*\/?>/gi, '\n');
 ```
 
-The score range lookup is simple: find the `TopicScoreRange` where `topicId` matches the super node's underlying topic ID (extracted by stripping the `topic_` prefix from the super node ID).
+Updated approach:
+```typescript
+// Strip ALL HTML tags, not just <br>
+let cleaned = fullBlock.replace(/<br\s*\/?>/gi, '\n');
+cleaned = cleaned.replace(/<[^>]+>/gi, ' ');
+// Decode common HTML entities
+cleaned = cleaned.replace(/&nbsp;/gi, ' ');
+cleaned = cleaned.replace(/&amp;/gi, '&');
+cleaned = cleaned.replace(/&lt;/gi, '<');
+cleaned = cleaned.replace(/&gt;/gi, '>');
+cleaned = cleaned.replace(/&quot;/gi, '"');
+cleaned = cleaned.replace(/&#(\d+);/g, (_, n) => String.fromCharCode(Number(n)));
+```
+
+This is a minimal, targeted change. No database changes, no new files. It fixes the root cause by ensuring HTML-rich DB content and plain-text file content produce the same fingerprint.
+
