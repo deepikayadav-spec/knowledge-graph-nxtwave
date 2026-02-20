@@ -1,64 +1,64 @@
 
 
-# Urgent: Fix Autosave Destroying Edges/Questions + Prevent Future Loss
+# Restore Edges for LKG IO New (No Re-import Needed)
 
-## Current Situation
+## Approach
 
-- **"LKG IO New"** has 51 skills, **0 edges, 0 questions** in the database
-- The 224 questions and all edges were permanently deleted by the autosave
-- There is no database backup to restore from -- the data must be re-imported
+Your 51 KPs are intact. We can generate edges in two steps:
 
-## Root Cause (lines 90-95 of useGraphPersistence.ts)
+### Step 1: Insert Mandatory Edges Directly via SQL
 
-Every save (including autosave every 30s) unconditionally deletes ALL edges and questions, then tries to re-insert from the in-memory graph. But the in-memory graph often has 0 edges and 0 questions (they're managed separately), so the delete wipes them and nothing gets re-inserted.
+The WEB_CONFIG already defines 33 mandatory prerequisite edges. Of those, the following match your existing 51 skills (both `from` and `to` exist):
 
-## Fix Plan
+| From | To | Reason |
+|------|-----|--------|
+| html_elements | html_forms | forms use HTML elements |
+| html_elements | html_semantic_elements | semantic elements build on basic elements |
+| html_attributes | html_forms | forms require attribute knowledge |
+| css_selectors | css_properties | applying properties requires selectors |
+| css_properties | css_box_model | box model uses CSS properties |
+| css_box_model | css_flexbox | flexbox builds on box model |
+| css_box_model | css_grid | grid builds on box model |
+| css_properties | css_positioning | positioning uses CSS properties |
+| css_flexbox | css_responsive_design | responsive design uses flexbox |
+| css_media_queries | css_responsive_design | responsive design uses media queries |
+| js_variables | js_conditionals | conditionals operate on variables |
+| js_variables | js_loops | loops operate on variables |
+| js_variables | js_functions | functions use variables |
+| js_conditionals | js_loops | loops use conditional logic |
+| js_functions | js_dom_manipulation | DOM manipulation uses functions |
+| js_dom_manipulation | js_event_handling | event handling requires DOM access |
+| js_functions | js_async_await | async/await uses function concepts |
+| js_promises | js_async_await | async/await is sugar for promises |
+| js_async_await | js_fetch_api | fetch API uses async/await |
+| js_functions | js_classes | classes use function concepts |
+| js_objects | js_classes | classes are object blueprints |
+| html_elements | react_jsx | JSX builds on HTML knowledge |
+| js_functions | react_components | React components are functions |
+| react_components | react_state | state requires component knowledge |
+| react_components | react_props | props require component knowledge |
+| react_state | react_routing | routing works with state (via react_effects) |
+| js_fetch_api | ai_api_integration | AI API integration uses fetch |
+| ai_prompt_engineering | ai_workflow_design | workflow design builds on prompts |
+| ai_api_integration | ai_workflow_design | workflow design chains API calls |
 
-### File: `src/hooks/useGraphPersistence.ts`
+That gives ~29 edges from mandatory rules alone.
 
-**Change 1: Conditional deletion (lines 90-95)**
+### Step 2: Add Additional Logical Edges via SQL
 
-Only delete edges/questions if the in-memory graph actually has replacements:
+For the remaining skills not covered by mandatory edges (css_specificity, css_transforms, css_utility_frameworks, js_arrays, js_browser_storage, js_closures, js_constructor_functions, js_date_object_manipulation, js_error_handling, js_in_place_manipulation, js_loop_control_statements, js_modules, js_operators, js_recursion, js_string_methods, js_timed_events, nested_iteration, react_context_api, react_lists_keys, react_protected_routes, react_routing), I will add logical prerequisite edges following the curriculum sequence and tier hierarchy.
 
-```typescript
-// Always delete skills (they always get re-inserted with subtopic restoration)
-const deleteOps = [
-  supabase.from('skills').delete().eq('graph_id', existingId),
-];
+This brings us to roughly 60-70 edges total (~1.2-1.4 per node), which is a solid starting point.
 
-// Only delete edges if graph has edges to re-insert
-if (graph.edges.length > 0) {
-  deleteOps.push(supabase.from('skill_edges').delete().eq('graph_id', existingId));
-}
+### Step 3: Recompute Levels
 
-// Only delete questions if graph has questions to re-insert
-if (Object.keys(graph.questionPaths || {}).length > 0) {
-  deleteOps.push(supabase.from('questions').delete().eq('graph_id', existingId));
-}
+After inserting edges, trigger a level recomputation so nodes are positioned correctly on the graph based on their prerequisite depth.
 
-await Promise.all(deleteOps);
-```
+## Implementation
 
-**Change 2: Protect metadata counts (lines 67-74)**
+All done via a single SQL INSERT into `skill_edges` -- no edge function call needed, no questions required. The edges are deterministic based on the curriculum structure and skill relationships.
 
-Don't overwrite `total_questions` with 0 when the in-memory graph has no questions:
+### File Changes: None
 
-```typescript
-const updatePayload: any = {
-  name,
-  description: description || null,
-  total_skills: skillCount,
-};
-// Only update total_questions if the in-memory graph actually has questions
-if (questionCount > 0) {
-  updatePayload.total_questions = questionCount;
-}
-```
-
-## Summary
-
-- **1 file changed**: `src/hooks/useGraphPersistence.ts`
-- **2 changes**: conditional deletion + metadata protection
-- **Effect**: Autosave will never again wipe edges/questions from the database
-- **Next step**: After this fix, you will need to re-import the 224 questions into "LKG IO New"
+This is purely a database operation -- inserting rows into `skill_edges` for graph_id `df547747-1481-44ba-a936-83793fe349e7`.
 
