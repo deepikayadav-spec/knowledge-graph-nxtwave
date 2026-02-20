@@ -1,72 +1,62 @@
 
-# Fix: Question Count Overcounting After JSON Import
+# Fix: Off-by-one Question Count (4 Instead of 3)
 
-## Problem
+## Root Cause
 
-When a JSON file with 3 questions is loaded, the textarea shows "18 question(s)" because:
+When the textarea contains questions formatted as:
 
-1. The JSON parser correctly extracts 3 questions and joins them with `\n\n` into the textarea
-2. Each question contains multiple internal `\n\n` gaps (between Topic header, question content, and Test Cases section)
-3. The question count (line 353) re-parses the textarea using `parseQuestionsFromText()`, which splits on every double-newline -- fragmenting each question into ~6 pieces
+```
+Topic: Introduction to HTML
 
-## Solution
+Question:
+...first question...
 
-When questions come from JSON import, insert a `Question:` header before each one. This way `parseQuestionsFromText()` uses the structured-header splitting path instead of the double-newline path, and counts exactly 3 questions.
+Topic: Introduction to HTML
 
-## Change
+Question:
+...second question...
+```
 
-**File: `src/components/panels/QuickQuestionInput.tsx`**
+The `parseQuestionsFromText()` function splits on `Question:` headers using a lookahead regex. The text **before** the first `Question:` header (the initial `Topic:` line) becomes its own fragment. Since it's non-empty, it passes the filter -- producing 4 results instead of 3.
 
-### 1. Add "Question:" prefix in the JSON mapper (line 296)
+## Fix
 
-After building the topic header, prepend `Question:` before the content:
+In `parseQuestionsFromText()`, after splitting on `Question:` headers, filter out any fragments that don't actually contain a `Question:` header. These are just orphaned topic lines that belong to the next question.
+
+**File: `src/components/panels/QuickQuestionInput.tsx`** (lines 26-31)
+
+Change the split-and-filter logic from:
 
 ```typescript
-let result = '';
-
-// Add topic/subtopic header for automatic grouping
-if (q.subtopic) {
-  result += `Topic: ${q.subtopic}\n\n`;
-} else if (q.topic) {
-  result += `Topic: ${q.topic}\n\n`;
+if (hasQuestionHeaders) {
+  return text
+    .split(/(?=^Question\s*:?\s*$)/im)
+    .map(q => q.trim())
+    .filter(q => q.length > 0);
 }
-
-result += 'Question:\n';  // <-- ADD THIS LINE
-result += content;
 ```
 
-This single line ensures that when the 3 questions are joined and put in the textarea, `parseQuestionsFromText()` detects the `Question:` headers and splits correctly into exactly 3 questions.
+To:
 
-### What this looks like in the textarea
-
-```
-Topic: Introduction to HTML
-
-Question:
-In this assignment, let's practice the Basic HTML Elements...
-
-Test Cases:
-- Page should consist of an HTML main heading element (weight: 5)
-- Page should consist of an HTML paragraph element (weight: 5)
-
-Topic: Introduction to HTML
-
-Question:
-In this assignment, let's practice the Basic HTML Elements...
-(second question)
-
-Topic: Introduction to HTML
-
-Question:
-In this assignment, let's practice the Basic HTML Elements...
-(third question)
+```typescript
+if (hasQuestionHeaders) {
+  const parts = text.split(/(?=^Question\s*:?\s*$)/im);
+  return parts
+    .map((q, i) => {
+      const trimmed = q.trim();
+      // If this fragment doesn't contain a "Question:" header,
+      // it's a leading topic line -- prepend it to the next fragment
+      if (i < parts.length - 1 && !/^Question\s*:?\s*$/im.test(trimmed)) {
+        parts[i + 1] = trimmed + '\n\n' + parts[i + 1];
+        return '';
+      }
+      return trimmed;
+    })
+    .filter(q => q.length > 0);
+}
 ```
 
-The parser sees 3 `Question:` headers and splits into 3 questions -- matching the actual file content.
-
-## What stays the same
-
-- `parseQuestionsFromText()` logic unchanged
-- Edge function unchanged
-- Plain text file handling unchanged (free-form split still works for non-JSON files)
-- No database changes
+This ensures:
+- The leading `Topic:` line is merged into the first question (preserving topic metadata)
+- Exactly 3 fragments are returned for 3 questions
+- No data is lost -- topic headers stay attached to their questions
