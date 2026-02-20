@@ -1,84 +1,48 @@
 
 
-# Map KPs to Exact Subtopics and Topics for Web Curriculum
+# Fix Duplicate Detection: Normalize Question Fingerprints
 
-## What Will Happen
+## Root Cause
 
-The backend function that auto-groups skills will be updated with your exact 5 topics and 36 subtopics. When triggered for the "LKG IO New" graph, it will deterministically assign all 51 KPs to the correct subtopic and topic -- no AI generation needed for this domain.
+The duplicate detection fails because questions are stored in the database with **different prefixes** than how the file provides them:
 
-## Mapping Table
+| DB stored format | File format | Match? |
+|-----------------|-------------|--------|
+| `1. Write a program that reads two numbers...` | `Write a program that reads two numbers...` | No -- leading "1. " |
+| `## Square Star Pattern` | `Square Star Pattern\n\nWrite a program that prints...` | No -- "## " prefix + DB is title-only |
+| `3. ## Multiplication Table Generator` | Full question content without numbering | No |
 
-### Topic 1: HTML (4 KPs)
-| Subtopic | KPs |
-|----------|-----|
-| Introduction to HTML | html_semantic_elements |
-| HTML Elements | html_elements |
-| HTML Forms and Tables | html_forms |
-| HTML Attributes and General | html_attributes |
+- **104 questions** in the DB start with numbering like `1. `, `2. `, `3. `, etc.
+- **32 questions** start with markdown headers like `## `, `# `
+- **5 questions** are stubs with text "1", "2", "3", "4", "5"
 
-### Topic 2: CSS (10 KPs)
-| Subtopic | KPs |
-|----------|-----|
-| Introduction To CSS And CSS Selectors | css_selectors |
-| CSS Properties | css_properties |
-| CSS Display And Position | css_positioning |
-| CSS Layouts And Box Model | css_box_model |
-| CSS Selectors | css_specificity |
-| CSS Flexbox | css_flexbox |
-| CSS Grid | css_grid |
-| CSS Media Queries | css_media_queries, css_responsive_design |
-| CSS General | css_transforms, css_utility_frameworks |
+The `extractCoreQuestion` function does NOT strip these prefixes, so fingerprints differ between DB records and re-uploaded file content.
 
-### Topic 3: JS (14 KPs)
-| Subtopic | KPs |
-|----------|-----|
-| Introduction to JavaScript | js_closures |
-| DOM And Events | js_dom_manipulation, js_event_handling |
-| Schedulers and Callback Functions | js_timed_events |
-| Storage Mechanisms | js_browser_storage |
-| Network and HTTP Requests | js_fetch_api |
-| Asynchronous JS and Error Handling | js_async_await, js_promises, js_error_handling |
-| JS General | js_modules, js_classes, js_constructor_functions, js_date_object_manipulation |
+## Fix
 
-### Topic 4: JS Coding (13 KPs)
-| Subtopic | KPs |
-|----------|-----|
-| Variables | js_variables |
-| Data Types | js_string_methods, js_arrays, js_objects, js_in_place_manipulation |
-| Operators | js_operators |
-| Conditional Statements | js_conditionals |
-| Functions | js_functions |
-| Loops | js_loops, js_loop_control_statements, nested_iteration |
-| Recursion | js_recursion |
+### File: `src/lib/question/extractCore.ts`
 
-### Topic 5: React (10 KPs)
-| Subtopic | KPs |
-|----------|-----|
-| Introduction to React | react_jsx |
-| React Components and Props | react_components, react_props |
-| useState Hook | react_state |
-| More React Hooks | react_context_api |
-| React Router | react_routing |
-| Authentication and Authorisation | react_protected_routes |
-| React Lists and Forms | react_lists_keys |
+Add two normalization steps at the start of the function, before fingerprinting:
 
-### Unmapped (3 KPs) -> "Other Skills"
-ai_prompt_engineering, ai_api_integration, ai_workflow_design
+1. **Strip leading numbering**: Remove patterns like `1. `, `2. `, `3. ` from the start of content lines
+2. **Strip markdown headers**: Remove `# `, `## `, `### `, etc. from lines
 
-Note: useEffect Hook, React General, and a few other subtopics have no KPs currently mapped and will be created as empty subtopics (they will populate when new questions add those KPs).
+Updated logic (added after line 12, inside the loop):
 
-## Technical Changes
+```text
+For each line:
+  - Strip leading "N. " numbering (e.g., "1. Write..." -> "Write...")
+  - Strip leading markdown "#" headers (e.g., "## Title" -> "Title")
+  - Then apply existing Topic/Question header stripping
+```
 
-### File: `supabase/functions/auto-group-skills/index.ts`
+This ensures the same core text produces the same fingerprint regardless of whether the source added numbering or markdown formatting.
 
-1. Add `WEB_CURRICULUM_TOPICS` array (your 5 topics) and `WEB_SUBTOPICS` array (your 36 subtopics)
-2. Add `WEB_SUBTOPIC_TOPIC_MAP` linking each subtopic index to its parent topic index
-3. Add `WEB_SKILL_SUBTOPIC_MAP` mapping each skill_id directly to a subtopic index (deterministic, no AI needed)
-4. Add domain detection: count how many skills match the web map vs. Python map, pick the one with more matches
-5. For web domain: skip AI subtopic generation entirely -- create topics, then create subtopics from the fixed list, then assign KPs using the deterministic map
-6. Keep Python path unchanged (existing behavior)
+### Additionally: Clean up 5 stub questions
 
-### After Deployment
+Delete the 5 stub records (text = "1", "2", "3", "4", "5") from the database since they have no real content and their full-text versions already exist.
 
-The function will be deployed and then invoked for graph `df547747-1481-44ba-a936-83793fe349e7` (LKG IO New). The existing UI (HierarchicalMasteryView, Subtopic/Topic graph views) will immediately display the proper hierarchy.
+## Expected Result
+
+After this fix, re-uploading the file should correctly detect ~259 duplicates and queue only the ~67 genuinely missing questions for generation.
 
