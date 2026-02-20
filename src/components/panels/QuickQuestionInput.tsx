@@ -20,6 +20,33 @@ interface QuickQuestionInputProps {
 }
 
 function parseQuestionsFromText(text: string): string[] {
+  // Detect <<<QUESTION_START>>> / <<<QUESTION_END>>> delimited format
+  if (text.includes('<<<QUESTION_START>>>')) {
+    const blocks = text.split('<<<QUESTION_START>>>');
+    return blocks
+      .map(block => {
+        const contentMatch = block.match(/<<<QUESTION_CONTENT>>>([\s\S]*?)(?=<<<TEST_CASES>>>|<<<QUESTION_END>>>)/);
+        if (!contentMatch) return '';
+        let content = contentMatch[1].trim();
+        content = content.replace(/^QUESTION_ID:\s*.+\n*/i, '').trim();
+        return content;
+      })
+      .filter(q => q.length > 10);
+  }
+
+  // Detect ===== delimiter format
+  if (/^={5,}/m.test(text)) {
+    return text
+      .split(/^={5,}\s*$/m)
+      .map(block => {
+        let cleaned = block.trim();
+        cleaned = cleaned.replace(/^QUESTION ID:\s*.+\n*/i, '');
+        cleaned = cleaned.replace(/^QUESTION CONTENT:\s*\n*/i, '');
+        return cleaned.trim();
+      })
+      .filter(q => q.length > 10);
+  }
+
   // Check if structured "Question:" headers exist
   const hasQuestionHeaders = /^Question\s*:?\s*$/im.test(text);
   
