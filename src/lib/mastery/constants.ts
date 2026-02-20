@@ -8,10 +8,6 @@ export const INDEPENDENCE_MULTIPLIERS = {
   solution_driven: 0.2,
 } as const;
 
-// Weight distribution for skills in a question
-export const PRIMARY_SKILL_WEIGHT = 0.6;
-export const REMAINING_WEIGHT = 0.4;
-export const MAX_PRIMARY_SKILLS = 2;
 
 // Retention thresholds (Ebbinghaus curve)
 export const RETENTION_THRESHOLDS = {

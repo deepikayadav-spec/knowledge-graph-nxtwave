@@ -15,41 +15,31 @@ const corsHeaders = {
  * UUIDs before returning.
  */
 
-const systemPrompt = `You are a Knowledge Graph Weight Analyzer. Your task is to analyze questions and their associated skills to:
-1. Identify 1-2 PRIMARY knowledge points (the main cognitive challenge)
-2. Generate accurate skill weights for mastery tracking
+const systemPrompt = `You are a Knowledge Graph Weight Analyzer. Your task is to analyze questions and assign skill weights for mastery tracking.
 
 === WEIGHT ASSIGNMENT RULES ===
 
-1. IDENTIFY PRIMARY SKILLS (1-2 max):
-   - The skill(s) that represent the main differentiator/challenge
-   - Use 2 primaries ONLY when question has TWO equally-important cognitive focuses
-   - Most questions should have just 1 primary
+All skills mapped to a question get EQUAL weight: weight = 1 / number_of_skills.
 
-2. ASSIGN WEIGHTS (must sum to 1.0):
-   - If 1 primary: PRIMARY = 0.6, SECONDARY skills split 0.4 equally
-   - If 2 primaries: Each PRIMARY = 0.3 (0.6 total), SECONDARY skills split 0.4
-
-3. CONSIDER:
-   - Which skill would a student struggle with most?
-   - Which skill is being actively practiced vs passively applied?
-   - Higher-level/strategic skills are usually primary
+For example:
+- 1 skill: {"skill_a": 1.0}
+- 2 skills: {"skill_a": 0.5, "skill_b": 0.5}
+- 3 skills: {"skill_a": 0.333, "skill_b": 0.333, "skill_c": 0.334}
 
 === OUTPUT FORMAT ===
 
 Return a JSON object where keys are the NUMERIC INDICES (1, 2, 3, etc.) matching the question numbers in the input:
 {
   "1": {
-    "primarySkills": ["skill_a"],
-    "skillWeights": {"skill_a": 0.6, "skill_b": 0.2, "skill_c": 0.2}
+    "skillWeights": {"skill_a": 0.5, "skill_b": 0.5}
   },
   "2": {
-    "primarySkills": ["skill_x", "skill_y"],
-    "skillWeights": {"skill_x": 0.3, "skill_y": 0.3, "skill_z": 0.4}
+    "skillWeights": {"skill_x": 0.333, "skill_y": 0.333, "skill_z": 0.334}
   }
 }
 
 CRITICAL: Use the EXACT numeric index (1, 2, 3...) as keys. Do NOT invent or modify identifiers.
+Weights MUST sum to 1.0.
 
 Output ONLY valid JSON, no explanation.`;
 
@@ -143,13 +133,11 @@ serve(async (req) => {
       `${i + 1}. Question: ${q.questionText.substring(0, 200)}${q.questionText.length > 200 ? '...' : ''}\n   Skills: [${q.skills.join(', ')}]`
     ).join('\n\n');
 
-    const userPrompt = `Analyze these questions and generate primary skills (1-2 max) and weights for each.
+    const userPrompt = `Assign equal weights to all skills for each question.
 
 ${questionsList}
 
-For each question, identify:
-1. Primary skill(s) - the main cognitive challenge (1-2 skills max)
-2. Skill weights - how cognitive load is distributed (must sum to 1.0)
+For each question, distribute weight equally among all skills (1/n each, summing to 1.0).
 
 Return JSON with the NUMERIC INDEX (1, 2, 3, etc.) as keys. Do NOT use any other identifiers.`;
 
