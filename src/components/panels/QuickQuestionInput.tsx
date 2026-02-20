@@ -1,5 +1,5 @@
 import { useState, useRef, useEffect, ChangeEvent } from 'react';
-import { Send, Loader2, Plus, ChevronDown, Upload, Check, AlertCircle, FileText } from 'lucide-react';
+import { Send, Loader2, Plus, ChevronDown, Upload, Check, AlertCircle, FileText, Search } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Textarea } from '@/components/ui/textarea';
 import { cn } from '@/lib/utils';
@@ -130,6 +130,14 @@ interface DuplicateCheck {
   isChecking: boolean;
 }
 
+interface ComparisonResults {
+  file_question_count: number;
+  db_question_count: number;
+  matched_count: number;
+  missing_count: number;
+  missing_questions: string[];
+}
+
 const PYTHON_PLACEHOLDER = `Topic: Loops
 
 Question:
@@ -169,6 +177,9 @@ export function QuickQuestionInput({ onGenerate, isLoading, isLandingMode = fals
   const [domain, setDomain] = useState<DomainType>('python');
   const [isExtractingPdf, setIsExtractingPdf] = useState(false);
   const [duplicateCheck, setDuplicateCheck] = useState<DuplicateCheck>({ newCount: 0, duplicateCount: 0, isChecking: false });
+  const [isComparing, setIsComparing] = useState(false);
+  const [comparisonResults, setComparisonResults] = useState<ComparisonResults | null>(null);
+  const findMissingFileRef = useRef<HTMLInputElement>(null);
 
   const getCurrentQuestions = () =>
     parsedQuestions.length > 0 ? parsedQuestions : parseQuestionsFromText(questionsText);
@@ -413,6 +424,50 @@ export function QuickQuestionInput({ onGenerate, isLoading, isLandingMode = fals
     }
   };
 
+  const handleFindMissing = async (e: ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file || !graphId) return;
+    e.target.value = '';
+
+    setIsComparing(true);
+    setComparisonResults(null);
+
+    try {
+      const text = await file.text();
+      const { data, error } = await supabase.functions.invoke('find-missing-questions', {
+        body: { file_content: text, graph_id: graphId },
+      });
+
+      if (error) throw error;
+
+      setComparisonResults(data as ComparisonResults);
+      toast({
+        title: "Comparison complete",
+        description: `${data.missing_count} missing out of ${data.file_question_count} file questions.`,
+      });
+    } catch (err: any) {
+      toast({
+        title: "Comparison failed",
+        description: err.message || "Could not compare questions.",
+        variant: "destructive",
+      });
+    } finally {
+      setIsComparing(false);
+    }
+  };
+
+  const handleUploadMissingOnly = () => {
+    if (!comparisonResults?.missing_questions?.length) return;
+    const formatted = comparisonResults.missing_questions.join('\n\n');
+    setParsedQuestions(comparisonResults.missing_questions);
+    setQuestionsText(formatted);
+    setComparisonResults(null);
+    toast({
+      title: "Missing questions loaded",
+      description: `${comparisonResults.missing_questions.length} questions ready. Click Generate to process.`,
+    });
+  };
+
   const questionCount = getCurrentQuestions().length;
   const placeholder = domain === 'web' ? WEB_PLACEHOLDER : PYTHON_PLACEHOLDER;
 
@@ -439,12 +494,19 @@ export function QuickQuestionInput({ onGenerate, isLoading, isLandingMode = fals
             </p>
           </div>
 
-          <input
+           <input
             ref={fileInputRef}
             type="file"
             accept=".txt,.csv,.pdf,.json"
             multiple
             onChange={handleFileUpload}
+            className="hidden"
+          />
+          <input
+            ref={findMissingFileRef}
+            type="file"
+            accept=".txt,.json"
+            onChange={handleFindMissing}
             className="hidden"
           />
           
@@ -502,7 +564,46 @@ export function QuickQuestionInput({ onGenerate, isLoading, isLandingMode = fals
                 )}
                 Upload Files
               </Button>
+              {graphId && (
+                <Button
+                  variant="outline"
+                  size="sm"
+                  onClick={() => findMissingFileRef.current?.click()}
+                  className="gap-2"
+                  disabled={isComparing}
+                >
+                  {isComparing ? (
+                    <Loader2 className="h-4 w-4 animate-spin" />
+                  ) : (
+                    <Search className="h-4 w-4" />
+                  )}
+                  {isComparing ? 'Comparing...' : 'Find Missing'}
+                </Button>
+              )}
             </div>
+
+            {comparisonResults && (
+              <div className="col-span-full rounded-md border border-border bg-muted/50 p-3 space-y-2">
+                <div className="flex items-center gap-4 text-sm">
+                  <span>File: <strong>{comparisonResults.file_question_count}</strong></span>
+                  <span>DB: <strong>{comparisonResults.db_question_count}</strong></span>
+                  <Badge variant="default" className="gap-1">
+                    <Check className="h-3 w-3" />
+                    {comparisonResults.matched_count} matched
+                  </Badge>
+                  <Badge variant={comparisonResults.missing_count > 0 ? "destructive" : "secondary"} className="gap-1">
+                    <AlertCircle className="h-3 w-3" />
+                    {comparisonResults.missing_count} missing
+                  </Badge>
+                </div>
+                {comparisonResults.missing_count > 0 && (
+                  <Button size="sm" onClick={handleUploadMissingOnly} className="gap-2">
+                    <Upload className="h-4 w-4" />
+                    Upload {comparisonResults.missing_count} Missing Only
+                  </Button>
+                )}
+              </div>
+            )}
             <Button
               onClick={handleSubmit}
               disabled={isLoading || isExtractingPdf || !questionsText.trim()}
@@ -541,6 +642,13 @@ export function QuickQuestionInput({ onGenerate, isLoading, isLandingMode = fals
           accept=".txt,.csv,.pdf,.json"
           multiple
           onChange={handleFileUpload}
+          className="hidden"
+        />
+        <input
+          ref={findMissingFileRef}
+          type="file"
+          accept=".txt,.json"
+          onChange={handleFindMissing}
           className="hidden"
         />
 
@@ -613,6 +721,22 @@ export function QuickQuestionInput({ onGenerate, isLoading, isLandingMode = fals
                   )}
                   Upload
                 </Button>
+                {graphId && (
+                  <Button
+                    variant="ghost"
+                    size="sm"
+                    onClick={() => findMissingFileRef.current?.click()}
+                    className="h-6 px-2 text-xs"
+                    disabled={isComparing}
+                  >
+                    {isComparing ? (
+                      <Loader2 className="h-3 w-3 mr-1 animate-spin" />
+                    ) : (
+                      <Search className="h-3 w-3 mr-1" />
+                    )}
+                    {isComparing ? 'Comparing...' : 'Find Missing'}
+                  </Button>
+                )}
               </div>
               <Button
                 size="sm"
@@ -633,6 +757,29 @@ export function QuickQuestionInput({ onGenerate, isLoading, isLandingMode = fals
                 )}
               </Button>
             </div>
+
+            {comparisonResults && (
+              <div className="rounded-md border border-border bg-muted/50 p-2 space-y-2">
+                <div className="flex flex-wrap items-center gap-2 text-xs">
+                  <span>File: <strong>{comparisonResults.file_question_count}</strong></span>
+                  <span>DB: <strong>{comparisonResults.db_question_count}</strong></span>
+                  <Badge variant="default" className="text-xs h-5 gap-1">
+                    <Check className="h-2.5 w-2.5" />
+                    {comparisonResults.matched_count} matched
+                  </Badge>
+                  <Badge variant={comparisonResults.missing_count > 0 ? "destructive" : "secondary"} className="text-xs h-5 gap-1">
+                    <AlertCircle className="h-2.5 w-2.5" />
+                    {comparisonResults.missing_count} missing
+                  </Badge>
+                </div>
+                {comparisonResults.missing_count > 0 && (
+                  <Button size="sm" onClick={handleUploadMissingOnly} className="gap-2 h-6 text-xs">
+                    <Upload className="h-3 w-3" />
+                    Upload {comparisonResults.missing_count} Missing Only
+                  </Button>
+                )}
+              </div>
+            )}
           </div>
         </CollapsibleContent>
       </div>
