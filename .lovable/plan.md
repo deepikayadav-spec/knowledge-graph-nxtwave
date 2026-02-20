@@ -1,46 +1,44 @@
 
-# Fix Duplicate Detection: Strip Code Fences and Clean Stubs
 
-## Root Cause
+# Find Missing Questions via Server-Side Comparison
 
-Two issues are preventing full duplicate detection:
+## Problem
+The duplicate detection in the UI still shows 138 duplicates instead of the expected ~224. We cannot manually compare 328 file questions against 224 DB questions. We need a programmatic solution.
 
-### Issue 1: Code fences in file but not in DB (affects ~86 questions)
-The uploaded file wraps examples in markdown code fences:
-```text
-#### Sample Input:
-` ` `
-TechGadgets
-Smartphone Laptop Tablet
-` ` `
-```
+## Approach
+Build a temporary edge function that performs the exact same fingerprinting comparison server-side and returns the list of questions from the file that are NOT already in the database.
 
-But the database stores the same content **without** code fences:
-```text
-#### Sample Input:
+## Steps
 
-TechGadgets
-Smartphone Laptop Tablet
-```
+### Step 1: Create edge function `find-missing-questions`
 
-The `extractCoreQuestion` function includes these `` ` ` ` `` lines as content, shifting the 500-character fingerprint window and causing mismatches.
+This function will:
+1. Accept the file content (POST body) and graph_id
+2. Parse questions using the `<<<QUESTION_START>>>` / `<<<QUESTION_CONTENT>>>` delimiter format (same logic as the UI parser)
+3. Fetch all existing question texts from the DB for the given graph
+4. Run the `extractCoreQuestion` fingerprint logic on BOTH sides
+5. Compare fingerprint sets
+6. Return:
+   - Count of file questions matching DB (true duplicates)
+   - Count of file questions NOT in DB (missing/new)
+   - The actual content of the missing questions (so they can be uploaded separately)
+   - Diagnostic info: for each non-matching question, show the fingerprint so we can debug WHY it didn't match
 
-### Issue 2: 35 stub questions (title-only records)
-Questions like `## High Score Selector`, `## Square Star Pattern`, `1. Write a program...` exist as short stubs alongside their full-text duplicates. The stub fingerprint ("high score selector") differs from the full question fingerprint ("high score selector you are building a game...").
+### Step 2: Call the edge function with the file content
 
-## Fix
+Use the curl tool to POST the file content and get back the precise list of missing questions.
 
-### Step 1: Update `src/lib/question/extractCore.ts`
+### Step 3: Provide the missing questions
 
-Add normalization rules inside the loop:
+Once we have the exact list, we can either:
+- Give you a file with just the missing questions to upload
+- Or directly insert them into the DB and queue them for generation
 
-1. **Skip code fence lines**: Lines that are just `` ` ` ` `` or `` ` ` `language `` should be skipped entirely (they carry no semantic content)
-2. **Collapse multiple whitespace**: Replace runs of 2+ spaces with a single space in the final fingerprint to handle minor spacing differences between file and DB
+## Technical Details
 
-### Step 2: Delete 35 stub questions from DB
+The edge function will contain:
+- The exact same `extractCoreQuestion` logic from `src/lib/question/extractCore.ts` (including all recent normalization fixes: strip numbering, strip markdown headers, skip code fences, collapse whitespace)
+- The exact same `<<<QUESTION_START>>>` parser from `QuickQuestionInput.tsx`
+- A Supabase client to fetch existing DB questions
 
-Delete the 35 questions with `length(question_text) < 100` from the LKG IO New graph. These are title-only stubs that already have full-text versions in the DB (or will be re-imported from the file).
-
-## Expected Result
-
-After these changes, re-uploading the file should detect ~224 duplicates (259 real DB questions minus the 35 deleted stubs) and queue only the ~104 genuinely missing questions.
+This ensures the comparison is identical to what the UI does, and we can see exactly which questions fail to match and why.
