@@ -19,3 +19,7 @@ verify_jwt = false
 [functions.extract-questions]
 enabled = true
 verify_jwt = false
+
+[functions.find-missing-questions]
+enabled = true
+verify_jwt = false
