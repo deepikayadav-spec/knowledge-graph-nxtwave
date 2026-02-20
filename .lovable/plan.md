@@ -1,62 +1,75 @@
 
-# Fix: Off-by-one Question Count (4 Instead of 3)
+
+# Fix: Duplicate Detection Using Full Question Text
+
+## Problem
+
+The duplicate detection system (`extractCoreQuestion`) reduces each question to just its **first non-header line** for comparison. This causes two issues:
+
+1. **False positives (over-filtering)**: Multiple genuinely different questions that share the same opening sentence (e.g., "In this assignment, let's practice the Basic HTML Elements...") are treated as duplicates because only the first line is compared -- even though they have different images, instructions, and test cases.
+
+2. **False negatives (under-filtering)**: Questions that are truly the same but have slightly different first lines slip through.
+
+This affects both the real-time duplicate counter in the textarea and the pre-generation duplicate check.
 
 ## Root Cause
 
-When the textarea contains questions formatted as:
+In `src/lib/question/extractCore.ts`, the function returns only the first meaningful line of text (line 33: `if (line.length > 0) return line.toLowerCase()`). For structured questions without `Question:` headers (like those stored in the database after generation), it falls back to the first non-empty line (line 39-41).
 
-```
-Topic: Introduction to HTML
+## Solution
 
-Question:
-...first question...
+Change `extractCoreQuestion` to return **more of the question content** -- specifically, concatenate multiple content lines (up to a reasonable limit) before section headers like Input/Output/Explanation. This creates a more unique fingerprint for each question.
 
-Topic: Introduction to HTML
+### File: `src/lib/question/extractCore.ts`
 
-Question:
-...second question...
-```
-
-The `parseQuestionsFromText()` function splits on `Question:` headers using a lookahead regex. The text **before** the first `Question:` header (the initial `Topic:` line) becomes its own fragment. Since it's non-empty, it passes the filter -- producing 4 results instead of 3.
-
-## Fix
-
-In `parseQuestionsFromText()`, after splitting on `Question:` headers, filter out any fragments that don't actually contain a `Question:` header. These are just orphaned topic lines that belong to the next question.
-
-**File: `src/components/panels/QuickQuestionInput.tsx`** (lines 26-31)
-
-Change the split-and-filter logic from:
-
+**Current logic** (returns first content line only):
 ```typescript
-if (hasQuestionHeaders) {
-  return text
-    .split(/(?=^Question\s*:?\s*$)/im)
-    .map(q => q.trim())
-    .filter(q => q.length > 0);
+for (let i = questionStartIdx; i < lines.length; i++) {
+  const line = lines[i];
+  if (/^(Input|Output|Explanation|Test Cases)\s*:?\s*$/i.test(line)) break;
+  if (line.length > 0) return line.toLowerCase(); // Returns immediately
 }
 ```
 
-To:
-
+**New logic** (collects all content lines before section headers):
 ```typescript
-if (hasQuestionHeaders) {
-  const parts = text.split(/(?=^Question\s*:?\s*$)/im);
-  return parts
-    .map((q, i) => {
-      const trimmed = q.trim();
-      // If this fragment doesn't contain a "Question:" header,
-      // it's a leading topic line -- prepend it to the next fragment
-      if (i < parts.length - 1 && !/^Question\s*:?\s*$/im.test(trimmed)) {
-        parts[i + 1] = trimmed + '\n\n' + parts[i + 1];
-        return '';
-      }
-      return trimmed;
-    })
-    .filter(q => q.length > 0);
+const contentLines: string[] = [];
+for (let i = questionStartIdx; i < lines.length; i++) {
+  const line = lines[i];
+  if (/^(Input|Output|Explanation|Test Cases)\s*:?\s*$/i.test(line)) break;
+  if (line.length > 0) contentLines.push(line);
+}
+if (contentLines.length > 0) {
+  return contentLines.join(' ').toLowerCase().substring(0, 500);
 }
 ```
 
-This ensures:
-- The leading `Topic:` line is merged into the first question (preserving topic metadata)
-- Exactly 3 fragments are returned for 3 questions
-- No data is lost -- topic headers stay attached to their questions
+Apply the same change to the **fallback path** (for questions without `Question:` headers):
+
+```typescript
+// Collect all non-header lines up to a limit
+const contentLines = lines.filter(l =>
+  !/^(Question|Input|Output|Explanation|Test Cases|Topic)\s*:?\s*$/i.test(l)
+);
+return contentLines.join(' ').toLowerCase().substring(0, 500)
+  || fullBlock.trim().toLowerCase();
+```
+
+### What this fixes
+
+- Three "Basic HTML Elements" practice questions will now include their unique image URLs and instructions in the comparison string, making them distinct
+- Questions numbered "1", "2", "3" etc. will still be correctly identified by their short text
+- The 500-character cap prevents excessive memory usage for very long questions
+
+### Files changed
+
+| File | Change |
+|---|---|
+| `src/lib/question/extractCore.ts` | Use multi-line content (up to 500 chars) instead of first line only |
+
+### What stays the same
+
+- The duplicate check logic in `useBatchGeneration.ts` and `QuickQuestionInput.tsx` remains unchanged -- they already call `extractCoreQuestion` correctly
+- Database schema unchanged
+- Edge functions unchanged
+
