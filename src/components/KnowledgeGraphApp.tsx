@@ -6,14 +6,14 @@ import { QuestionPathSelector } from './panels/QuestionPathSelector';
 import { QuickQuestionInput } from './panels/QuickQuestionInput';
 import { GraphManagerPanel } from './panels/GraphManagerPanel';
 import { GenerationProgress } from './panels/GenerationProgress';
-import { AutosaveIndicator } from './AutosaveIndicator';
+
 import { EditModeHeader } from './graph/EditModeHeader';
 import { AddNodeDialog } from './panels/AddNodeDialog';
 import { ViewModeToggle, ViewMode } from './graph/ViewModeToggle';
 import { KnowledgeGraph, QuestionPath, GraphNode, GraphEdge, SkillTier } from '@/types/graph';
 import { useGraphPersistence } from '@/hooks/useGraphPersistence';
 import { useBatchGeneration } from '@/hooks/useBatchGeneration';
-import { useAutosave } from '@/hooks/useAutosave';
+
 import { useSkillGrouping } from '@/hooks/useSkillGrouping';
 import { useStudentMastery } from '@/hooks/useStudentMastery';
 import { buildSubtopicView, buildTopicView, type SuperNode } from '@/lib/graph/groupedView';
@@ -48,7 +48,7 @@ export function KnowledgeGraphApp() {
 
   // Mastery tracking state
   const [masteryMode, setMasteryMode] = useState(false);
-  const [isGeneratingFlag, setIsGeneratingFlag] = useState(false);
+  
   const [selectedClassId, setSelectedClassId] = useState<string | null>(null);
   const [selectedClassName, setSelectedClassName] = useState<string | null>(null);
   const [selectedStudentId, setSelectedStudentId] = useState<string | null>(null);
@@ -122,21 +122,11 @@ export function KnowledgeGraphApp() {
     autoLoad: !!currentGraphId && !!selectedStudentId,
   });
 
-  // Get current graph name for autosave
+  // Get current graph name
   const currentGraphName = useMemo(
     () => savedGraphs.find(g => g.id === currentGraphId)?.name,
     [savedGraphs, currentGraphId]
   );
-
-  // Autosave
-  const {
-    status: autosaveStatus,
-    lastSavedAt: autosaveLastSavedAt,
-    triggerSave: autosaveTrigger,
-  } = useAutosave(graph, currentGraphId, saveGraph, currentGraphName, {
-    debounceMs: 30000,
-    enabled: !!currentGraphId && !isGeneratingFlag,
-  });
 
   // Batch generation with progress tracking
   const handleGraphUpdate = useCallback((newGraph: KnowledgeGraph) => {
@@ -154,10 +144,6 @@ export function KnowledgeGraphApp() {
     clearCheckpoint,
   } = useBatchGeneration(graph, handleGraphUpdate, fetchGraphs);
 
-  // Sync generation flag for autosave guard
-  useEffect(() => {
-    setIsGeneratingFlag(progress.isProcessing);
-  }, [progress.isProcessing]);
 
   const handleClassSelect = useCallback((classId: string, className: string) => {
     setSelectedClassId(classId);
@@ -432,9 +418,6 @@ export function KnowledgeGraphApp() {
                 <h1 className="text-base font-semibold text-foreground">
                   {currentGraphName || 'Knowledge Graph'}
                 </h1>
-                {currentGraphId && (
-                  <AutosaveIndicator status={autosaveStatus} lastSavedAt={autosaveLastSavedAt} onManualSave={autosaveTrigger} />
-                )}
               </div>
               <p className="text-xs text-muted-foreground">
                 {stats?.totalNodes} KPs · {stats?.totalEdges} relationships · {stats?.totalQuestions} questions
