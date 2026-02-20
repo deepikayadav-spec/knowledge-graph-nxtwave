@@ -91,28 +91,38 @@ const WEB_SUBTOPIC_TOPIC: Record<number, number> = {
 const WEB_SKILL_SUBTOPIC_MAP: Record<string, number> = {
   // HTML
   html_semantic_elements: 0, html_elements: 1, html_forms: 2, html_attributes: 3,
+  html_basics: 0,
   // CSS
   css_selectors: 4, css_properties: 5, css_positioning: 6, css_box_model: 7,
   css_specificity: 8, css_flexbox: 9, css_grid: 10,
   css_media_queries: 11, css_responsive_design: 11,
   css_transforms: 12, css_utility_frameworks: 12,
+  css_transform: 12, css_z_index: 6, css_grid_alignment: 10, css_flexbox_layout: 9, css_basics: 4,
   // JS
   js_closures: 13,
   js_dom_manipulation: 14, js_event_handling: 14,
   js_timed_events: 15, js_browser_storage: 16, js_fetch_api: 17,
   js_async_await: 18, js_promises: 18, js_error_handling: 18,
   js_modules: 19, js_classes: 19, js_constructor_functions: 19, js_date_object_manipulation: 19,
+  exception_handling: 18, js_spread_rest_operators: 19, class_definition: 19, object_methods: 19,
   // JS Coding
   js_variables: 20,
   js_string_methods: 21, js_arrays: 21, js_objects: 21, js_in_place_manipulation: 21,
   js_operators: 22, js_conditionals: 23, js_functions: 24,
   js_loops: 25, js_loop_control_statements: 25, nested_iteration: 25,
   js_recursion: 26,
+  variable_assignment: 20, basic_output: 20, basic_input: 20, input_parsing: 20, formatted_output: 20, input_output_formatting: 20,
+  type_conversion: 21, type_recognition: 21, string_indexing: 21, list_operations: 21, dictionary_operations: 21,
+  comparison_operators: 22, arithmetic_operations: 22, boolean_logic: 22,
+  conditional_branching: 23,
+  function_definition: 24, function_calls: 24,
+  loop_iteration: 25, search_pattern: 25, loop_control_statements: 25, iterative_control_flow: 25,
   // React
   react_jsx: 27,
   react_components: 28, react_props: 28,
   react_state: 29, react_context_api: 31,
   react_routing: 32, react_protected_routes: 33, react_lists_keys: 34,
+  react_component_data_flow: 28, react_component_fundamentals: 27, react_conditional_rendering: 34,
 };
 
 const GROUPING_COLORS = [
