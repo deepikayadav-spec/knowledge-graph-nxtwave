@@ -1,29 +1,72 @@
 
-# Fix: Auto-detect JSON content in any text file
+# Fix: Question Count Overcounting After JSON Import
 
 ## Problem
-The file handler checks the file extension (`.json`) to decide whether to parse as JSON. Your files have a `.txt` extension but contain valid JSON arrays, so they get treated as plain text -- resulting in only 1 "question" (the entire file content).
+
+When a JSON file with 3 questions is loaded, the textarea shows "18 question(s)" because:
+
+1. The JSON parser correctly extracts 3 questions and joins them with `\n\n` into the textarea
+2. Each question contains multiple internal `\n\n` gaps (between Topic header, question content, and Test Cases section)
+3. The question count (line 353) re-parses the textarea using `parseQuestionsFromText()`, which splits on every double-newline -- fragmenting each question into ~6 pieces
 
 ## Solution
-Restructure the parsing logic so that for any non-CSV, non-PDF file, we first attempt JSON parsing. If the content is a valid JSON array, use the structured parser. If not, fall back to plain text parsing.
+
+When questions come from JSON import, insert a `Question:` header before each one. This way `parseQuestionsFromText()` uses the structured-header splitting path instead of the double-newline path, and counts exactly 3 questions.
 
 ## Change
 
-**File: `src/components/panels/QuickQuestionInput.tsx`** (lines 283-324)
+**File: `src/components/panels/QuickQuestionInput.tsx`**
 
-Current logic:
-```
-if (.csv)        -> parseCSV
-else if (.json)  -> try JSON parse, fallback to text
-else             -> parseQuestionsFromText
+### 1. Add "Question:" prefix in the JSON mapper (line 296)
+
+After building the topic header, prepend `Question:` before the content:
+
+```typescript
+let result = '';
+
+// Add topic/subtopic header for automatic grouping
+if (q.subtopic) {
+  result += `Topic: ${q.subtopic}\n\n`;
+} else if (q.topic) {
+  result += `Topic: ${q.topic}\n\n`;
+}
+
+result += 'Question:\n';  // <-- ADD THIS LINE
+result += content;
 ```
 
-New logic:
+This single line ensures that when the 3 questions are joined and put in the textarea, `parseQuestionsFromText()` detects the `Question:` headers and splits correctly into exactly 3 questions.
+
+### What this looks like in the textarea
+
 ```
-if (.csv)        -> parseCSV
-else             -> try JSON parse first, fallback to parseQuestionsFromText
+Topic: Introduction to HTML
+
+Question:
+In this assignment, let's practice the Basic HTML Elements...
+
+Test Cases:
+- Page should consist of an HTML main heading element (weight: 5)
+- Page should consist of an HTML paragraph element (weight: 5)
+
+Topic: Introduction to HTML
+
+Question:
+In this assignment, let's practice the Basic HTML Elements...
+(second question)
+
+Topic: Introduction to HTML
+
+Question:
+In this assignment, let's practice the Basic HTML Elements...
+(third question)
 ```
 
-The JSON parsing block (with `question_content`, `test_cases`, topic headers) stays identical -- it just runs for all non-CSV text files, not only `.json` files. If `JSON.parse` throws, it falls back to `parseQuestionsFromText` as before.
+The parser sees 3 `Question:` headers and splits into 3 questions -- matching the actual file content.
 
-This is a ~3-line structural change: remove the `.json` extension check and merge the two `else` branches.
+## What stays the same
+
+- `parseQuestionsFromText()` logic unchanged
+- Edge function unchanged
+- Plain text file handling unchanged (free-form split still works for non-JSON files)
+- No database changes
