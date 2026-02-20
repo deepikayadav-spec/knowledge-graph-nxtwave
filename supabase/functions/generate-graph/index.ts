@@ -1234,10 +1234,10 @@ serve(async (req) => {
       );
     }
     
-    const GEMINI_API_KEY = Deno.env.get("GEMINI_API_KEY");
+    const LOVABLE_API_KEY = Deno.env.get("LOVABLE_API_KEY");
     
-    if (!GEMINI_API_KEY) {
-      throw new Error("GEMINI_API_KEY is not configured");
+    if (!LOVABLE_API_KEY) {
+      throw new Error("LOVABLE_API_KEY is not configured");
     }
 
     const isIncremental = existingNodes && existingNodes.length > 0;
@@ -1296,7 +1296,7 @@ CRITICAL: Do NOT include "ipaByQuestion" in your output. Output ONLY: globalNode
 
 Generate the knowledge graph JSON.`;
 
-    const model = "gemini-2.5-flash";
+    const model = "google/gemini-2.5-flash";
     const maxTokens = calculateMaxTokens(questions.length, isIncremental ?? false, existingNodes?.length || 0);
     
     const MAX_RETRIES = 3;
@@ -1306,10 +1306,10 @@ Generate the knowledge graph JSON.`;
 
     for (let attempt = 1; attempt <= MAX_RETRIES; attempt++) {
       try {
-        const response = await fetch("https://generativelanguage.googleapis.com/v1beta/openai/chat/completions", {
+        const response = await fetch("https://ai.gateway.lovable.dev/v1/chat/completions", {
           method: "POST",
           headers: {
-            "Authorization": `Bearer ${GEMINI_API_KEY}`,
+            "Authorization": `Bearer ${LOVABLE_API_KEY}`,
             "Content-Type": "application/json",
           },
           body: JSON.stringify({
