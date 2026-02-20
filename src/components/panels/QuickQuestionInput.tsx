@@ -282,7 +282,7 @@ export function QuickQuestionInput({ onGenerate, isLoading, isLandingMode = fals
 
       if (file.name.endsWith('.csv')) {
         questions = parseCSV(text);
-      } else if (file.name.endsWith('.json')) {
+      } else {
         try {
           const parsed = JSON.parse(text);
           if (Array.isArray(parsed)) {
@@ -315,12 +315,12 @@ export function QuickQuestionInput({ onGenerate, isLoading, isLandingMode = fals
 
               return result.trim();
             }).filter(q => q.length > 0);
+          } else {
+            questions = parseQuestionsFromText(text);
           }
         } catch {
           questions = parseQuestionsFromText(text);
         }
-      } else {
-        questions = parseQuestionsFromText(text);
       }
 
       if (questions.length === 0) {
