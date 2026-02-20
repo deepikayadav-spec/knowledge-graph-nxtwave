@@ -286,7 +286,35 @@ export function QuickQuestionInput({ onGenerate, isLoading, isLandingMode = fals
         try {
           const parsed = JSON.parse(text);
           if (Array.isArray(parsed)) {
-            questions = parsed.map(q => typeof q === 'string' ? q : q.question || q.text || JSON.stringify(q));
+            questions = parsed.map(q => {
+              if (typeof q === 'string') return q;
+
+              // Support question_content field (NxtWave format)
+              const content = q.question_content || q.question || q.text || '';
+              if (!content) return JSON.stringify(q);
+
+              let result = '';
+
+              // Add topic/subtopic header for automatic grouping
+              if (q.subtopic) {
+                result += `Topic: ${q.subtopic}\n\n`;
+              } else if (q.topic) {
+                result += `Topic: ${q.topic}\n\n`;
+              }
+
+              result += content;
+
+              // Append test cases so IPA/LTA can analyze them
+              if (q.test_cases && Array.isArray(q.test_cases) && q.test_cases.length > 0) {
+                result += '\n\nTest Cases:';
+                for (const tc of q.test_cases) {
+                  const weight = tc.weightage ? ` (weight: ${tc.weightage})` : '';
+                  result += `\n- ${tc.display_text || tc.description || tc.text}${weight}`;
+                }
+              }
+
+              return result.trim();
+            }).filter(q => q.length > 0);
           }
         } catch {
           questions = parseQuestionsFromText(text);
