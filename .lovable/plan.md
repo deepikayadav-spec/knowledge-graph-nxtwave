@@ -1,74 +1,66 @@
 
 
-# Group Ungrouped KPs and Show Topic Score Table
+# Hardcode All KP-to-Subtopic Mappings and Remove Autosave
 
-## Problem
-The "LKG IO(Copy)" graph has 100 skills but 35 are ungrouped (no subtopic_id). These are mostly JS Coding and CSS skills missing from the `WEB_SKILL_SUBTOPIC_MAP` in the auto-group edge function.
+## Overview
+Map all 100 KPs in "LKG IO(Copy)" to the exact subtopics and topics from your spreadsheet, hardcoded in the auto-group edge function. Also completely remove the autosave feature from the app.
 
-## Step 1: Update the skill-to-subtopic map
+## Changes
 
-Add 35 missing skill mappings to `WEB_SKILL_SUBTOPIC_MAP` in `supabase/functions/auto-group-skills/index.ts`:
+### 1. Remove Autosave (KnowledgeGraphApp.tsx)
+- Remove the `useAutosave` import and hook call
+- Remove the `AutosaveIndicator` component from the header
+- Remove `isGeneratingFlag` state that was only used for autosave guard
+- This ensures no automatic saving happens -- you save manually only
 
-| Skill ID | Subtopic (index) |
-|----------|-----------------|
-| html_basics | Introduction to HTML (0) |
-| css_positioning | CSS Display And Position (6) |
-| css_transform | CSS General (12) |
-| css_z_index | CSS Display And Position (6) |
-| css_grid_alignment | CSS Grid (10) |
-| css_flexbox_layout | CSS Flexbox (9) |
-| css_basics | Introduction To CSS And CSS Selectors (4) |
-| exception_handling | Asynchronous JS and Error Handling (18) |
-| js_spread_rest_operators | JS General (19) |
-| class_definition | JS General (19) |
-| object_methods | JS General (19) |
-| react_component_data_flow | React Components and Props (28) |
-| react_component_fundamentals | Introduction to React (27) |
-| react_conditional_rendering | React Lists and Forms (34) |
-| variable_assignment | Variables (20) |
-| basic_output | Variables (20) |
-| basic_input | Variables (20) |
-| input_parsing | Variables (20) |
-| formatted_output | Variables (20) |
-| input_output_formatting | Variables (20) |
-| type_conversion | Data Types (21) |
-| type_recognition | Data Types (21) |
-| string_indexing | Data Types (21) |
-| list_operations | Data Types (21) |
-| dictionary_operations | Data Types (21) |
-| comparison_operators | Operators (22) |
-| arithmetic_operations | Operators (22) |
-| boolean_logic | Operators (22) |
-| conditional_branching | Conditional Statements (23) |
-| function_definition | Functions (24) |
-| function_calls | Functions (24) |
-| loop_iteration | Loops (25) |
-| search_pattern | Loops (25) |
-| loop_control_statements | Loops (25) |
-| iterative_control_flow | Loops (25) |
+### 2. Add 32 Missing Skill Mappings (auto-group-skills edge function)
+The following skills are currently unmapped and will be added to `WEB_SKILL_SUBTOPIC_MAP`:
 
-## Step 2: Re-run Auto-Group
+| Skill ID | Subtopic | Index |
+|----------|----------|-------|
+| html_document_structure | Introduction to HTML | 0 |
+| css_styling_and_layout | CSS Layouts And Box Model | 7 |
+| tailwind_css_utility_classes | CSS General | 12 |
+| js_console_output | Introduction to JavaScript | 13 |
+| js_timers | Schedulers and Callback Functions | 15 |
+| js_local_storage_api | Storage Mechanisms | 16 |
+| api_http_requests | Network and HTTP Requests | 17 |
+| rss_feed_integration | Network and HTTP Requests | 17 |
+| js_date_object | JS General | 19 |
+| js_core_logic | JS General | 19 |
+| date_fns_usage | JS General | 19 |
+| google_sheets_api_integration | JS General | 19 |
+| ai_api_integration | JS General | 19 |
+| ai_prompt_engineering | JS General | 19 |
+| ai_workflow_design | JS General | 19 |
+| n8n_workflow_design | JS General | 19 |
+| n8n_ai_workflow_automation | JS General | 19 |
+| n8n_ai_agent_usage | JS General | 19 |
+| n8n_expression_language | JS General | 19 |
+| n8n_trigger_node_usage | JS General | 19 |
+| js_data_structures_set | Data Types | 21 |
+| regex_basics | Data Types | 21 |
+| input_validation | Conditional Statements | 23 |
+| algorithm_two_sum_hash_map | Functions | 24 |
+| accumulator_pattern | Loops | 25 |
+| algorithm_intersection | Loops | 25 |
+| algorithm_prime_check | Loops | 25 |
+| algorithm_set_difference | Loops | 25 |
+| algorithm_sorting | Loops | 25 |
+| algorithm_two_pointers | Loops | 25 |
+| algorithm_recursion | Recursion | 26 |
+| react_effects | useEffect Hook | 30 |
 
-After deploying the updated edge function, you click "Auto-Group" in the UI. It will clear existing groupings and reassign all 100 skills correctly.
+Note: n8n and AI skills don't have a dedicated topic in your curriculum, so they are mapped to "JS General" as the closest fit. If you'd prefer a separate topic for these, let me know.
 
-## Step 3: Calculate topic score ranges
+### 3. Workflow After Implementation
+1. Deploy the updated edge function
+2. Load "LKG IO(Copy)" graph
+3. Click "Auto-Group" once -- all 100 KPs get mapped to 36 subtopics under 5 topics, no "Other Skills" group
+4. Click recalculate on the Topic Score Table to update min/max values
+5. No need to press Auto-Group again -- the mappings are deterministic and hardcoded
 
-After grouping completes, trigger `calculateAndPersistTopicScoreRanges` (already wired up -- it auto-runs when the graph loads and ranges are empty). For a manual trigger, add a "Recalc Ranges" button to the toolbar that calls this function and updates state.
-
-## Step 4: Add Topic Score Table beside the graph
-
-Create a new `TopicScoreTable` component that displays a compact table with columns: Topic, Min, Max, Questions. It will be shown to the right of the graph canvas (before the mastery sidebar, if active) when `topicScoreRanges` has data.
-
-### Technical Details
-
-**Files changed:**
-1. `supabase/functions/auto-group-skills/index.ts` -- add 35 entries to `WEB_SKILL_SUBTOPIC_MAP`
-2. `src/components/panels/TopicScoreTable.tsx` -- new component: compact table using shadcn Table
-3. `src/components/KnowledgeGraphApp.tsx` -- render `TopicScoreTable` beside the graph, add "Recalc Ranges" button in toolbar, refresh ranges after auto-group completes
-
-**TopicScoreTable** will:
-- Accept `topicScoreRanges` and an `onRecalculate` callback as props
-- Render a narrow panel (~250px) on the right side of the graph area
-- Show topic name, min (always 0), max (unique question count), and total questions
-- Include a small refresh button to recalculate
+### Files Modified
+- `supabase/functions/auto-group-skills/index.ts` -- add 32 entries to WEB_SKILL_SUBTOPIC_MAP
+- `src/components/KnowledgeGraphApp.tsx` -- remove useAutosave hook, AutosaveIndicator component, and isGeneratingFlag state
 
