@@ -1,52 +1,43 @@
 
 
-# Add "Find Missing Questions" Button to the UI
+# Fix Two Issues: Fingerprinting Accuracy + Collapsible Panel Visibility
 
-## What This Does
-Adds a button in the question upload panel that lets you select a file, automatically calls the already-deployed backend function to compare it against the database, and shows you exactly which questions are missing -- with the option to upload only those.
+## Issue 1: Improve Fingerprinting (reduces false "missing" count)
 
-## How It Works
-1. You click "Find Missing Questions" in the question panel
-2. A file picker opens -- you select your `questions_with_strong_delimiters-3.txt`
-3. The app sends the file content to the `find-missing-questions` backend function
-4. The function compares all 328 file questions against the 224 DB questions using fingerprinting
-5. Results are shown: how many matched, how many are missing
-6. A "Upload Missing Only" button appears to upload just the missing questions
+The `extractCoreQuestion` stop regex currently only breaks on exact section headers like `Input:` or `Output:`. But many DB questions contain headers like `Input Format`, `Sample Input`, `Expected Output`, `Constraints`, etc. These leak into the fingerprint, causing mismatches.
 
-## Changes
+### Changes to `src/lib/question/extractCore.ts` (and the duplicate in the edge function):
 
-### Step 1: Add a "Find Missing" button to `QuickQuestionInput.tsx`
-- Add a new button next to the existing upload controls
-- On click, open a file picker dialog
-- Read the selected file content
-- Call the `find-missing-questions` edge function with the file content and current `graph_id`
-- Display results in a summary panel showing:
-  - Total file questions
-  - Total DB questions  
-  - Matched (duplicates) count
-  - Missing (new) count
-- Show a "Upload Missing Only" button that pre-fills the question input with only the missing questions in the `<<<QUESTION_START>>>` format
+1. **Strip markdown bold** (`**text**`) and inline code backticks
+2. **Skip horizontal rules** (`---`)
+3. **Expand stop regex** from:
+   `^(Input|Output|Explanation|Test Cases|Resources):?$`
+   to:
+   `^(Input|Output|Explanation|Test Cases|Resources|Sample Input|Sample Output|Expected Output|Input Format|Output Format|Constraints|Example|Note|Approach|Hint)`
+   (using starts-with match instead of exact match, so `Input Format:` and `Input:` both trigger the stop)
 
-### Step 2: Wire up the edge function call
-- Use `supabase.functions.invoke('find-missing-questions', { body: { file_content, graph_id } })`
-- Show a loading spinner during the comparison
-- Handle errors gracefully with toast notifications
+4. Apply the same changes to `supabase/functions/find-missing-questions/index.ts`
 
-### Step 3: Auto-upload missing questions
-- When user clicks "Upload Missing Only", the missing questions (returned by the edge function) are formatted and fed into the existing upload pipeline
-- This bypasses the broken client-side duplicate detection entirely
+## Issue 2: Make "Add to Graph" Button Visible in Collapsible Panel
 
-## Technical Details
+The collapsible panel currently has everything crammed into a single row (`flex items-center justify-between`), so the "Add to Graph" button gets pushed off-screen or becomes hard to see.
 
-### File: `src/components/panels/QuickQuestionInput.tsx`
-- Add state for `missingQuestions`, `comparisonResults`, `isComparing`
-- Add `handleFindMissing()` function that:
-  1. Opens file picker
-  2. Reads file text
-  3. Calls edge function
-  4. Stores results in state
-- Add UI section showing comparison results when available
-- Add "Upload Missing Only" button that calls existing upload logic with only the missing questions
+### Changes to `src/components/panels/QuickQuestionInput.tsx`:
 
-### No new files needed
-The edge function `find-missing-questions` already exists and is deployed. We just need the UI to call it.
+1. **Change the bottom controls layout** from a single cramped row to a stacked layout:
+   - Top row: duplicate badges + upload/find-missing buttons
+   - Bottom row: "Add to Graph" button at full width or right-aligned with more breathing room
+2. **Increase minimum height** of the textarea from `min-h-[80px]` to `min-h-[120px]` for better visibility
+3. **Make the "Add to Graph" button more prominent** -- slightly larger with clear styling so it stands out
+
+### Technical Details
+
+**File: `src/lib/question/extractCore.ts`** -- Updated stop regex and added markdown stripping
+
+**File: `supabase/functions/find-missing-questions/index.ts`** -- Same fingerprint changes mirrored
+
+**File: `src/components/panels/QuickQuestionInput.tsx`** (lines 684-758):
+- Wrap controls in a `flex flex-col gap-2` instead of single row
+- Move "Add to Graph" button to its own row with `w-full` or `ml-auto` styling
+- Increase textarea min-height
+
