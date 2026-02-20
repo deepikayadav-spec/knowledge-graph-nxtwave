@@ -1,4 +1,4 @@
-import { useState, useMemo, useCallback } from 'react';
+import { useState, useEffect, useMemo, useCallback } from 'react';
 import { GraphCanvas } from './graph/GraphCanvas';
 import { NodeDetailPanel } from './panels/NodeDetailPanel';
 import { SuperNodeDetailPanel } from './panels/SuperNodeDetailPanel';
@@ -17,6 +17,8 @@ import { useAutosave } from '@/hooks/useAutosave';
 import { useSkillGrouping } from '@/hooks/useSkillGrouping';
 import { useStudentMastery } from '@/hooks/useStudentMastery';
 import { buildSubtopicView, buildTopicView, type SuperNode } from '@/lib/graph/groupedView';
+import { loadTopicScoreRanges, calculateAndPersistTopicScoreRanges } from '@/lib/mastery/topicScoreRanges';
+import type { TopicScoreRange } from '@/types/grouping';
 import { Network, Sparkles, Trash2, GraduationCap, Plus, Pencil, CheckCircle, Wand2 } from 'lucide-react';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
@@ -57,6 +59,7 @@ export function KnowledgeGraphApp() {
   // Standalone edit mode for node/edge CRUD
   const [isEditMode, setIsEditMode] = useState(false);
   const [isAutoGrouping, setIsAutoGrouping] = useState(false);
+  const [topicScoreRanges, setTopicScoreRanges] = useState<TopicScoreRange[]>([]);
 
   // Graph persistence
   const {
@@ -84,6 +87,22 @@ export function KnowledgeGraphApp() {
     graphId: currentGraphId || '',
     autoLoad: !!currentGraphId,
   });
+
+  // Load topic score ranges when graph changes
+  useEffect(() => {
+    if (!currentGraphId) {
+      setTopicScoreRanges([]);
+      return;
+    }
+    loadTopicScoreRanges(currentGraphId).then(ranges => {
+      if (ranges.length === 0) {
+        // Auto-calculate if empty
+        calculateAndPersistTopicScoreRanges(currentGraphId).then(setTopicScoreRanges).catch(() => {});
+      } else {
+        setTopicScoreRanges(ranges);
+      }
+    }).catch(() => {});
+  }, [currentGraphId]);
 
   // Extract skill IDs for demo data generation
   const skillIds = useMemo(
@@ -621,6 +640,9 @@ export function KnowledgeGraphApp() {
         const superNode = groupedData.nodes.find(n => n.id === selectedSuperNodeId) as SuperNode | undefined;
         if (!superNode || !('skillIds' in superNode)) return null;
         const containedSkills = graph.globalNodes.filter(n => superNode.skillIds.includes(n.id));
+        // Look up score range for topic nodes
+        const topicId = superNode.type === 'topic' ? superNode.id.replace('topic_', '') : undefined;
+        const scoreRange = topicId ? topicScoreRanges.find(r => r.topicId === topicId) : undefined;
         return (
           <SuperNodeDetailPanel
             superNode={superNode}
@@ -630,6 +652,7 @@ export function KnowledgeGraphApp() {
               setSelectedSuperNodeId(null);
               setSelectedNodeId(skillId);
             }}
+            scoreRange={scoreRange}
           />
         );
       })()}
