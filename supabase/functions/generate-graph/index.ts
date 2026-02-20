@@ -981,11 +981,11 @@ function attemptJsonRepair(text: string): any | null {
 }
 
 function calculateMaxTokens(questionCount: number, isIncremental: boolean, existingNodeCount: number = 0): number {
-  const tokensPerQuestion = 1500;
-  const baseOverhead = 6000;
+  const tokensPerQuestion = 3000;
+  const baseOverhead = 8000;
   const incrementalOverhead = isIncremental ? 3000 + (existingNodeCount * 50) : 0;
   const estimated = baseOverhead + incrementalOverhead + (questionCount * tokensPerQuestion);
-  const maxTokens = Math.min(Math.max(estimated, 16000), 65536);
+  const maxTokens = Math.min(Math.max(estimated, 24000), 65536);
   console.log(`[IPA/LTA] Calculated max_tokens: ${maxTokens} for ${questionCount} questions (existing nodes: ${existingNodeCount})`);
   return maxTokens;
 }
