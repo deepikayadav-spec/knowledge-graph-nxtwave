@@ -677,12 +677,12 @@ export function QuickQuestionInput({ onGenerate, isLoading, isLandingMode = fals
               }
               value={questionsText}
               onChange={(e) => { setQuestionsText(e.target.value); setParsedQuestions([]); }}
-              className="min-h-[80px] text-sm resize-none font-mono"
+              className="min-h-[120px] text-sm resize-none font-mono"
               onKeyDown={handleKeyDown}
             />
             
-            <div className="flex items-center justify-between">
-              <div className="flex items-center gap-2">
+            <div className="flex flex-col gap-2">
+              <div className="flex items-center gap-2 flex-wrap">
                 {(duplicateCheck.isChecking || isExtractingPdf) ? (
                   <span className="text-xs text-muted-foreground flex items-center gap-1">
                     <Loader2 className="h-3 w-3 animate-spin" />
@@ -742,7 +742,7 @@ export function QuickQuestionInput({ onGenerate, isLoading, isLandingMode = fals
                 size="sm"
                 onClick={handleSubmit}
                 disabled={isLoading || isExtractingPdf || !questionsText.trim()}
-                className="gap-2"
+                className="w-full gap-2"
               >
                 {isLoading ? (
                   <>

@@ -15,8 +15,14 @@ export function extractCoreQuestion(fullBlock: string): string {
     line = line.replace(/^\d+\.\s+/, '');
     // Normalize: strip markdown headers like "## ", "### "
     line = line.replace(/^#+\s+/, '');
+    // Strip markdown bold **text**
+    line = line.replace(/\*\*(.+?)\*\*/g, '$1');
+    // Strip inline code backticks
+    line = line.replace(/`([^`]+)`/g, '$1');
     // Skip code fence lines (``` or ```language)
     if (/^```/.test(line)) continue;
+    // Skip horizontal rules (---, ===, ***)
+    if (/^[-=*]{3,}$/.test(line)) continue;
     // Collapse multiple whitespace into single space
     line = line.replace(/\s{2,}/g, ' ');
 
@@ -33,8 +39,8 @@ export function extractCoreQuestion(fullBlock: string): string {
       continue;
     }
 
-    // Stop at section headers
-    if (/^(Input|Output|Explanation|Test Cases|Resources)\s*:?\s*$/i.test(line)) break;
+    // Stop at section headers (expanded, prefix-based match)
+    if (/^(Input|Output|Explanation|Test Cases|Resources|Sample Input|Sample Output|Expected Output|Input Format|Output Format|Constraints|Example|Note|Approach|Hint)\s*:?\s*/i.test(line)) break;
 
     contentLines.push(line);
   }
