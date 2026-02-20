@@ -12,8 +12,8 @@ const DELAY_BETWEEN_BATCHES_MS = 2000;
 
 // Turbo mode constants
 const TURBO_BATCH_SIZE = 5;
-const TURBO_CONCURRENCY = 2;
-const TURBO_DELAY_MS = 500;
+const TURBO_CONCURRENCY = 4;
+const TURBO_DELAY_MS = 300;
 const TURBO_QUESTION_THRESHOLD = 30;
 const EXISTING_NODES_CAP = 80;
 
@@ -577,40 +577,52 @@ export function useBatchGeneration(
           }
         }
 
-        // ====== TURBO: Final retry wave for all failed batches ======
+        // ====== TURBO: Final retry wave for all failed batches (capped) ======
+        const MAX_RETRY_BATCHES = 10;
+        const failureRate = allRetryBatches.length / totalBatches;
         if (allRetryBatches.length > 0 && !abortRef.current) {
-          console.log(`[Turbo] Retrying ${allRetryBatches.length} failed batches in final wave...`);
-          const retryWaveStart = Date.now();
-          const retryResults = await Promise.allSettled(
-            allRetryBatches.map(idx =>
-              callBatchGenerate(batches[idx], batchTopicMaps[idx], accumulatedNodes, domain)
-            )
-          );
+          if (failureRate > 0.5) {
+            console.error(`[Turbo] ${allRetryBatches.length}/${totalBatches} batches failed (${(failureRate * 100).toFixed(0)}%). Skipping retry wave.`);
+            toast({
+              title: "High failure rate",
+              description: `${allRetryBatches.length} of ${totalBatches} batches failed. The API may be overloaded. Try again later.`,
+              variant: "destructive",
+            });
+          } else {
+            const retrySlice = allRetryBatches.slice(0, MAX_RETRY_BATCHES);
+            console.log(`[Turbo] Retrying ${retrySlice.length} failed batches (capped at ${MAX_RETRY_BATCHES})...`);
+            const retryWaveStart = Date.now();
+            const retryResults = await Promise.allSettled(
+              retrySlice.map(idx =>
+                callBatchGenerate(batches[idx], batchTopicMaps[idx], accumulatedNodes, domain)
+              )
+            );
 
-          let retrySucceeded = 0;
-          for (let j = 0; j < retryResults.length; j++) {
-            const result = retryResults[j];
-            if (result.status === 'fulfilled' && result.value) {
-              retrySucceeded++;
-              const deltaGraph = normalizeGraphPayload(result.value);
-              partialGraph = partialGraph
-                ? mergeGraphs([partialGraph!, deltaGraph])
-                : deltaGraph;
-              for (const node of deltaGraph.globalNodes) {
-                if (!accumulatedNodes.some(n => n.id === node.id)) {
-                  accumulatedNodes.push({ id: node.id, name: node.name, tier: node.tier, description: node.description });
+            let retrySucceeded = 0;
+            for (let j = 0; j < retryResults.length; j++) {
+              const result = retryResults[j];
+              if (result.status === 'fulfilled' && result.value) {
+                retrySucceeded++;
+                const deltaGraph = normalizeGraphPayload(result.value);
+                partialGraph = partialGraph
+                  ? mergeGraphs([partialGraph!, deltaGraph])
+                  : deltaGraph;
+                for (const node of deltaGraph.globalNodes) {
+                  if (!accumulatedNodes.some(n => n.id === node.id)) {
+                    accumulatedNodes.push({ id: node.id, name: node.name, tier: node.tier, description: node.description });
+                  }
                 }
+              } else {
+                console.error(`[Turbo] Final retry failed for batch ${retrySlice[j]}:`, (result as PromiseRejectedResult).reason);
               }
-            } else {
-              console.error(`[Turbo] Final retry failed for batch ${allRetryBatches[j]}:`, (result as PromiseRejectedResult).reason);
             }
-          }
 
-          const retryElapsed = ((Date.now() - retryWaveStart) / 1000).toFixed(1);
-          console.log(`[Turbo] Final retry wave completed in ${retryElapsed}s (${retrySucceeded}/${allRetryBatches.length} recovered)`);
+            const retryElapsed = ((Date.now() - retryWaveStart) / 1000).toFixed(1);
+            console.log(`[Turbo] Final retry wave completed in ${retryElapsed}s (${retrySucceeded}/${retrySlice.length} recovered)`);
 
-          if (partialGraph) {
-            onGraphUpdate(partialGraph);
+            if (partialGraph) {
+              onGraphUpdate(partialGraph);
+            }
           }
         }
       } else {
