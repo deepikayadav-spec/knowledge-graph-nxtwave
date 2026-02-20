@@ -11,8 +11,8 @@ const MIN_BATCH_SIZE = 3;
 const DELAY_BETWEEN_BATCHES_MS = 2000;
 
 // Turbo mode constants
-const TURBO_BATCH_SIZE = 8;
-const TURBO_CONCURRENCY = 3;
+const TURBO_BATCH_SIZE = 5;
+const TURBO_CONCURRENCY = 4;
 const TURBO_DELAY_MS = 500;
 const TURBO_QUESTION_THRESHOLD = 30;
 const EXISTING_NODES_CAP = 80;
@@ -472,6 +472,7 @@ export function useBatchGeneration(
     try {
       if (isTurbo) {
         // ====== TURBO: Parallel wave processing ======
+        const allRetryBatches: number[] = [];
         for (let waveStart = processedBatches; waveStart < batches.length; waveStart += concurrency) {
           if (abortRef.current) {
             toast({
@@ -500,6 +501,7 @@ export function useBatchGeneration(
           });
 
           // Fire all batches in this wave concurrently
+          const waveStartTime = Date.now();
           const waveResults = await Promise.allSettled(
             waveBatchIndices.map(idx =>
               callBatchGenerate(batches[idx], batchTopicMaps[idx], accumulatedNodes, domain)
@@ -508,11 +510,13 @@ export function useBatchGeneration(
 
           // Check for rate limiting - if any batch got 429, back off entire wave
           let hasRateLimit = false;
-          const retryBatches: number[] = [];
+          let waveSucceeded = 0;
+          let waveFailed = 0;
 
           for (let j = 0; j < waveResults.length; j++) {
             const result = waveResults[j];
             if (result.status === 'fulfilled' && result.value) {
+              waveSucceeded++;
               const deltaGraph = normalizeGraphPayload(result.value);
               partialGraph = partialGraph
                 ? mergeGraphs([partialGraph, deltaGraph])
@@ -529,14 +533,20 @@ export function useBatchGeneration(
                 }
               }
             } else if (result.status === 'rejected') {
+              waveFailed++;
               const errMsg = result.reason?.message || '';
               if (errMsg.includes('429') || errMsg.includes('rate')) {
                 hasRateLimit = true;
               }
               console.error(`[Turbo] Batch ${waveBatchIndices[j]} failed:`, result.reason);
-              retryBatches.push(waveBatchIndices[j]);
+              // Push to global retry queue instead of retrying immediately
+              allRetryBatches.push(waveBatchIndices[j]);
             }
           }
+
+          const waveElapsed = ((Date.now() - waveStartTime) / 1000).toFixed(1);
+          const waveNum = Math.floor((waveStart - processedBatches) / concurrency) + 1;
+          console.log(`[Turbo] Wave ${waveNum} completed in ${waveElapsed}s (${waveSucceeded} succeeded, ${waveFailed} failed)`);
 
           // Update UI after each wave
           if (partialGraph) {
@@ -561,37 +571,46 @@ export function useBatchGeneration(
             await sleep(30000);
           }
 
-          // Retry failed batches sequentially
-          for (const retryIdx of retryBatches) {
-            if (abortRef.current) break;
-            try {
-              const data = await callBatchGenerate(batches[retryIdx], batchTopicMaps[retryIdx], accumulatedNodes, domain);
-              if (data) {
-                const deltaGraph = normalizeGraphPayload(data);
-                partialGraph = partialGraph
-                  ? mergeGraphs([partialGraph!, deltaGraph])
-                  : deltaGraph;
-
-                for (const node of deltaGraph.globalNodes) {
-                  if (!accumulatedNodes.some(n => n.id === node.id)) {
-                    accumulatedNodes.push({
-                      id: node.id,
-                      name: node.name,
-                      tier: node.tier,
-                      description: node.description
-                    });
-                  }
-                }
-                onGraphUpdate(partialGraph!);
-              }
-            } catch (retryErr) {
-              console.error(`[Turbo] Retry failed for batch ${retryIdx}:`, retryErr);
-            }
-          }
-
           // Delay between waves
           if (waveEnd < batches.length) {
             await sleep(delayMs);
+          }
+        }
+
+        // ====== TURBO: Final retry wave for all failed batches ======
+        if (allRetryBatches.length > 0 && !abortRef.current) {
+          console.log(`[Turbo] Retrying ${allRetryBatches.length} failed batches in final wave...`);
+          const retryWaveStart = Date.now();
+          const retryResults = await Promise.allSettled(
+            allRetryBatches.map(idx =>
+              callBatchGenerate(batches[idx], batchTopicMaps[idx], accumulatedNodes, domain)
+            )
+          );
+
+          let retrySucceeded = 0;
+          for (let j = 0; j < retryResults.length; j++) {
+            const result = retryResults[j];
+            if (result.status === 'fulfilled' && result.value) {
+              retrySucceeded++;
+              const deltaGraph = normalizeGraphPayload(result.value);
+              partialGraph = partialGraph
+                ? mergeGraphs([partialGraph!, deltaGraph])
+                : deltaGraph;
+              for (const node of deltaGraph.globalNodes) {
+                if (!accumulatedNodes.some(n => n.id === node.id)) {
+                  accumulatedNodes.push({ id: node.id, name: node.name, tier: node.tier, description: node.description });
+                }
+              }
+            } else {
+              console.error(`[Turbo] Final retry failed for batch ${allRetryBatches[j]}:`, (result as PromiseRejectedResult).reason);
+            }
+          }
+
+          const retryElapsed = ((Date.now() - retryWaveStart) / 1000).toFixed(1);
+          console.log(`[Turbo] Final retry wave completed in ${retryElapsed}s (${retrySucceeded}/${allRetryBatches.length} recovered)`);
+
+          if (partialGraph) {
+            onGraphUpdate(partialGraph);
           }
         }
       } else {
