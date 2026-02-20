@@ -1,54 +1,68 @@
 
 
-# Fix CORS, Update API Key, Add Retry Limits, and Increase Throughput
+# Fix 429 Rate Limits and CORS for Free-Tier Gemini API
 
-## 1. Update GEMINI_API_KEY secret
+## Problem
+You're hitting 429 rate limits because the free-tier Gemini API allows only ~15 requests/minute. With TURBO_CONCURRENCY=4 and TURBO_DELAY_MS=300, your app fires requests far too fast. CORS headers are also missing `Access-Control-Allow-Methods`.
 
-Set the new API key `AIzaSyBRf8z9LVjPO4CtNpIYGsPmc-JFNf9o2W4` as the `GEMINI_API_KEY` secret so all 6 edge functions use it.
+## Changes
 
-## 2. Fix CORS headers on all 6 edge functions
+### 1. Update GEMINI_API_KEY Secret
+Set the secret to `AIzaSyBRf8z9LVjPO4CtNpIYGsPmc-JFNf9o2W4` (it's already listed as configured, but we'll verify/update it).
 
-The current CORS headers are missing newer Supabase client headers, which causes preflight failures. Update from:
+### 2. Fix CORS Headers in All 7 Edge Functions
+Add `Access-Control-Allow-Methods: POST, OPTIONS` and return `new Response('ok', { status: 200, headers: corsHeaders })` for OPTIONS.
 
-```
-"authorization, x-client-info, apikey, content-type"
-```
-
-to:
-
-```
-"authorization, x-client-info, apikey, content-type, x-supabase-client-platform, x-supabase-client-platform-version, x-supabase-client-runtime, x-supabase-client-runtime-version"
-```
-
-Affected files:
+Files:
 - `supabase/functions/generate-graph/index.ts`
 - `supabase/functions/analyze-difficulty/index.ts`
 - `supabase/functions/regenerate-weights/index.ts`
 - `supabase/functions/auto-group-skills/index.ts`
 - `supabase/functions/extract-questions/index.ts`
 - `supabase/functions/classify-questions/index.ts`
+- `supabase/functions/find-missing-questions/index.ts`
 
-## 3. Add retry cap to batch generation
+Updated CORS block:
+```text
+const corsHeaders = {
+  'Access-Control-Allow-Origin': '*',
+  'Access-Control-Allow-Methods': 'POST, OPTIONS',
+  'Access-Control-Allow-Headers': 'authorization, x-client-info, apikey, content-type, x-supabase-client-platform, x-supabase-client-platform-version, x-supabase-client-runtime, x-supabase-client-runtime-version',
+};
+```
 
-The `callBatchGenerate` function already has `maxRetries = 3`, which is correct. However, the turbo retry wave at the end (line 580-615) fires ALL failed batches again with no limit. Add a cap: if more than 50% of batches failed, abort and show an error instead of hammering the API.
+### 3. Throttle Batch Generation for Free Tier
+In `src/hooks/useBatchGeneration.ts`:
 
-Also increase concurrency back to **4** and reduce delay to **300ms** since the new API key should have higher limits.
+| Constant | Old | New | Why |
+|----------|-----|-----|-----|
+| TURBO_CONCURRENCY | 4 | 1 | Free tier: ~15 req/min, sequential is safest |
+| TURBO_DELAY_MS | 300 | 4000 | 4s gap between batches = ~15 req/min |
 
-### Changes in `src/hooks/useBatchGeneration.ts`:
-- `TURBO_CONCURRENCY`: 2 -> 4
-- `TURBO_DELAY_MS`: 500 -> 300
-- Final retry wave: cap at max 10 retries, skip if > 50% of batches failed
+### 4. Improve Retry Logic in `callBatchGenerate`
+- Max 3 retries per batch (already exists)
+- On 429: exponential backoff starting at 30s (already 30s, keep it)
+- After 3 failed retries: skip that batch, log warning, continue to next
+- The existing code already throws after maxRetries; we'll add a try/catch in the caller to gracefully skip failed batches in sequential mode too
 
-## 4. forwardRef warnings
+### 5. Add Estimated Time Display
+The progress indicator already shows estimated time remaining. With concurrency=1 and delay=4s, it will be more accurate. For 326 questions:
+- 326 / 5 = 66 batches
+- ~15-20s per batch (4s delay + ~11-16s API call)
+- Estimated: ~16-22 minutes total
 
-These are cosmetic React console warnings with zero functional impact. They will be deferred to a separate cleanup pass to keep this change focused on the critical fixes.
+### 6. API Endpoint Verification
+All edge functions already use the correct endpoint:
+- URL: `https://generativelanguage.googleapis.com/v1beta/openai/chat/completions`
+- Auth: `Bearer ${GEMINI_API_KEY}`
+- Model: `gemini-2.5-flash` (no `google/` prefix) -- correct for direct Gemini calls
 
-## Summary
+No changes needed here.
 
-| Change | File(s) | Impact |
-|--------|---------|--------|
-| New API key | Secret: GEMINI_API_KEY | Unlocks higher rate limits |
-| CORS fix | All 6 edge functions | Fixes browser preflight blocking |
-| Concurrency boost | useBatchGeneration.ts | 4 concurrent + 300ms delay |
-| Retry cap | useBatchGeneration.ts | Prevents infinite retry flooding |
+## Files Modified
+1. `src/hooks/useBatchGeneration.ts` -- concurrency and delay constants
+2. 7 edge function `index.ts` files -- CORS headers
+
+## Expected Timeline for 326 Questions
+~16-22 minutes with free-tier key at 1 concurrent batch and 4s delay.
 
