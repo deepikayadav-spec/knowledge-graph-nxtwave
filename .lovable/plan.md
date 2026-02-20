@@ -1,33 +1,49 @@
 
-# Simplify Skill Weights: Equal Weight for All KPs
+# Display Min/Max Score on Topic Nodes + Confirm Persistence
 
-## What Changes
+## Issue 1: Persistence (Already Working)
 
-Remove the primary/secondary skill distinction. Every KP mapped to a question gets **equal weight** = `1 / number_of_skills`.
+After investigation, the groupings **are persisting correctly** in the database. All 51 KPs have their `subtopic_id` set. The `useSkillGrouping` hook has `autoLoad=true`, which calls `loadGroupings()` on mount -- so every time you open the app, it loads the saved groupings from the database. You should NOT need to click "Auto Group" again unless you want to reset/recreate the groupings.
 
-For example, a question with 3 skills: each skill gets weight `0.333...`
+No code changes needed here.
 
-## Files to Modify
+## Issue 2: Show Min/Max on Topic Node Click
 
-### 1. `src/lib/mastery/calculateWeights.ts`
-- **Simplify `calculateSkillWeights`**: Remove all primary/secondary logic. Just return `1/skills.length` for each skill.
-- **Simplify `mergeWeights`**: Remove the `primarySkills` parameter. If AI weights are provided and valid, use them (normalized). Otherwise, equal split.
-- **Remove** `normalizePrimarySkills` function entirely (no longer needed).
+When a user clicks a Topic super node on the graph canvas, the `SuperNodeDetailPanel` should display the topic's min score (always 0) and max score (unique question count).
 
-### 2. `src/lib/mastery/constants.ts`
-- **Remove** `PRIMARY_SKILL_WEIGHT`, `REMAINING_WEIGHT`, and `MAX_PRIMARY_SKILLS` constants.
+### Changes
 
-### 3. `src/lib/mastery/calculateMastery.ts`
-- Update `processAttempt` call to `mergeWeights` -- drop the `primarySkills` argument.
+**1. `src/components/KnowledgeGraphApp.tsx`**
+- Import `loadTopicScoreRanges` and add state for `topicScoreRanges`
+- Load score ranges when `currentGraphId` changes (similar to how MasterySidebar does it)
+- Pass `topicScoreRanges` to `SuperNodeDetailPanel`
 
-### 4. `src/hooks/useRegenerateWeights.ts`
-- The regenerate-weights edge function currently identifies primary skills. Update the hook to stop sending/expecting `primarySkills` in the response. Only use `skillWeights` (equal split as default, AI can still override with custom weights if desired).
+**2. `src/components/panels/SuperNodeDetailPanel.tsx`**
+- Accept an optional `scoreRange` prop (of type `TopicScoreRange | undefined`)
+- When the super node is a `topic` type and a score range exists, display:
+  - Min Score: 0
+  - Max Score: (unique question count)
+  - Unique Questions: count
+- Show this as a small info section between the header and the skill list
 
-### 5. `supabase/functions/regenerate-weights/index.ts`
-- Simplify the AI prompt: remove instructions about identifying primary skills. Just ask for weight distribution (or skip AI entirely and always use equal weights). Since the user wants equal weights, we can simplify this to just compute equal weights without AI -- or keep AI for cases where custom weights are desired.
+**3. Trigger score range calculation**
+- After the data is confirmed persisted, run the score range calculation once for the LKG IO New graph so the `topic_score_ranges` table gets populated
+- This can be triggered from the existing "Recalculate Ranges" button in the Mastery sidebar, or we auto-calculate when ranges are empty on load
 
-### No Database Changes
-- The `primary_skills` column on `questions` table stays (no migration needed), it just won't be used in weight calculations anymore. Existing data is harmless.
+### Technical Details
 
-## Summary
-This is a pure simplification. The core change is in `calculateSkillWeights`: instead of 60/40 primary/secondary split, every skill gets `1/n` weight equally.
+The `SuperNodeDetailPanel` header section will gain a stats row for topic nodes:
+
+```text
+---------------------------------
+| [Icon] Topic Name             |
+| Topic  ·  12 knowledge points |
+| Min: 0  |  Max: 45  |  45 Qs |
+---------------------------------
+| skill_1                       |
+| skill_2                       |
+| ...                           |
+---------------------------------
+```
+
+The score range lookup is simple: find the `TopicScoreRange` where `topicId` matches the super node's underlying topic ID (extracted by stripping the `topic_` prefix from the super node ID).
