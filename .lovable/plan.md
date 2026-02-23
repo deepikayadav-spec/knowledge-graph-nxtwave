@@ -1,66 +1,48 @@
 
 
-# Hardcode All KP-to-Subtopic Mappings and Remove Autosave
+# Switch All Edge Functions from Gemini to DeepSeek v3.2 via OpenRouter
 
 ## Overview
-Map all 100 KPs in "LKG IO(Copy)" to the exact subtopics and topics from your spreadsheet, hardcoded in the auto-group edge function. Also completely remove the autosave feature from the app.
+Replace the Gemini API with OpenRouter across all 6 edge functions, using the `deepseek/deepseek-v3.2` model. The `OPENROUTER_API_KEY` secret is already configured.
 
 ## Changes
 
-### 1. Remove Autosave (KnowledgeGraphApp.tsx)
-- Remove the `useAutosave` import and hook call
-- Remove the `AutosaveIndicator` component from the header
-- Remove `isGeneratingFlag` state that was only used for autosave guard
-- This ensures no automatic saving happens -- you save manually only
+All 6 edge functions will be updated with the same pattern:
 
-### 2. Add 32 Missing Skill Mappings (auto-group-skills edge function)
-The following skills are currently unmapped and will be added to `WEB_SKILL_SUBTOPIC_MAP`:
-
-| Skill ID | Subtopic | Index |
-|----------|----------|-------|
-| html_document_structure | Introduction to HTML | 0 |
-| css_styling_and_layout | CSS Layouts And Box Model | 7 |
-| tailwind_css_utility_classes | CSS General | 12 |
-| js_console_output | Introduction to JavaScript | 13 |
-| js_timers | Schedulers and Callback Functions | 15 |
-| js_local_storage_api | Storage Mechanisms | 16 |
-| api_http_requests | Network and HTTP Requests | 17 |
-| rss_feed_integration | Network and HTTP Requests | 17 |
-| js_date_object | JS General | 19 |
-| js_core_logic | JS General | 19 |
-| date_fns_usage | JS General | 19 |
-| google_sheets_api_integration | JS General | 19 |
-| ai_api_integration | JS General | 19 |
-| ai_prompt_engineering | JS General | 19 |
-| ai_workflow_design | JS General | 19 |
-| n8n_workflow_design | JS General | 19 |
-| n8n_ai_workflow_automation | JS General | 19 |
-| n8n_ai_agent_usage | JS General | 19 |
-| n8n_expression_language | JS General | 19 |
-| n8n_trigger_node_usage | JS General | 19 |
-| js_data_structures_set | Data Types | 21 |
-| regex_basics | Data Types | 21 |
-| input_validation | Conditional Statements | 23 |
-| algorithm_two_sum_hash_map | Functions | 24 |
-| accumulator_pattern | Loops | 25 |
-| algorithm_intersection | Loops | 25 |
-| algorithm_prime_check | Loops | 25 |
-| algorithm_set_difference | Loops | 25 |
-| algorithm_sorting | Loops | 25 |
-| algorithm_two_pointers | Loops | 25 |
-| algorithm_recursion | Recursion | 26 |
-| react_effects | useEffect Hook | 30 |
-
-Note: n8n and AI skills don't have a dedicated topic in your curriculum, so they are mapped to "JS General" as the closest fit. If you'd prefer a separate topic for these, let me know.
-
-### 3. Workflow After Implementation
-1. Deploy the updated edge function
-2. Load "LKG IO(Copy)" graph
-3. Click "Auto-Group" once -- all 100 KPs get mapped to 36 subtopics under 5 topics, no "Other Skills" group
-4. Click recalculate on the Topic Score Table to update min/max values
-5. No need to press Auto-Group again -- the mappings are deterministic and hardcoded
+1. **API endpoint**: `generativelanguage.googleapis.com/v1beta/openai/chat/completions` changes to `openrouter.ai/api/v1/chat/completions`
+2. **API key**: `GEMINI_API_KEY` changes to `OPENROUTER_API_KEY`
+3. **Model**: All `gemini-2.5-flash` / `gemini-2.5-flash-lite` references change to `deepseek/deepseek-v3.2`
 
 ### Files Modified
-- `supabase/functions/auto-group-skills/index.ts` -- add 32 entries to WEB_SKILL_SUBTOPIC_MAP
-- `src/components/KnowledgeGraphApp.tsx` -- remove useAutosave hook, AutosaveIndicator component, and isGeneratingFlag state
+
+| File | Current Model | Fetch Calls to Update |
+|------|--------------|----------------------|
+| `supabase/functions/generate-graph/index.ts` | gemini-2.5-flash | 2 (main call + JSON retry call) |
+| `supabase/functions/analyze-difficulty/index.ts` | gemini-2.5-flash | 1 |
+| `supabase/functions/regenerate-weights/index.ts` | gemini-2.5-flash | 1 |
+| `supabase/functions/extract-questions/index.ts` | gemini-2.5-flash | 1 |
+| `supabase/functions/classify-questions/index.ts` | gemini-2.5-flash-lite | 1 |
+| `supabase/functions/auto-group-skills/index.ts` | gemini-2.5-flash | 1 |
+
+### What stays the same
+- All prompts, retry logic, JSON parsing, error handling remain unchanged
+- The OpenRouter API is OpenAI-compatible, so the request/response format is identical
+- Equal skill weights logic is untouched
+- No autosave changes
+
+### Technical Detail
+Each function's fetch call changes from:
+```
+URL: https://generativelanguage.googleapis.com/v1beta/openai/chat/completions
+Auth: Bearer $GEMINI_API_KEY
+Model: gemini-2.5-flash
+```
+to:
+```
+URL: https://openrouter.ai/api/v1/chat/completions
+Auth: Bearer $OPENROUTER_API_KEY
+Model: deepseek/deepseek-v3.2
+```
+
+All 6 edge functions will be redeployed after the changes.
 
