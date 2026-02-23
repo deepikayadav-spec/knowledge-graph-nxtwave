@@ -1235,10 +1235,10 @@ serve(async (req) => {
       );
     }
     
-    const GEMINI_API_KEY = Deno.env.get("GEMINI_API_KEY");
+    const OPENROUTER_API_KEY = Deno.env.get("OPENROUTER_API_KEY");
     
-    if (!GEMINI_API_KEY) {
-      throw new Error("GEMINI_API_KEY is not configured");
+    if (!OPENROUTER_API_KEY) {
+      throw new Error("OPENROUTER_API_KEY is not configured");
     }
 
     const isIncremental = existingNodes && existingNodes.length > 0;
@@ -1297,7 +1297,7 @@ CRITICAL: Do NOT include "ipaByQuestion" in your output. Output ONLY: globalNode
 
 Generate the knowledge graph JSON.`;
 
-    const model = "gemini-2.5-flash";
+    const model = "deepseek/deepseek-v3.2";
     const maxTokens = calculateMaxTokens(questions.length, isIncremental ?? false, existingNodes?.length || 0);
     
     const MAX_RETRIES = 3;
@@ -1307,10 +1307,10 @@ Generate the knowledge graph JSON.`;
 
     for (let attempt = 1; attempt <= MAX_RETRIES; attempt++) {
       try {
-        const response = await fetch("https://generativelanguage.googleapis.com/v1beta/openai/chat/completions", {
+        const response = await fetch("https://openrouter.ai/api/v1/chat/completions", {
           method: "POST",
           headers: {
-            "Authorization": `Bearer ${GEMINI_API_KEY}`,
+            "Authorization": `Bearer ${OPENROUTER_API_KEY}`,
             "Content-Type": "application/json",
           },
           body: JSON.stringify({
@@ -1456,10 +1456,10 @@ Generate the knowledge graph JSON.`;
         
         // Re-call the AI to get a fresh response
         console.log(`[IPA/LTA] Re-requesting AI response due to malformed JSON...`);
-        const retryResponse = await fetch("https://generativelanguage.googleapis.com/v1beta/openai/chat/completions", {
+        const retryResponse = await fetch("https://openrouter.ai/api/v1/chat/completions", {
           method: "POST",
           headers: {
-            "Authorization": `Bearer ${GEMINI_API_KEY}`,
+            "Authorization": `Bearer ${OPENROUTER_API_KEY}`,
             "Content-Type": "application/json",
           },
           body: JSON.stringify({
