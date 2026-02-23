@@ -115,10 +115,10 @@ serve(async (req) => {
       );
     }
     
-    const GEMINI_API_KEY = Deno.env.get("GEMINI_API_KEY");
+    const OPENROUTER_API_KEY = Deno.env.get("OPENROUTER_API_KEY");
     
-    if (!GEMINI_API_KEY) {
-      throw new Error("GEMINI_API_KEY is not configured");
+    if (!OPENROUTER_API_KEY) {
+      throw new Error("OPENROUTER_API_KEY is not configured");
     }
 
     console.log(`[regenerate-weights] Analyzing ${questions.length} questions for primary skills and weights`);
@@ -142,17 +142,17 @@ For each question, distribute weight equally among all skills (1/n each, summing
 
 Return JSON with the NUMERIC INDEX (1, 2, 3, etc.) as keys. Do NOT use any other identifiers.`;
 
-    const model = "gemini-2.5-flash";
+    const model = "deepseek/deepseek-v3.2";
     const maxTokens = Math.min(4000 + questions.length * 200, 16000);
     
     const MAX_RETRIES = 3;
     let response: Response | null = null;
 
     for (let attempt = 1; attempt <= MAX_RETRIES; attempt++) {
-      response = await fetch("https://generativelanguage.googleapis.com/v1beta/openai/chat/completions", {
+      response = await fetch("https://openrouter.ai/api/v1/chat/completions", {
         method: "POST",
         headers: {
-          "Authorization": `Bearer ${GEMINI_API_KEY}`,
+          "Authorization": `Bearer ${OPENROUTER_API_KEY}`,
           "Content-Type": "application/json",
         },
         body: JSON.stringify({
