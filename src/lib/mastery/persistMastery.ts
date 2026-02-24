@@ -5,12 +5,11 @@ import { processAttemptsBatch, createEmptyMastery } from './calculateMastery';
 import type { StudentAttempt, QuestionWithWeights, KPMastery } from '@/types/mastery';
 
 /**
- * Calculate mastery for a student and persist to database
+ * Calculate mastery for a student and persist to database.
  * 
- * @param graphId - The knowledge graph ID
- * @param studentId - The student ID
- * @param attempts - Array of student attempts to process
- * @param questionsMap - Map of question ID to question with weights
+ * IMPORTANT: maxPoints for each KP is set to the TOTAL number of questions
+ * in the graph that map to that KP, not just the attempted ones.
+ * This ensures unattempted questions count as 0 (incorrect).
  */
 export async function calculateAndPersistMastery(
   graphId: string,
@@ -47,7 +46,35 @@ export async function calculateAndPersistMastery(
   // 2. Process all attempts through the mastery calculation
   const updatedMastery = processAttemptsBatch(attempts, questionsMap, masteryMap);
 
-  // 3. Upsert each mastery record to database
+  // 3. Fix maxPoints: for each KP, set maxPoints = total questions in graph mapped to that KP
+  // Build a map: skillId -> count of questions that include it
+  const skillQuestionCount = new Map<string, number>();
+  for (const question of questionsMap.values()) {
+    for (const skillId of question.skills) {
+      skillQuestionCount.set(skillId, (skillQuestionCount.get(skillId) || 0) + 1);
+    }
+  }
+
+  // Apply the correct maxPoints and recalculate rawMastery
+  for (const [skillId, mastery] of updatedMastery) {
+    const totalQuestions = skillQuestionCount.get(skillId) || mastery.maxPoints;
+    mastery.maxPoints = totalQuestions;
+    mastery.rawMastery = totalQuestions > 0
+      ? mastery.earnedPoints / totalQuestions
+      : 0;
+  }
+
+  // Also create mastery records for KPs that have questions but no attempts
+  for (const [skillId, count] of skillQuestionCount) {
+    if (!updatedMastery.has(skillId)) {
+      const empty = createEmptyMastery(graphId, studentId, skillId);
+      empty.maxPoints = count;
+      empty.rawMastery = 0;
+      updatedMastery.set(skillId, empty);
+    }
+  }
+
+  // 4. Upsert each mastery record to database
   for (const [skillId, mastery] of updatedMastery) {
     await supabase
       .from('student_kp_mastery')
@@ -59,7 +86,7 @@ export async function calculateAndPersistMastery(
         max_points: mastery.maxPoints,
         raw_mastery: mastery.rawMastery,
         last_reviewed_at: mastery.lastReviewedAt?.toISOString() || null,
-        stability: 14.0, // Fixed stability, no retention decay
+        stability: 14.0,
         retrieval_count: mastery.retrievalCount,
       }, {
         onConflict: 'graph_id,student_id,skill_id',

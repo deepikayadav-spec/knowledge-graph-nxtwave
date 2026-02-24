@@ -4,6 +4,8 @@ import { useState, useCallback } from 'react';
 import { supabase } from '@/integrations/supabase/client';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
+import { Input } from '@/components/ui/input';
+import { Label } from '@/components/ui/label';
 import { useToast } from '@/hooks/use-toast';
 import { Upload, FileText, AlertCircle, CheckCircle2 } from 'lucide-react';
 import { calculateAndPersistMastery, buildQuestionsMap } from '@/lib/mastery/persistMastery';
@@ -73,15 +75,37 @@ function isCustomFormat(header: string[]): boolean {
   return normalized.includes('question_content') && normalized.includes('best_score_attempt_evaluation_result');
 }
 
-// --- Normalize text for matching: collapse whitespace, lowercase, trim ---
+// --- Deep normalize text for lenient matching ---
 function normalizeForMatch(text: string): string {
-  return text.replace(/\s+/g, ' ').trim().toLowerCase();
+  return text
+    // Strip HTML tags
+    .replace(/<[^>]*>/g, '')
+    // Strip leading numbers/bullets like "2. " or "- " or "* "
+    .replace(/^\s*\d+\.\s*/, '')
+    .replace(/^\s*[-*•]\s*/, '')
+    // Strip markdown images ![alt](url)
+    .replace(/!\[[^\]]*\]\([^)]*\)/g, '')
+    // Strip markdown links [text](url) -> text
+    .replace(/\[([^\]]*)\]\([^)]*\)/g, '$1')
+    // Strip markdown formatting (bold, italic, code)
+    .replace(/[*_`#]+/g, '')
+    // Collapse whitespace
+    .replace(/\s+/g, ' ')
+    .trim()
+    .toLowerCase();
+}
+
+// --- Extract a short signature for contains-based matching ---
+function extractSignature(normalized: string, len = 60): string {
+  // Take first `len` chars of the normalized text as a matching signature
+  return normalized.substring(0, len);
 }
 
 // --- Parse custom format CSV and match to DB questions ---
 function parseCustomFormat(
   rows: string[][],
-  questionMap: Map<string, string> // normalized question_text -> question id
+  dbQuestions: Array<{ id: string; question_text: string }>,
+  studentName: string
 ): BulkUploadValidation {
   const result: BulkUploadValidation = {
     valid: true,
@@ -111,14 +135,12 @@ function parseCustomFormat(
     return result;
   }
 
-  // Build a prefix map for fallback matching (first 80 chars normalized)
-  const prefixMap = new Map<string, string>();
-  for (const [normText, qId] of questionMap) {
-    const prefix = normText.substring(0, 80);
-    if (!prefixMap.has(prefix)) {
-      prefixMap.set(prefix, qId);
-    }
-  }
+  // Pre-normalize all DB questions for matching
+  const normalizedDb = dbQuestions.map(q => ({
+    id: q.id,
+    normalized: normalizeForMatch(q.question_text),
+    sig: extractSignature(normalizeForMatch(q.question_text)),
+  }));
 
   for (let i = 1; i < rows.length; i++) {
     const row = rows[i];
@@ -135,17 +157,54 @@ function parseCustomFormat(
     // Binary scoring: only CORRECT = true
     const isCorrect = bestScore === 'CORRECT';
 
-    // Match question to DB
+    // Match question to DB using lenient contains-based approach
     const normalizedContent = normalizeForMatch(questionContent);
+    const csvSig = extractSignature(normalizedContent);
     let matchedQuestionId: string | undefined;
 
-    // Try exact match
-    matchedQuestionId = questionMap.get(normalizedContent);
+    // 1. Try exact normalized match
+    for (const dbQ of normalizedDb) {
+      if (dbQ.normalized === normalizedContent) {
+        matchedQuestionId = dbQ.id;
+        break;
+      }
+    }
 
-    // Fallback: prefix match (first 80 chars)
+    // 2. Try signature (first 60 chars) match
     if (!matchedQuestionId) {
-      const prefix = normalizedContent.substring(0, 80);
-      matchedQuestionId = prefixMap.get(prefix);
+      for (const dbQ of normalizedDb) {
+        if (dbQ.sig === csvSig && csvSig.length >= 20) {
+          matchedQuestionId = dbQ.id;
+          break;
+        }
+      }
+    }
+
+    // 3. Try contains-based: does DB contain CSV sig or vice versa?
+    if (!matchedQuestionId) {
+      for (const dbQ of normalizedDb) {
+        if (csvSig.length >= 20 && dbQ.normalized.includes(csvSig)) {
+          matchedQuestionId = dbQ.id;
+          break;
+        }
+        if (dbQ.sig.length >= 20 && normalizedContent.includes(dbQ.sig)) {
+          matchedQuestionId = dbQ.id;
+          break;
+        }
+      }
+    }
+
+    // 4. Try short text match against DB question text
+    if (!matchedQuestionId && shortText) {
+      const normalizedShort = normalizeForMatch(shortText);
+      if (normalizedShort.length >= 10) {
+        for (const dbQ of normalizedDb) {
+          if (dbQ.normalized.includes(normalizedShort)) {
+            matchedQuestionId = dbQ.id;
+            break;
+          }
+        }
+      }
     }
 
     if (!matchedQuestionId) {
@@ -166,7 +225,7 @@ function parseCustomFormat(
 
     result.rows.push({
       studentId: userId,
-      studentName: `Student ${userId.substring(0, 6)}`,
+      studentName: studentName || `Student ${userId.substring(0, 6)}`,
       questionText: questionContent,
       isCorrect,
       solutionScore: isCorrect ? 1.0 : 0.0,
@@ -272,6 +331,7 @@ export function BulkUploadPanel({
   const [uploading, setUploading] = useState(false);
   const [dragOver, setDragOver] = useState(false);
   const [detectedFormat, setDetectedFormat] = useState<'standard' | 'custom' | null>(null);
+  const [studentName, setStudentName] = useState('');
 
   const handleFile = useCallback(async (file: File) => {
     if (!file.name.endsWith('.csv')) {
@@ -291,12 +351,6 @@ export function BulkUploadPanel({
       return;
     }
 
-    // Build question map: normalized text -> id
-    const questionMap = new Map<string, string>();
-    (questionsData || []).forEach(q => {
-      questionMap.set(normalizeForMatch(q.question_text), q.id);
-    });
-
     const text = await file.text();
     const rows = parseCSVRobust(text);
 
@@ -309,12 +363,19 @@ export function BulkUploadPanel({
     const custom = isCustomFormat(rows[0]);
     setDetectedFormat(custom ? 'custom' : 'standard');
 
-    const validationResult = custom
-      ? parseCustomFormat(rows, questionMap)
-      : parseStandardFormat(rows, questionMap);
-
-    setValidation(validationResult);
-  }, [graphId, toast]);
+    if (custom) {
+      const validationResult = parseCustomFormat(rows, questionsData || [], studentName);
+      setValidation(validationResult);
+    } else {
+      // Build question map for standard format
+      const questionMap = new Map<string, string>();
+      (questionsData || []).forEach(q => {
+        questionMap.set(normalizeForMatch(q.question_text), q.id);
+      });
+      const validationResult = parseStandardFormat(rows, questionMap);
+      setValidation(validationResult);
+    }
+  }, [graphId, toast, studentName]);
 
   const handleDrop = useCallback((e: React.DragEvent) => {
     e.preventDefault();
@@ -339,14 +400,37 @@ export function BulkUploadPanel({
         .select('id, graph_id, question_text, skills, primary_skills, skill_weights')
         .eq('graph_id', graphId);
 
-      const qMap = new Map<string, string>();
-      (questionsData || []).forEach(q => {
-        qMap.set(normalizeForMatch(q.question_text), q.id);
-      });
+      // Build a text->id map for matching
+      const dbQuestions = questionsData || [];
+      const normalizedDb = dbQuestions.map(q => ({
+        id: q.id,
+        normalized: normalizeForMatch(q.question_text),
+        sig: extractSignature(normalizeForMatch(q.question_text)),
+      }));
+
+      // Match each row to a question ID using lenient matching
+      const matchQuestion = (text: string): string | undefined => {
+        const norm = normalizeForMatch(text);
+        const sig = extractSignature(norm);
+        // exact
+        for (const dbQ of normalizedDb) {
+          if (dbQ.normalized === norm) return dbQ.id;
+        }
+        // sig
+        for (const dbQ of normalizedDb) {
+          if (dbQ.sig === sig && sig.length >= 20) return dbQ.id;
+        }
+        // contains
+        for (const dbQ of normalizedDb) {
+          if (sig.length >= 20 && dbQ.normalized.includes(sig)) return dbQ.id;
+          if (dbQ.sig.length >= 20 && norm.includes(dbQ.sig)) return dbQ.id;
+        }
+        return undefined;
+      };
 
       // Insert attempts
       const attempts = validation.rows.map(row => {
-        const qId = qMap.get(normalizeForMatch(row.questionText));
+        const qId = matchQuestion(row.questionText);
         return qId ? {
           graph_id: graphId,
           class_id: classId || null,
@@ -368,7 +452,7 @@ export function BulkUploadPanel({
       const { error } = await supabase.from('student_attempts').insert(attempts);
       if (error) throw error;
 
-      // Auto-enroll students if class is set
+      // Auto-enroll students in class
       if (classId) {
         const uniqueStudents = new Map<string, string>();
         validation.rows.forEach(row => {
@@ -376,20 +460,20 @@ export function BulkUploadPanel({
             uniqueStudents.set(row.studentId, row.studentName);
           }
         });
-        for (const [studentId, studentName] of uniqueStudents) {
+        for (const [sid, sname] of uniqueStudents) {
           await supabase.from('class_students').upsert({
-            class_id: classId, student_id: studentId, student_name: studentName,
+            class_id: classId, student_id: sid, student_name: sname,
           }, { onConflict: 'class_id,student_id' });
         }
       }
 
       // Calculate and persist mastery for each student
-      if (questionsData && questionsData.length > 0) {
-        const questionsMap = buildQuestionsMap(questionsData);
+      if (dbQuestions.length > 0) {
+        const questionsMap = buildQuestionsMap(dbQuestions);
         const attemptsByStudent = new Map<string, StudentAttempt[]>();
 
         for (const row of validation.rows) {
-          const questionId = qMap.get(normalizeForMatch(row.questionText));
+          const questionId = matchQuestion(row.questionText);
           if (!questionId) continue;
 
           const attempt: StudentAttempt = {
@@ -409,8 +493,8 @@ export function BulkUploadPanel({
           attemptsByStudent.set(row.studentId, existing);
         }
 
-        for (const [studentId, studentAttempts] of attemptsByStudent) {
-          await calculateAndPersistMastery(graphId, studentId, studentAttempts, questionsMap);
+        for (const [sid, studentAttempts] of attemptsByStudent) {
+          await calculateAndPersistMastery(graphId, sid, studentAttempts, questionsMap);
         }
       }
 
@@ -443,6 +527,19 @@ export function BulkUploadPanel({
         </CardTitle>
       </CardHeader>
       <CardContent className="space-y-4">
+        {/* Student Name Input */}
+        <div className="space-y-1.5">
+          <Label htmlFor="student-name" className="text-xs">Student Name</Label>
+          <Input
+            id="student-name"
+            placeholder="Enter student name..."
+            value={studentName}
+            onChange={(e) => setStudentName(e.target.value)}
+            className="h-8 text-sm"
+          />
+          <p className="text-[10px] text-muted-foreground">Used for NxtWave CSV imports (overrides auto-generated name)</p>
+        </div>
+
         {/* Drop Zone */}
         <div
           className={`border-2 border-dashed rounded-lg p-6 text-center transition-colors ${
