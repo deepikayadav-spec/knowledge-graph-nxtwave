@@ -1,48 +1,64 @@
 
 
-# Switch All Edge Functions from Gemini to DeepSeek v3.2 via OpenRouter
+# Topic Grade System - 6 Grades (A+ through F), Percentage-Based
 
-## Overview
-Replace the Gemini API with OpenRouter across all 6 edge functions, using the `deepseek/deepseek-v3.2` model. The `OPENROUTER_API_KEY` secret is already configured.
+## Pedagogical Design
 
-## Changes
+Grade boundaries based on percentage of max score per topic, aligned with mastery-based learning thresholds:
 
-All 6 edge functions will be updated with the same pattern:
+| Grade | % Range | Meaning |
+|-------|---------|---------|
+| A+ | 90-100% | Exceptional mastery, near-complete coverage |
+| A | 75-89% | Strong mastery, comfortable with most concepts |
+| B | 60-74% | Proficient, solid understanding with some gaps |
+| C | 45-59% | Developing, foundational understanding present |
+| D | 30-44% | Below expectations, significant gaps |
+| F | 0-29% | Insufficient, needs major intervention |
 
-1. **API endpoint**: `generativelanguage.googleapis.com/v1beta/openai/chat/completions` changes to `openrouter.ai/api/v1/chat/completions`
-2. **API key**: `GEMINI_API_KEY` changes to `OPENROUTER_API_KEY`
-3. **Model**: All `gemini-2.5-flash` / `gemini-2.5-flash-lite` references change to `deepseek/deepseek-v3.2`
+These thresholds are inspired by criterion-referenced grading (not norm-referenced), meaning they measure absolute mastery against the curriculum rather than ranking students against each other.
 
-### Files Modified
+**Example with current data:**
+- JS (max 157): A+ = 142+, A = 118-141, B = 95-117, C = 71-94, D = 48-70, F = 0-47
+- HTML (max 110): A+ = 99+, A = 83-98, B = 66-82, C = 50-65, D = 33-49, F = 0-32
 
-| File | Current Model | Fetch Calls to Update |
-|------|--------------|----------------------|
-| `supabase/functions/generate-graph/index.ts` | gemini-2.5-flash | 2 (main call + JSON retry call) |
-| `supabase/functions/analyze-difficulty/index.ts` | gemini-2.5-flash | 1 |
-| `supabase/functions/regenerate-weights/index.ts` | gemini-2.5-flash | 1 |
-| `supabase/functions/extract-questions/index.ts` | gemini-2.5-flash | 1 |
-| `supabase/functions/classify-questions/index.ts` | gemini-2.5-flash-lite | 1 |
-| `supabase/functions/auto-group-skills/index.ts` | gemini-2.5-flash | 1 |
+## Implementation
 
-### What stays the same
-- All prompts, retry logic, JSON parsing, error handling remain unchanged
-- The OpenRouter API is OpenAI-compatible, so the request/response format is identical
-- Equal skill weights logic is untouched
-- No autosave changes
+### 1. Add grade constants
+Create `src/lib/mastery/gradeScale.ts` with:
+- Grade definitions (label, color, min percentage)
+- A function `getGradeForScore(score, maxScore)` that returns the grade
+- A function `getGradeBoundaries(maxScore)` that returns all cutoff scores for a topic
 
-### Technical Detail
-Each function's fetch call changes from:
+### 2. Update TopicScoreRange type
+Add a `grades` computed field to `TopicScoreRange` in `src/types/grouping.ts` (computed client-side, not stored in DB since they derive from max_score).
+
+### 3. Update TopicScoreTable UI
+Modify `src/components/panels/TopicScoreTable.tsx` to:
+- Add a "Grade" column header
+- For each topic row, show the grade boundaries as a compact breakdown (e.g., "A+: 142 | A: 118 | B: 95 | ...")
+- Or alternatively, expand each topic into a sub-table showing grade cutoffs
+- Use color-coded badges for each grade level
+
+### 4. No database changes needed
+Grades are purely computed from `max_score` using fixed percentage thresholds -- no new tables or columns required.
+
+## Technical Details
+
+**Grade scale definition:**
+```typescript
+const GRADE_SCALE = [
+  { grade: 'A+', minPct: 0.90, color: '#22c55e' },
+  { grade: 'A',  minPct: 0.75, color: '#4ade80' },
+  { grade: 'B',  minPct: 0.60, color: '#3b82f6' },
+  { grade: 'C',  minPct: 0.45, color: '#eab308' },
+  { grade: 'D',  minPct: 0.30, color: '#f97316' },
+  { grade: 'F',  minPct: 0.00, color: '#ef4444' },
+];
 ```
-URL: https://generativelanguage.googleapis.com/v1beta/openai/chat/completions
-Auth: Bearer $GEMINI_API_KEY
-Model: gemini-2.5-flash
-```
-to:
-```
-URL: https://openrouter.ai/api/v1/chat/completions
-Auth: Bearer $OPENROUTER_API_KEY
-Model: deepseek/deepseek-v3.2
-```
 
-All 6 edge functions will be redeployed after the changes.
+**Files to create:**
+- `src/lib/mastery/gradeScale.ts` -- grade definitions and helper functions
+
+**Files to modify:**
+- `src/components/panels/TopicScoreTable.tsx` -- add grade boundaries display per topic
 
