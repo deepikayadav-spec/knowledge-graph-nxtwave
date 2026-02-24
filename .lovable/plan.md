@@ -1,78 +1,60 @@
 
 
-# Import Student Performance Data from Custom CSV
+# Fix Student Data Import, Remove Min/Max Table, Fix 100% Mastery Bug
 
-## What We Need To Do
+## Problems Identified
 
-Parse the uploaded CSV (which has a different format than the existing bulk upload), match its 62 questions to the graph's questions, insert attempts, and calculate mastery. Unattempted questions automatically count as incorrect because the mastery formula already uses "total questions mapped to KP" as the denominator.
+1. **Question matching is too strict** -- The CSV has full markdown question content (e.g., "Write a program that reads a number..."), but some DB questions have numbered prefixes ("2. Write a program...") or different formatting. The current 80-char prefix match fails because of these differences. Only 14 out of 62 CSV rows matched.
 
-## CSV Format Analysis
+2. **Min/Max table is obsolete** -- The default view in `TopicScoreTable` still shows "Max" and "Qs" columns from the old `topic_score_ranges` approach. Since we're using percentage-based grading now, this should be replaced with a topic summary that just lists topics and their question counts (no grade boundaries).
 
-The uploaded CSV has these relevant columns:
-- `user_id` -- student identifier
-- `question_content` -- full multiline markdown text (matches `question_text` in the database)
-- `question_short_text` -- shorter label (backup for matching)
-- `best_score_attempt_evaluation_result` -- CORRECT / PARTIALLY_CORRECT / INCORRECT
-- `first_correct_attempt_submission_datetime` -- timestamp for the attempt
+3. **100% mastery bug** -- `calculateMastery.ts` increments `maxPoints` only when a question is attempted (line 64: `mastery.maxPoints += 1`). So if a student attempts 14 questions and gets all 14 correct, every KP shows `earned=max=100%`. The denominator should be ALL questions mapped to each KP in the graph, not just attempted ones.
 
-Binary scoring rule: CORRECT = 1, everything else (PARTIALLY_CORRECT, INCORRECT, empty) = 0
+4. **Student not added to class** -- When using the custom CSV format, the student name is auto-generated as "Student {first6chars}" instead of letting the user specify a name. Also, if no class is selected, the student isn't enrolled anywhere and won't appear in the `TopicScoreTable` student selector properly.
 
-## Why Unattempted Questions Are Already Handled
+## Changes
 
-The `studentTopicGrades.ts` function uses `kpTotalMapped` (count of ALL questions mapped to each KP in the graph) as the denominator, not just attempted questions. So if a KP has 10 questions but the student only attempted 3 and got 2 correct, mastery = 2/10 = 20%, not 2/3 = 67%. This is exactly the behavior requested.
+### 1. Fix question matching (`BulkUploadPanel.tsx`)
 
-## Implementation Plan
+Make matching much more lenient:
+- Strip leading numbers/bullets from both texts (e.g., "2. Write a program..." becomes "Write a program...")
+- Strip all markdown formatting (images, HTML tags, divs, style attributes)
+- Use a **contains-based** approach: extract the first meaningful sentence (first 60 chars after cleanup) and check if the DB question contains it, or vice versa
+- Add a similarity fallback: try matching by the `question_short_text` column from the CSV against a keyword extracted from the DB question text
 
-### 1. Create a one-time import script/feature in `BulkUploadPanel.tsx`
+### 2. Add student name input to BulkUploadPanel
 
-Add support for "auto-detect" CSV format. When the uploaded CSV has a `question_content` column (instead of `question_text`), use the alternative parsing logic:
+- Add a text input field for "Student Name" that appears before/during file upload
+- When using custom CSV format, use this name instead of the auto-generated one
+- If no class exists, auto-create enrollment or at minimum register the student in `class_students` so they show up in the selector
 
-- Extract `question_content` (multiline, may contain commas and newlines inside quotes)
-- Match against `questions.question_text` in the database using case-insensitive prefix matching (the CSV content may include extra markdown formatting)
-- Use `best_score_attempt_evaluation_result` for correctness (CORRECT = true, else false)
-- Use `first_correct_attempt_submission_datetime` as `attempted_at` (fallback to current date)
-- Use `user_id` as `student_id`, auto-generate a student name like "Student 1"
+### 3. Fix mastery calculation (`calculateMastery.ts` + `persistMastery.ts`)
 
-### 2. Update `BulkUploadPanel.tsx` parsing logic
+After processing attempts, recalculate `maxPoints` for each KP based on ALL questions in the graph that map to that KP (not just attempted ones):
+- In `persistMastery.ts`, after `processAttemptsBatch`, iterate through ALL questions in `questionsMap` and for each KP, set `maxPoints = total questions mapped to KP in graph`
+- `earnedPoints` remains as the count of correctly answered questions
+- This ensures unattempted questions count as 0 (incorrect) in the denominator
 
-- In `handleFile`, after reading CSV, check if header contains `question_content` 
-- If yes, use a new `parseCustomCSV()` function that:
-  - Extracts `user_id`, `question_content`, `best_score_attempt_evaluation_result`, and timestamp
-  - Matches `question_content` to database questions by comparing the first ~100 characters (trimmed, case-insensitive) to handle minor formatting differences
-  - Creates `BulkUploadRow[]` in the same format the existing upload flow expects
-- The rest of the flow (insert attempts, calculate mastery, enroll student) stays unchanged
+### 4. Replace the default TopicScoreTable view
 
-### 3. Update question matching strategy
+- Remove the "Max" and "Qs" columns and grade boundary expansion from the default (no-student) view
+- Replace with a simple topic list showing topic name and total question count
+- When a student is selected, show mastery % and grade (already works once the calculation bug is fixed)
+- Remove the `topicScoreRanges` prop dependency -- the table can load topics directly from the database or receive them as a simpler structure
 
-The CSV `question_content` contains the full markdown. The database `question_text` also stores full markdown. Matching strategy:
-- Normalize both: trim whitespace, collapse newlines, lowercase
-- Try exact match first
-- If no exact match, try matching first 80 characters as a prefix
-- Report unmatched questions as warnings
+### 5. Clean up TopicScoreRange references
 
-### 4. No database changes needed
+- Remove `topicScoreRanges` state and related logic from `KnowledgeGraphApp.tsx`
+- The `TopicScoreTable` will fetch topics and question counts directly
+- Keep the `topic_score_ranges` DB table for now (no migration needed) but stop using it in the UI
 
-The existing schema handles everything:
-- `student_attempts` stores the attempt records
-- `student_kp_mastery` gets updated via `calculateAndPersistMastery`
-- `studentTopicGrades.ts` computes the rollup using all mapped questions as denominator
+## Files to Modify
 
-### 5. After import, display results
-
-After the 62 attempts are imported:
-- The student appears in the TopicScoreTable student selector
-- Selecting them shows per-topic mastery with sqrt-weighted rollup
-- Topics with no attempted questions show 0% mastery
-- JS Coding topic will show mastery based on 62/244 questions (unattempted = incorrect)
-
-## Technical Details
-
-### Files to modify:
-- `src/components/mastery/BulkUploadPanel.tsx` -- add auto-detection of custom CSV format, alternative parser, and matching logic
-
-### Files unchanged:
-- `src/lib/mastery/studentTopicGrades.ts` -- already handles unattempted questions correctly
-- `src/lib/mastery/calculateMastery.ts` -- binary scoring already implemented
-- `src/lib/mastery/persistMastery.ts` -- upsert logic unchanged
-- `src/components/panels/TopicScoreTable.tsx` -- student selector already works
+- **`src/components/mastery/BulkUploadPanel.tsx`** -- Lenient matching, student name input, fix maxPoints after import
+- **`src/lib/mastery/calculateMastery.ts`** -- No change needed (the per-attempt logic is fine)
+- **`src/lib/mastery/persistMastery.ts`** -- After processing attempts, recalculate maxPoints using all graph questions
+- **`src/components/panels/TopicScoreTable.tsx`** -- Remove min/max default view, show simple topic list; remove `topicScoreRanges` prop
+- **`src/components/KnowledgeGraphApp.tsx`** -- Remove `topicScoreRanges` state, simplify `TopicScoreTable` usage
+- **`src/components/mastery/MasterySidebar.tsx`** -- Remove topicScoreRanges references if present
+- **`src/components/mastery/HierarchicalMasteryView.tsx`** -- Remove topicScoreRanges prop if present
 
