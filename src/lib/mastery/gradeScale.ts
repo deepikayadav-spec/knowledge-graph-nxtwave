@@ -25,6 +25,11 @@ export const GRADE_SCALE: GradeDefinition[] = [
 export function getGradeForScore(score: number, maxScore: number): GradeDefinition {
   if (maxScore <= 0) return GRADE_SCALE[GRADE_SCALE.length - 1];
   const pct = score / maxScore;
+  return getGradeForPercent(pct);
+}
+
+/** Get the grade for a 0-1 percentage directly */
+export function getGradeForPercent(pct: number): GradeDefinition {
   for (const g of GRADE_SCALE) {
     if (pct >= g.minPct) return g;
   }

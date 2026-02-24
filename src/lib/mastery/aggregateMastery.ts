@@ -19,27 +19,29 @@ export function calculateSubtopicMastery(
     .map(([skillId]) => skillId);
 
   let totalMaxPoints = 0;
-  let weightedEffectiveMastery = 0;
+  let sqrtWeightSum = 0;
+  let weightedMastery = 0;
   let masteredCount = 0;
   let totalEarnedPoints = 0;
 
   for (const skillId of skillsInSubtopic) {
     const mastery = skillMastery.get(skillId);
-    if (mastery) {
+    if (mastery && mastery.maxPoints > 0) {
       totalMaxPoints += mastery.maxPoints;
       totalEarnedPoints += mastery.earnedPoints;
       
-      const effectiveMastery = mastery.effectiveMastery ?? mastery.rawMastery;
-      weightedEffectiveMastery += effectiveMastery * mastery.maxPoints;
+      const sqrtWeight = Math.sqrt(mastery.maxPoints);
+      sqrtWeightSum += sqrtWeight;
+      weightedMastery += mastery.rawMastery * sqrtWeight;
       
-      if (effectiveMastery >= 0.8) {
+      if (mastery.rawMastery >= 0.8) {
         masteredCount++;
       }
     }
   }
 
   return {
-    mastery: totalMaxPoints > 0 ? weightedEffectiveMastery / totalMaxPoints : 0,
+    mastery: sqrtWeightSum > 0 ? weightedMastery / sqrtWeightSum : 0,
     skillCount: skillsInSubtopic.length,
     masteredCount,
     totalMaxPoints,
@@ -63,21 +65,24 @@ export function calculateTopicMastery(
   let totalEarnedPoints = 0;
   let totalSkillCount = 0;
   let totalMasteredCount = 0;
+  let sqrtWeightSum = 0;
   let weightedMastery = 0;
 
   for (const subtopic of subtopicsInTopic) {
     const subtopicMastery = subtopicMasteryMap.get(subtopic.id);
-    if (subtopicMastery) {
+    if (subtopicMastery && subtopicMastery.totalMaxPoints > 0) {
       totalMaxPoints += subtopicMastery.totalMaxPoints;
       totalEarnedPoints += subtopicMastery.totalEarnedPoints;
       totalSkillCount += subtopicMastery.skillCount;
       totalMasteredCount += subtopicMastery.masteredCount;
-      weightedMastery += subtopicMastery.mastery * subtopicMastery.totalMaxPoints;
+      const sqrtWeight = Math.sqrt(subtopicMastery.totalMaxPoints);
+      sqrtWeightSum += sqrtWeight;
+      weightedMastery += subtopicMastery.mastery * sqrtWeight;
     }
   }
 
   return {
-    mastery: totalMaxPoints > 0 ? weightedMastery / totalMaxPoints : 0,
+    mastery: sqrtWeightSum > 0 ? weightedMastery / sqrtWeightSum : 0,
     skillCount: totalSkillCount,
     masteredCount: totalMasteredCount,
     totalMaxPoints,
@@ -118,25 +123,27 @@ export function calculateAllGroupMastery(
   let ungroupedEarnedPoints = 0;
   let ungroupedCount = 0;
   let ungroupedMasteredCount = 0;
+  let ungroupedSqrtWeightSum = 0;
   let ungroupedWeightedMastery = 0;
 
   for (const [skillId, mastery] of skillMastery.entries()) {
-    if (!groupedSkillIds.has(skillId)) {
+    if (!groupedSkillIds.has(skillId) && mastery.maxPoints > 0) {
       ungroupedMaxPoints += mastery.maxPoints;
       ungroupedEarnedPoints += mastery.earnedPoints;
       ungroupedCount++;
       
-      const effectiveMastery = mastery.effectiveMastery ?? mastery.rawMastery;
-      ungroupedWeightedMastery += effectiveMastery * mastery.maxPoints;
+      const sqrtWeight = Math.sqrt(mastery.maxPoints);
+      ungroupedSqrtWeightSum += sqrtWeight;
+      ungroupedWeightedMastery += mastery.rawMastery * sqrtWeight;
       
-      if (effectiveMastery >= 0.8) {
+      if (mastery.rawMastery >= 0.8) {
         ungroupedMasteredCount++;
       }
     }
   }
 
   const ungroupedMastery: AggregatedMastery = {
-    mastery: ungroupedMaxPoints > 0 ? ungroupedWeightedMastery / ungroupedMaxPoints : 0,
+    mastery: ungroupedSqrtWeightSum > 0 ? ungroupedWeightedMastery / ungroupedSqrtWeightSum : 0,
     skillCount: ungroupedCount,
     masteredCount: ungroupedMasteredCount,
     totalMaxPoints: ungroupedMaxPoints,

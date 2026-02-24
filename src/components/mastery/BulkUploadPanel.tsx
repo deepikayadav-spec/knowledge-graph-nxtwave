@@ -7,7 +7,6 @@ import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { useToast } from '@/hooks/use-toast';
 import { Upload, FileText, AlertCircle, CheckCircle2 } from 'lucide-react';
 import { calculateAndPersistMastery, buildQuestionsMap } from '@/lib/mastery/persistMastery';
-import { calculateIndependenceScore } from '@/lib/mastery/constants';
 import type { BulkUploadRow, BulkUploadValidation, IndependenceLevel, StudentAttempt } from '@/types/mastery';
 
 interface BulkUploadPanelProps {
@@ -25,17 +24,6 @@ const EXPECTED_COLUMNS = [
 ];
 
 const OPTIONAL_COLUMNS = ['solution_viewed', 'ai_tutor_count', 'total_submissions', 'independence_level', 'solution_score'];
-
-const INDEPENDENCE_LEVEL_MAP: Record<string, IndependenceLevel> = {
-  independent: 'independent',
-  lightly_scaffolded: 'lightly_scaffolded',
-  lightly: 'lightly_scaffolded',
-  heavily_assisted: 'heavily_assisted',
-  heavily: 'heavily_assisted',
-  assisted: 'heavily_assisted',
-  solution_driven: 'solution_driven',
-  solution: 'solution_driven',
-};
 
 function parseCSV(text: string): string[][] {
   const lines = text.trim().split('\n');
@@ -90,12 +78,7 @@ function validateAndParse(
     }
   });
 
-  // Check for optional columns
-  const solutionViewedIdx = header.indexOf('solution_viewed');
-  const aiTutorCountIdx = header.indexOf('ai_tutor_count');
-  const totalSubmissionsIdx = header.indexOf('total_submissions');
-  const independenceLevelIdx = header.indexOf('independence_level');
-  const solutionScoreIdx = header.indexOf('solution_score');
+  // Optional columns no longer parsed (simplified to always independent)
 
   if (!result.valid) return result;
 
@@ -110,38 +93,11 @@ function validateAndParse(
     const isCorrectStr = row[columnIndices['is_correct']]?.trim().toLowerCase();
     const attemptedAtStr = row[columnIndices['attempted_at']]?.trim();
 
-    // Parse optional granular independence fields
-    let solutionViewed = false;
-    let aiTutorCount = 0;
-    let totalSubmissions = 1;
-
-    if (solutionViewedIdx !== -1 && row[solutionViewedIdx]) {
-      const v = row[solutionViewedIdx].trim().toLowerCase();
-      solutionViewed = v === 'true' || v === '1' || v === 'yes';
-    }
-    if (aiTutorCountIdx !== -1 && row[aiTutorCountIdx]) {
-      const parsed = parseInt(row[aiTutorCountIdx].trim());
-      if (!isNaN(parsed)) aiTutorCount = Math.max(0, parsed);
-    }
-    if (totalSubmissionsIdx !== -1 && row[totalSubmissionsIdx]) {
-      const parsed = parseInt(row[totalSubmissionsIdx].trim());
-      if (!isNaN(parsed)) totalSubmissions = Math.max(0, parsed);
-    }
-
-    // Compute independence score from granular inputs
-    const independenceScore = calculateIndependenceScore(solutionViewed, aiTutorCount, totalSubmissions);
-
-    // Derive independence level for backward compat
-    let independenceLevel: IndependenceLevel = 'independent';
-    if (independenceLevelIdx !== -1 && row[independenceLevelIdx]) {
-      const mapped = INDEPENDENCE_LEVEL_MAP[row[independenceLevelIdx].trim().toLowerCase()];
-      if (mapped) independenceLevel = mapped;
-    } else {
-      // Derive from granular inputs
-      if (solutionViewed) independenceLevel = 'solution_driven';
-      else if (aiTutorCount >= 3) independenceLevel = 'heavily_assisted';
-      else if (aiTutorCount >= 1) independenceLevel = 'lightly_scaffolded';
-    }
+    // Simplified: always independent, score 1.0
+    const solutionViewed = false;
+    const aiTutorCount = 0;
+    const totalSubmissions = 1;
+    const independenceLevel: IndependenceLevel = 'independent';
 
     // Binary scoring: solution_score derived from is_correct
     const isCorrect = isCorrectStr === 'true' || isCorrectStr === '1' || isCorrectStr === 'yes';
