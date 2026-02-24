@@ -23,32 +23,163 @@ const EXPECTED_COLUMNS = [
   'attempted_at',
 ];
 
-const OPTIONAL_COLUMNS = ['solution_viewed', 'ai_tutor_count', 'total_submissions', 'independence_level', 'solution_score'];
+// --- Robust CSV parser that handles multiline quoted fields ---
+function parseCSVRobust(text: string): string[][] {
+  const rows: string[][] = [];
+  let current = '';
+  let inQuotes = false;
+  let row: string[] = [];
 
-function parseCSV(text: string): string[][] {
-  const lines = text.trim().split('\n');
-  return lines.map(line => {
-    const result: string[] = [];
-    let current = '';
-    let inQuotes = false;
+  for (let i = 0; i < text.length; i++) {
+    const char = text[i];
+    const next = text[i + 1];
 
-    for (let i = 0; i < line.length; i++) {
-      const char = line[i];
+    if (inQuotes) {
+      if (char === '"' && next === '"') {
+        current += '"';
+        i++; // skip escaped quote
+      } else if (char === '"') {
+        inQuotes = false;
+      } else {
+        current += char;
+      }
+    } else {
       if (char === '"') {
-        inQuotes = !inQuotes;
-      } else if (char === ',' && !inQuotes) {
-        result.push(current.trim());
+        inQuotes = true;
+      } else if (char === ',') {
+        row.push(current.trim());
         current = '';
+      } else if (char === '\n' || (char === '\r' && next === '\n')) {
+        row.push(current.trim());
+        current = '';
+        if (row.length > 1 || row[0] !== '') rows.push(row);
+        row = [];
+        if (char === '\r') i++; // skip \n after \r
       } else {
         current += char;
       }
     }
-    result.push(current.trim());
-    return result;
-  });
+  }
+  // Push last field/row
+  row.push(current.trim());
+  if (row.length > 1 || row[0] !== '') rows.push(row);
+
+  return rows;
 }
 
-function validateAndParse(
+// --- Detect if CSV is custom NxtWave format ---
+function isCustomFormat(header: string[]): boolean {
+  const normalized = header.map(h => h.toLowerCase().replace(/\s+/g, '_'));
+  return normalized.includes('question_content') && normalized.includes('best_score_attempt_evaluation_result');
+}
+
+// --- Normalize text for matching: collapse whitespace, lowercase, trim ---
+function normalizeForMatch(text: string): string {
+  return text.replace(/\s+/g, ' ').trim().toLowerCase();
+}
+
+// --- Parse custom format CSV and match to DB questions ---
+function parseCustomFormat(
+  rows: string[][],
+  questionMap: Map<string, string> // normalized question_text -> question id
+): BulkUploadValidation {
+  const result: BulkUploadValidation = {
+    valid: true,
+    rows: [],
+    errors: [],
+    warnings: [],
+  };
+
+  if (rows.length < 2) {
+    result.valid = false;
+    result.errors.push({ row: 0, field: '', message: 'CSV must have header row and at least one data row' });
+    return result;
+  }
+
+  const header = rows[0].map(h => h.toLowerCase().replace(/\s+/g, '_'));
+  const colIdx = (name: string) => header.indexOf(name);
+
+  const userIdIdx = colIdx('user_id');
+  const questionContentIdx = colIdx('question_content');
+  const bestScoreIdx = colIdx('best_score_attempt_evaluation_result');
+  const firstCorrectDateIdx = colIdx('first_correct_attempt_submission_datetime');
+  const questionShortTextIdx = colIdx('question_short_text');
+
+  if (userIdIdx === -1 || questionContentIdx === -1 || bestScoreIdx === -1) {
+    result.valid = false;
+    result.errors.push({ row: 0, field: '', message: 'Missing required columns: user_id, question_content, best_score_attempt_evaluation_result' });
+    return result;
+  }
+
+  // Build a prefix map for fallback matching (first 80 chars normalized)
+  const prefixMap = new Map<string, string>();
+  for (const [normText, qId] of questionMap) {
+    const prefix = normText.substring(0, 80);
+    if (!prefixMap.has(prefix)) {
+      prefixMap.set(prefix, qId);
+    }
+  }
+
+  for (let i = 1; i < rows.length; i++) {
+    const row = rows[i];
+    if (row.length === 0 || (row.length === 1 && row[0] === '')) continue;
+
+    const userId = row[userIdIdx]?.trim();
+    const questionContent = row[questionContentIdx]?.trim();
+    const bestScore = row[bestScoreIdx]?.trim().toUpperCase();
+    const dateStr = firstCorrectDateIdx >= 0 ? row[firstCorrectDateIdx]?.trim() : '';
+    const shortText = questionShortTextIdx >= 0 ? row[questionShortTextIdx]?.trim() : '';
+
+    if (!userId || !questionContent) continue;
+
+    // Binary scoring: only CORRECT = true
+    const isCorrect = bestScore === 'CORRECT';
+
+    // Match question to DB
+    const normalizedContent = normalizeForMatch(questionContent);
+    let matchedQuestionId: string | undefined;
+
+    // Try exact match
+    matchedQuestionId = questionMap.get(normalizedContent);
+
+    // Fallback: prefix match (first 80 chars)
+    if (!matchedQuestionId) {
+      const prefix = normalizedContent.substring(0, 80);
+      matchedQuestionId = prefixMap.get(prefix);
+    }
+
+    if (!matchedQuestionId) {
+      const label = shortText || questionContent.substring(0, 50);
+      result.warnings.push({
+        row: i + 1,
+        message: `Question not found: "${label}"`,
+      });
+      continue;
+    }
+
+    // Parse date
+    let attemptedAt = new Date();
+    if (dateStr) {
+      const parsed = new Date(dateStr);
+      if (!isNaN(parsed.getTime())) attemptedAt = parsed;
+    }
+
+    result.rows.push({
+      studentId: userId,
+      studentName: `Student ${userId.substring(0, 6)}`,
+      questionText: questionContent,
+      isCorrect,
+      solutionScore: isCorrect ? 1.0 : 0.0,
+      independenceLevel: 'independent' as IndependenceLevel,
+      attemptedAt,
+    });
+  }
+
+  return result;
+}
+
+// --- Standard format parser ---
+function parseStandardFormat(
   rows: string[][],
   questionMap: Map<string, string>
 ): BulkUploadValidation {
@@ -67,7 +198,7 @@ function validateAndParse(
 
   const header = rows[0].map(h => h.toLowerCase().replace(/\s+/g, '_'));
   const columnIndices: Record<string, number> = {};
-  
+
   EXPECTED_COLUMNS.forEach(col => {
     const idx = header.indexOf(col);
     if (idx === -1) {
@@ -78,11 +209,8 @@ function validateAndParse(
     }
   });
 
-  // Optional columns no longer parsed (simplified to always independent)
-
   if (!result.valid) return result;
 
-  // Parse data rows
   for (let i = 1; i < rows.length; i++) {
     const row = rows[i];
     if (row.length === 0 || (row.length === 1 && row[0] === '')) continue;
@@ -93,38 +221,14 @@ function validateAndParse(
     const isCorrectStr = row[columnIndices['is_correct']]?.trim().toLowerCase();
     const attemptedAtStr = row[columnIndices['attempted_at']]?.trim();
 
-    // Simplified: always independent, score 1.0
-    const solutionViewed = false;
-    const aiTutorCount = 0;
-    const totalSubmissions = 1;
     const independenceLevel: IndependenceLevel = 'independent';
-
-    // Binary scoring: solution_score derived from is_correct
     const isCorrect = isCorrectStr === 'true' || isCorrectStr === '1' || isCorrectStr === 'yes';
     const solutionScore = isCorrect ? 1.0 : 0.0;
 
-    // Validate student_id
-    if (!studentId) {
-      result.errors.push({ row: i + 1, field: 'student_id', message: 'Student ID is required' });
-      result.valid = false;
-      continue;
-    }
+    if (!studentId) { result.errors.push({ row: i + 1, field: 'student_id', message: 'Student ID is required' }); result.valid = false; continue; }
+    if (!studentName) { result.errors.push({ row: i + 1, field: 'student_name', message: 'Student name is required' }); result.valid = false; continue; }
+    if (!questionText) { result.errors.push({ row: i + 1, field: 'question_text', message: 'Question text is required' }); result.valid = false; continue; }
 
-    // Validate student_name
-    if (!studentName) {
-      result.errors.push({ row: i + 1, field: 'student_name', message: 'Student name is required' });
-      result.valid = false;
-      continue;
-    }
-
-    // Validate question_text and match to question
-    if (!questionText) {
-      result.errors.push({ row: i + 1, field: 'question_text', message: 'Question text is required' });
-      result.valid = false;
-      continue;
-    }
-
-    // Try to find matching question (case-insensitive, trimmed)
     const normalizedText = questionText.toLowerCase().trim();
     let matchedQuestionId: string | undefined;
     for (const [text, id] of questionMap) {
@@ -135,21 +239,16 @@ function validateAndParse(
     }
 
     if (!matchedQuestionId) {
-      result.warnings.push({ 
-        row: i + 1, 
-        message: `Question not found in graph: "${questionText.substring(0, 50)}..."` 
-      });
+      result.warnings.push({ row: i + 1, message: `Question not found in graph: "${questionText.substring(0, 50)}..."` });
       continue;
     }
 
-    // Validate is_correct
     if (!['true', 'false', '1', '0', 'yes', 'no'].includes(isCorrectStr)) {
       result.errors.push({ row: i + 1, field: 'is_correct', message: `Invalid value: ${isCorrectStr}` });
       result.valid = false;
       continue;
     }
 
-    // Validate attempted_at
     const attemptedAt = new Date(attemptedAtStr);
     if (isNaN(attemptedAt.getTime())) {
       result.errors.push({ row: i + 1, field: 'attempted_at', message: `Invalid date: ${attemptedAtStr}` });
@@ -157,15 +256,7 @@ function validateAndParse(
       continue;
     }
 
-    result.rows.push({
-      studentId,
-      studentName,
-      questionText,
-      isCorrect,
-      solutionScore,
-      independenceLevel,
-      attemptedAt,
-    });
+    result.rows.push({ studentId, studentName, questionText, isCorrect, solutionScore, independenceLevel, attemptedAt });
   }
 
   return result;
@@ -178,46 +269,52 @@ export function BulkUploadPanel({
 }: BulkUploadPanelProps) {
   const { toast } = useToast();
   const [validation, setValidation] = useState<BulkUploadValidation | null>(null);
-  const [questionMap, setQuestionMap] = useState<Map<string, string>>(new Map());
   const [uploading, setUploading] = useState(false);
   const [dragOver, setDragOver] = useState(false);
+  const [detectedFormat, setDetectedFormat] = useState<'standard' | 'custom' | null>(null);
 
-  // Load questions on mount
-  const loadQuestions = useCallback(async () => {
-    const { data, error } = await supabase
+  const handleFile = useCallback(async (file: File) => {
+    if (!file.name.endsWith('.csv')) {
+      toast({ title: 'Invalid file', description: 'Please upload a CSV file', variant: 'destructive' });
+      return;
+    }
+
+    // Load questions from DB
+    const { data: questionsData, error } = await supabase
       .from('questions')
       .select('id, question_text')
       .eq('graph_id', graphId);
 
     if (error) {
       console.error('Error loading questions:', error);
+      toast({ title: 'Error', description: 'Failed to load questions from graph', variant: 'destructive' });
       return;
     }
 
-    const map = new Map<string, string>();
-    (data || []).forEach(q => {
-      map.set(q.question_text, q.id);
+    // Build question map: normalized text -> id
+    const questionMap = new Map<string, string>();
+    (questionsData || []).forEach(q => {
+      questionMap.set(normalizeForMatch(q.question_text), q.id);
     });
-    setQuestionMap(map);
-  }, [graphId]);
-
-  const handleFile = useCallback(async (file: File) => {
-    if (!file.name.endsWith('.csv')) {
-      toast({
-        title: 'Invalid file',
-        description: 'Please upload a CSV file',
-        variant: 'destructive',
-      });
-      return;
-    }
-
-    await loadQuestions();
 
     const text = await file.text();
-    const rows = parseCSV(text);
-    const validationResult = validateAndParse(rows, questionMap);
+    const rows = parseCSVRobust(text);
+
+    if (rows.length === 0) {
+      toast({ title: 'Empty file', description: 'CSV contains no data', variant: 'destructive' });
+      return;
+    }
+
+    // Auto-detect format
+    const custom = isCustomFormat(rows[0]);
+    setDetectedFormat(custom ? 'custom' : 'standard');
+
+    const validationResult = custom
+      ? parseCustomFormat(rows, questionMap)
+      : parseStandardFormat(rows, questionMap);
+
     setValidation(validationResult);
-  }, [questionMap, loadQuestions, toast]);
+  }, [graphId, toast]);
 
   const handleDrop = useCallback((e: React.DragEvent) => {
     e.preventDefault();
@@ -236,7 +333,7 @@ export function BulkUploadPanel({
 
     setUploading(true);
     try {
-      // Load questions with all fields needed for matching and mastery calculation
+      // Load questions with skill mappings for mastery calculation
       const { data: questionsData } = await supabase
         .from('questions')
         .select('id, graph_id, question_text, skills, primary_skills, skill_weights')
@@ -244,32 +341,31 @@ export function BulkUploadPanel({
 
       const qMap = new Map<string, string>();
       (questionsData || []).forEach(q => {
-        qMap.set(q.question_text.toLowerCase().trim(), q.id);
+        qMap.set(normalizeForMatch(q.question_text), q.id);
       });
 
       // Insert attempts
-      const attempts = validation.rows.map(row => ({
-        graph_id: graphId,
-        class_id: classId || null,
-        student_id: row.studentId,
-        question_id: qMap.get(row.questionText.toLowerCase().trim()),
-        is_correct: row.isCorrect,
-        solution_score: row.solutionScore,
-        independence_level: row.independenceLevel,
-        attempted_at: row.attemptedAt.toISOString(),
-      })).filter(a => a.question_id); // Only include matched questions
+      const attempts = validation.rows.map(row => {
+        const qId = qMap.get(normalizeForMatch(row.questionText));
+        return qId ? {
+          graph_id: graphId,
+          class_id: classId || null,
+          student_id: row.studentId,
+          question_id: qId,
+          is_correct: row.isCorrect,
+          solution_score: row.solutionScore,
+          independence_level: row.independenceLevel,
+          independence_score: 1.0,
+          attempted_at: row.attemptedAt.toISOString(),
+        } : null;
+      }).filter(Boolean) as any[];
 
       if (attempts.length === 0) {
-        toast({
-          title: 'No valid attempts',
-          description: 'No questions matched in the graph',
-          variant: 'destructive',
-        });
+        toast({ title: 'No valid attempts', description: 'No questions matched in the graph', variant: 'destructive' });
         return;
       }
 
       const { error } = await supabase.from('student_attempts').insert(attempts);
-
       if (error) throw error;
 
       // Auto-enroll students if class is set
@@ -280,26 +376,20 @@ export function BulkUploadPanel({
             uniqueStudents.set(row.studentId, row.studentName);
           }
         });
-
         for (const [studentId, studentName] of uniqueStudents) {
-          await supabase
-            .from('class_students')
-            .upsert({
-              class_id: classId,
-              student_id: studentId,
-              student_name: studentName,
-            }, { onConflict: 'class_id,student_id' });
+          await supabase.from('class_students').upsert({
+            class_id: classId, student_id: studentId, student_name: studentName,
+          }, { onConflict: 'class_id,student_id' });
         }
       }
 
       // Calculate and persist mastery for each student
       if (questionsData && questionsData.length > 0) {
         const questionsMap = buildQuestionsMap(questionsData);
-
-        // Group attempts by student
         const attemptsByStudent = new Map<string, StudentAttempt[]>();
+
         for (const row of validation.rows) {
-          const questionId = qMap.get(row.questionText.toLowerCase().trim());
+          const questionId = qMap.get(normalizeForMatch(row.questionText));
           if (!questionId) continue;
 
           const attempt: StudentAttempt = {
@@ -319,7 +409,6 @@ export function BulkUploadPanel({
           attemptsByStudent.set(row.studentId, existing);
         }
 
-        // Calculate and persist mastery for each student
         for (const [studentId, studentAttempts] of attemptsByStudent) {
           await calculateAndPersistMastery(graphId, studentId, studentAttempts, questionsMap);
         }
@@ -331,6 +420,7 @@ export function BulkUploadPanel({
       });
 
       setValidation(null);
+      setDetectedFormat(null);
       onUploadComplete?.();
     } catch (err) {
       console.error('Error uploading attempts:', err);
@@ -368,20 +458,19 @@ export function BulkUploadPanel({
           </p>
           <label className="cursor-pointer">
             <span className="text-sm text-primary underline">browse files</span>
-            <input
-              type="file"
-              accept=".csv"
-              className="hidden"
-              onChange={handleFileInput}
-            />
+            <input type="file" accept=".csv" className="hidden" onChange={handleFileInput} />
           </label>
           <p className="text-xs text-muted-foreground mt-2">
-            Required: student_id, student_name, question_text, is_correct, attempted_at
-          </p>
-          <p className="text-xs text-muted-foreground">
-            Optional: solution_viewed, ai_tutor_count, total_submissions
+            Supports standard format and NxtWave platform exports
           </p>
         </div>
+
+        {/* Format Detection */}
+        {detectedFormat && (
+          <div className="text-xs text-muted-foreground bg-muted/50 px-3 py-1.5 rounded">
+            Detected format: <span className="font-medium">{detectedFormat === 'custom' ? 'NxtWave Platform Export' : 'Standard CSV'}</span>
+          </div>
+        )}
 
         {/* Validation Results */}
         {validation && (
@@ -425,16 +514,17 @@ export function BulkUploadPanel({
                 <div className="flex items-center gap-2 text-primary font-medium">
                   <CheckCircle2 className="h-4 w-4" />
                   Ready to import {validation.rows.length} attempts
+                  {validation.warnings.length > 0 && (
+                    <span className="text-muted-foreground text-sm ml-1">
+                      ({validation.warnings.length} unmatched skipped)
+                    </span>
+                  )}
                 </div>
               </div>
             )}
 
             {validation.valid && validation.rows.length > 0 && (
-              <Button
-                onClick={handleUpload}
-                disabled={uploading}
-                className="w-full"
-              >
+              <Button onClick={handleUpload} disabled={uploading} className="w-full">
                 {uploading ? 'Uploading...' : `Import ${validation.rows.length} Attempts`}
               </Button>
             )}
