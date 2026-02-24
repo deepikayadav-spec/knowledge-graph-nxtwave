@@ -4,11 +4,8 @@ import { useState, useCallback, useEffect } from 'react';
 import { supabase } from '@/integrations/supabase/client';
 import { 
   processAttempt, 
-  computeEffectiveMastery, 
   calculateOverallMastery,
-  getKPsNeedingReview,
   createEmptyMastery,
-  generateDemoMasteryForGraph,
 } from '@/lib/mastery';
 import type { 
   KPMastery, 
@@ -21,8 +18,6 @@ import type {
 interface UseStudentMasteryOptions {
   graphId: string;
   studentId: string;
-  skillIds?: string[];      // For demo data generation
-  useDemoData?: boolean;    // Force demo data mode
   autoLoad?: boolean;
 }
 
@@ -38,16 +33,12 @@ interface UseStudentMasteryReturn {
   ) => Promise<void>;
   getMastery: (skillId: string) => KPMastery | undefined;
   getOverallMastery: () => number;
-  getAgingKPs: () => KPMastery[];
   getSummary: () => StudentMasterySummary;
-  refreshWithDecay: () => void;
 }
 
 export function useStudentMastery({
   graphId,
   studentId,
-  skillIds = [],
-  useDemoData = false,
   autoLoad = true,
 }: UseStudentMasteryOptions): UseStudentMasteryReturn {
   const [mastery, setMastery] = useState<Map<string, KPMastery>>(new Map());
@@ -55,7 +46,7 @@ export function useStudentMastery({
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
-  // Load mastery data from database (or generate demo data)
+  // Load mastery data from database
   const loadMastery = useCallback(async () => {
     if (!graphId || !studentId) return;
     
@@ -63,14 +54,6 @@ export function useStudentMastery({
     setError(null);
     
     try {
-      // If useDemoData is true and we have skillIds, generate demo data directly
-      if (useDemoData && skillIds.length > 0) {
-        const demoMastery = generateDemoMasteryForGraph(graphId, studentId, skillIds);
-        setMastery(demoMastery);
-        setLoading(false);
-        return;
-      }
-      
       // Load questions for this graph
       const { data: questionsData, error: questionsError } = await supabase
         .from('questions')
@@ -103,39 +86,34 @@ export function useStudentMastery({
       
       if (masteryError) throw masteryError;
       
-      // Convert to map and compute effective mastery
+      // Convert to map — use rawMastery directly (no retention decay)
       const masteryMap = new Map<string, KPMastery>();
-      const records = (masteryData || []).map(m => ({
-        id: m.id,
-        graphId: m.graph_id,
-        studentId: m.student_id,
-        skillId: m.skill_id,
-        earnedPoints: Number(m.earned_points),
-        maxPoints: Number(m.max_points),
-        rawMastery: Number(m.raw_mastery),
-        lastReviewedAt: m.last_reviewed_at ? new Date(m.last_reviewed_at) : null,
-        stability: Number(m.stability),
-        retrievalCount: m.retrieval_count,
-      }));
+      (masteryData || []).forEach(m => {
+        masteryMap.set(m.skill_id, {
+          id: m.id,
+          graphId: m.graph_id,
+          studentId: m.student_id,
+          skillId: m.skill_id,
+          earnedPoints: Number(m.earned_points),
+          maxPoints: Number(m.max_points),
+          rawMastery: Number(m.raw_mastery),
+          effectiveMastery: Number(m.raw_mastery),
+          retentionFactor: 1.0,
+          retentionStatus: 'current',
+          lastReviewedAt: m.last_reviewed_at ? new Date(m.last_reviewed_at) : null,
+          stability: Number(m.stability),
+          retrievalCount: m.retrieval_count,
+        });
+      });
       
-      // Apply retention decay
-      const withDecay = computeEffectiveMastery(records);
-      withDecay.forEach(m => masteryMap.set(m.skillId, m));
-      
-      // If no real data exists and skillIds are provided, fill with demo data
-      if (masteryMap.size === 0 && skillIds.length > 0) {
-        const demoMastery = generateDemoMasteryForGraph(graphId, studentId, skillIds);
-        setMastery(demoMastery);
-      } else {
-        setMastery(masteryMap);
-      }
+      setMastery(masteryMap);
     } catch (err) {
       console.error('Error loading mastery:', err);
       setError(err instanceof Error ? err.message : 'Failed to load mastery data');
     } finally {
       setLoading(false);
     }
-  }, [graphId, studentId, skillIds, useDemoData]);
+  }, [graphId, studentId]);
 
   // Record a new attempt
   const recordAttempt = useCallback(async (
@@ -204,10 +182,16 @@ export function useStudentMastery({
         if (upsertError) throw upsertError;
       }
       
-      // Refresh with decay
-      const withDecay = computeEffectiveMastery(Array.from(updatedMastery.values()));
+      // Update local state with rawMastery as effective
       const newMap = new Map<string, KPMastery>();
-      withDecay.forEach(m => newMap.set(m.skillId, m));
+      for (const [skillId, m] of updatedMastery) {
+        newMap.set(skillId, {
+          ...m,
+          effectiveMastery: m.rawMastery,
+          retentionFactor: 1.0,
+          retentionStatus: 'current',
+        });
+      }
       setMastery(newMap);
       
     } catch (err) {
@@ -226,11 +210,6 @@ export function useStudentMastery({
     return calculateOverallMastery(Array.from(mastery.values()));
   }, [mastery]);
 
-  // Get KPs that need review
-  const getAgingKPs = useCallback(() => {
-    return getKPsNeedingReview(Array.from(mastery.values()));
-  }, [mastery]);
-
   // Get summary for this student
   const getSummary = useCallback((): StudentMasterySummary => {
     const records = Array.from(mastery.values());
@@ -238,21 +217,12 @@ export function useStudentMastery({
       studentId,
       studentName: '',
       overallMastery: calculateOverallMastery(records),
-      masteredKPs: records.filter(m => (m.effectiveMastery ?? 0) >= 0.8).length,
-      agingKPs: records.filter(m => m.retentionStatus === 'aging').length,
-      expiredKPs: records.filter(m => m.retentionStatus === 'expired').length,
+      masteredKPs: records.filter(m => m.rawMastery >= 0.8).length,
+      agingKPs: 0,
+      expiredKPs: 0,
       totalKPs: records.length,
     };
   }, [mastery, studentId]);
-
-  // Refresh mastery with current retention decay
-  const refreshWithDecay = useCallback(() => {
-    const records = Array.from(mastery.values());
-    const withDecay = computeEffectiveMastery(records);
-    const newMap = new Map<string, KPMastery>();
-    withDecay.forEach(m => newMap.set(m.skillId, m));
-    setMastery(newMap);
-  }, [mastery]);
 
   // Auto-load on mount
   useEffect(() => {
@@ -269,8 +239,6 @@ export function useStudentMastery({
     recordAttempt,
     getMastery,
     getOverallMastery,
-    getAgingKPs,
     getSummary,
-    refreshWithDecay,
   };
 }
