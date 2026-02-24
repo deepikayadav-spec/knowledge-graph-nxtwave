@@ -2,7 +2,7 @@
 
 import { useState, useCallback, useEffect } from 'react';
 import { supabase } from '@/integrations/supabase/client';
-import { computeEffectiveMastery, calculateOverallMastery } from '@/lib/mastery';
+import { calculateOverallMastery } from '@/lib/mastery';
 import type { 
   KPMastery, 
   ClassAnalytics, 
@@ -130,23 +130,22 @@ export function useClassAnalytics({
         masteryByStudent.set(m.student_id, existing);
       });
       
-      // Compute effective mastery and summaries
+      // Compute summaries using rawMastery directly (no retention decay)
       const summaries: StudentMasterySummary[] = [];
-      const allMasteryWithDecay: KPMastery[] = [];
+      const allRecords: KPMastery[] = [];
       
       for (const student of studentRecords) {
         const records = masteryByStudent.get(student.studentId) || [];
-        const withDecay = computeEffectiveMastery(records);
-        allMasteryWithDecay.push(...withDecay);
+        allRecords.push(...records);
         
         summaries.push({
           studentId: student.studentId,
           studentName: student.studentName,
-          overallMastery: calculateOverallMastery(withDecay),
-          masteredKPs: withDecay.filter(m => (m.effectiveMastery ?? 0) >= 0.8).length,
-          agingKPs: withDecay.filter(m => m.retentionStatus === 'aging').length,
-          expiredKPs: withDecay.filter(m => m.retentionStatus === 'expired').length,
-          totalKPs: withDecay.length,
+          overallMastery: calculateOverallMastery(records),
+          masteredKPs: records.filter(m => m.rawMastery >= 0.8).length,
+          agingKPs: 0,
+          expiredKPs: 0,
+          totalKPs: records.length,
         });
       }
       
@@ -154,9 +153,9 @@ export function useClassAnalytics({
       
       // Calculate class-level analytics
       const skillMastery = new Map<string, number[]>();
-      allMasteryWithDecay.forEach(m => {
+      allRecords.forEach(m => {
         const existing = skillMastery.get(m.skillId) || [];
-        existing.push(m.effectiveMastery ?? m.rawMastery);
+        existing.push(m.rawMastery);
         skillMastery.set(m.skillId, existing);
       });
       

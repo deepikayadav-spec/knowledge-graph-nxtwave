@@ -502,8 +502,7 @@ export function GraphCanvas({
               // Get mastery data for this node if in mastery mode
               const nodeMastery = showMasteryVisuals && studentMastery ? studentMastery.get(node.id) : undefined;
               const masteryData = nodeMastery ? {
-                effectiveMastery: nodeMastery.effectiveMastery ?? nodeMastery.rawMastery ?? 0,
-                retentionStatus: nodeMastery.retentionStatus ?? 'current' as const,
+                mastery: nodeMastery.rawMastery ?? 0,
               } : undefined;
 
               return (
