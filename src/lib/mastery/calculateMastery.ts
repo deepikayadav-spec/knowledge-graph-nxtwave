@@ -1,11 +1,8 @@
 // Core mastery calculation functions
 
 import { 
-  INDEPENDENCE_MULTIPLIERS, 
   INITIAL_STABILITY 
 } from './constants';
-import { updateStability, calculateRetention, calculateEffectiveMastery } from './retentionDecay';
-import { mergeWeights } from './calculateWeights';
 import type { 
   KPMastery, 
   StudentAttempt, 
@@ -52,35 +49,26 @@ export function processAttempt(
   question: QuestionWithWeights,
   currentMastery: Map<string, KPMastery>
 ): Map<string, KPMastery> {
-  // Get weights (AI-generated or equal split)
-  const weights = mergeWeights(
-    question.skills,
-    question.skillWeights
-  );
-  
-  // Use computed independence_score if available, otherwise fall back to old multiplier
-  const independenceMultiplier = attempt.independenceScore ?? INDEPENDENCE_MULTIPLIERS[attempt.independenceLevel];
   
   // Binary scoring: 1 if correct, 0 if not
   const binaryScore = attempt.isCorrect ? 1 : 0;
   
-  for (const [skillId, weight] of Object.entries(weights)) {
+  // Each KP mapped to this question gets +1 max, +1 earned if correct
+  // No fractional weight splitting — every KP counts whole questions
+  for (const skillId of question.skills) {
     // Get or create mastery record
     let mastery = currentMastery.get(skillId) || 
       createEmptyMastery(attempt.graphId, attempt.studentId, skillId);
     
-    // Max points: what they could earn with perfect score + full independence
-    mastery.maxPoints += weight;
+    // Each question adds 1 to max for this KP
+    mastery.maxPoints += 1;
     
-    // Contribution = weight × binaryScore × independenceScore
-    const contribution = weight * binaryScore * independenceMultiplier;
-    mastery.earnedPoints += contribution;
-    mastery.earnedPoints = Math.max(0, mastery.earnedPoints);
+    // Earned = 1 if correct, 0 if not (no independence multiplier)
+    mastery.earnedPoints += binaryScore;
     
-    // Update stability only when correct (some learning happened)
+    // Update review timestamp
     if (binaryScore > 0) {
       mastery.retrievalCount += 1;
-      mastery.stability = updateStability(mastery.stability, mastery.lastReviewedAt);
       mastery.lastReviewedAt = attempt.attemptedAt;
     }
     
@@ -126,21 +114,13 @@ export function processAttemptsBatch(
 export function computeEffectiveMastery(
   masteryRecords: KPMastery[]
 ): KPMastery[] {
-  return masteryRecords.map(mastery => {
-    const { effectiveMastery, retentionFactor, retentionStatus } = 
-      calculateEffectiveMastery(
-        mastery.rawMastery,
-        mastery.lastReviewedAt,
-        mastery.stability
-      );
-    
-    return {
-      ...mastery,
-      effectiveMastery,
-      retentionFactor,
-      retentionStatus,
-    };
-  });
+  // No retention decay — effective mastery = raw mastery
+  return masteryRecords.map(mastery => ({
+    ...mastery,
+    effectiveMastery: mastery.rawMastery,
+    retentionFactor: 1.0,
+    retentionStatus: 'current' as const,
+  }));
 }
 
 /**
@@ -171,12 +151,12 @@ export function getKPsNeedingReview(
 }
 
 /**
- * Calculate points earned for a single answer
+ * Calculate points earned for a single answer (simplified: binary × weight)
  */
 export function calculatePointsForAnswer(
   weight: number,
   solutionScore: number,
-  independenceLevel: IndependenceLevel
+  _independenceLevel: IndependenceLevel
 ): number {
-  return weight * solutionScore * INDEPENDENCE_MULTIPLIERS[independenceLevel];
+  return weight * solutionScore;
 }

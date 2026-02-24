@@ -59,7 +59,7 @@ export async function calculateAndPersistMastery(
         max_points: mastery.maxPoints,
         raw_mastery: mastery.rawMastery,
         last_reviewed_at: mastery.lastReviewedAt?.toISOString() || null,
-        stability: mastery.stability,
+        stability: 14.0, // Fixed stability, no retention decay
         retrieval_count: mastery.retrievalCount,
       }, {
         onConflict: 'graph_id,student_id,skill_id',

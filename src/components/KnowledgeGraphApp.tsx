@@ -599,6 +599,7 @@ export function KnowledgeGraphApp() {
         {topicScoreRanges.length > 0 && (
           <TopicScoreTable
             topicScoreRanges={topicScoreRanges}
+            graphId={currentGraphId || ''}
             onRecalculate={async () => {
               if (!currentGraphId) return;
               setIsRecalculating(true);
