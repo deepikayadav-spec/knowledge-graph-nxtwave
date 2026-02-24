@@ -1,7 +1,7 @@
 // Mastery sidebar container that manages state and renders mastery panels
 
-import { useState, useMemo, useCallback, useEffect } from 'react';
-import { ChevronDown, GraduationCap, Pencil, RefreshCw } from 'lucide-react';
+import { useState, useMemo, useCallback } from 'react';
+import { ChevronDown, GraduationCap, Pencil } from 'lucide-react';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from '@/components/ui/collapsible';
@@ -15,9 +15,7 @@ import { useClassAnalytics } from '@/hooks/useClassAnalytics';
 import { useSkillGrouping } from '@/hooks/useSkillGrouping';
 import type { GraphNode } from '@/types/graph';
 import type { KPMastery } from '@/types/mastery';
-import type { TopicScoreRange } from '@/types/grouping';
-import { calculateAndPersistTopicScoreRanges, loadTopicScoreRanges } from '@/lib/mastery/topicScoreRanges';
-import { toast } from 'sonner';
+
 
 interface MasterySidebarProps {
   graphId: string;
@@ -48,29 +46,6 @@ export function MasterySidebar({
 }: MasterySidebarProps) {
   const [isOpen, setIsOpen] = useState(true);
   const [activeTab, setActiveTab] = useState<string>('log');
-  const [topicScoreRanges, setTopicScoreRanges] = useState<TopicScoreRange[]>([]);
-  const [recalculating, setRecalculating] = useState(false);
-
-  // Load topic score ranges
-  useEffect(() => {
-    if (graphId) {
-      loadTopicScoreRanges(graphId).then(setTopicScoreRanges).catch(console.error);
-    }
-  }, [graphId]);
-
-  const handleRecalculateRanges = useCallback(async () => {
-    setRecalculating(true);
-    try {
-      const ranges = await calculateAndPersistTopicScoreRanges(graphId);
-      setTopicScoreRanges(ranges);
-      toast.success(`Recalculated ranges for ${ranges.length} topics`);
-    } catch (err) {
-      console.error('Failed to recalculate ranges:', err);
-      toast.error('Failed to recalculate ranges');
-    } finally {
-      setRecalculating(false);
-    }
-  }, [graphId]);
   // Create skill names map
   const skillNames = useMemo(() => {
     const map: Record<string, string> = {};
@@ -188,16 +163,6 @@ export function MasterySidebar({
                     </p>
                     <Button
                       size="sm"
-                      variant="outline"
-                      onClick={handleRecalculateRanges}
-                      disabled={recalculating}
-                      className="gap-1.5"
-                    >
-                      <RefreshCw className={`h-3 w-3 ${recalculating ? 'animate-spin' : ''}`} />
-                      Ranges
-                    </Button>
-                    <Button
-                      size="sm"
                       variant={isEditMode ? 'default' : 'outline'}
                       onClick={onToggleEditMode}
                       className="gap-1.5"
@@ -218,7 +183,6 @@ export function MasterySidebar({
                   onDeleteTopic={handleDeleteTopic}
                   onDeleteSubtopic={handleDeleteSubtopic}
                   onAssignSubtopicToTopic={handleAssignSubtopicToTopic}
-                  topicScoreRanges={topicScoreRanges}
                 />
               </TabsContent>
 

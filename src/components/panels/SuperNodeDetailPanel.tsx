@@ -1,7 +1,6 @@
 import type { SuperNode } from '@/lib/graph/groupedView';
 import type { GraphNode } from '@/types/graph';
-import type { TopicScoreRange } from '@/types/grouping';
-import { X, Layers, FolderOpen, BarChart3 } from 'lucide-react';
+import { X, Layers, FolderOpen } from 'lucide-react';
 import { ScrollArea } from '@/components/ui/scroll-area';
 import { Badge } from '@/components/ui/badge';
 
@@ -10,7 +9,6 @@ interface SuperNodeDetailPanelProps {
   skills: GraphNode[];
   onClose: () => void;
   onSkillSelect: (skillId: string) => void;
-  scoreRange?: TopicScoreRange;
 }
 
 export function SuperNodeDetailPanel({
@@ -18,7 +16,6 @@ export function SuperNodeDetailPanel({
   skills,
   onClose,
   onSkillSelect,
-  scoreRange,
 }: SuperNodeDetailPanelProps) {
   const typeLabel = superNode.type === 'topic' ? 'Topic' : 'Subtopic';
   const TypeIcon = superNode.type === 'topic' ? Layers : FolderOpen;
@@ -56,28 +53,6 @@ export function SuperNodeDetailPanel({
             <X className="h-4 w-4" />
           </button>
         </div>
-
-        {/* Score range stats for topic nodes */}
-        {superNode.type === 'topic' && scoreRange && (
-          <div className="flex items-center gap-3 px-5 py-3 border-b border-border bg-muted/30">
-            <BarChart3 className="h-4 w-4 text-muted-foreground shrink-0" />
-            <div className="flex items-center gap-4 text-sm">
-              <div>
-                <span className="text-muted-foreground">Min:</span>{' '}
-                <span className="font-semibold text-foreground">{scoreRange.minScore}</span>
-              </div>
-              <div className="w-px h-4 bg-border" />
-              <div>
-                <span className="text-muted-foreground">Max:</span>{' '}
-                <span className="font-semibold text-foreground">{scoreRange.maxScore}</span>
-              </div>
-              <div className="w-px h-4 bg-border" />
-              <div>
-                <span className="text-muted-foreground">{scoreRange.uniqueQuestions} question{scoreRange.uniqueQuestions !== 1 ? 's' : ''}</span>
-              </div>
-            </div>
-          </div>
-        )}
 
         {/* Skill list */}
         <ScrollArea className="max-h-[60vh]">

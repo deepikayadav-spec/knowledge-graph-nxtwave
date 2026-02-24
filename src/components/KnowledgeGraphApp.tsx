@@ -17,9 +17,7 @@ import { useBatchGeneration } from '@/hooks/useBatchGeneration';
 import { useSkillGrouping } from '@/hooks/useSkillGrouping';
 import { useStudentMastery } from '@/hooks/useStudentMastery';
 import { buildSubtopicView, buildTopicView, type SuperNode } from '@/lib/graph/groupedView';
-import { loadTopicScoreRanges, calculateAndPersistTopicScoreRanges } from '@/lib/mastery/topicScoreRanges';
 import { TopicScoreTable } from './panels/TopicScoreTable';
-import type { TopicScoreRange } from '@/types/grouping';
 import { Network, Sparkles, Trash2, GraduationCap, Plus, Pencil, CheckCircle, Wand2 } from 'lucide-react';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
@@ -61,7 +59,6 @@ export function KnowledgeGraphApp() {
   // Standalone edit mode for node/edge CRUD
   const [isEditMode, setIsEditMode] = useState(false);
   const [isAutoGrouping, setIsAutoGrouping] = useState(false);
-  const [topicScoreRanges, setTopicScoreRanges] = useState<TopicScoreRange[]>([]);
   const [isRecalculating, setIsRecalculating] = useState(false);
 
   // Graph persistence
@@ -91,21 +88,6 @@ export function KnowledgeGraphApp() {
     autoLoad: !!currentGraphId,
   });
 
-  // Load topic score ranges when graph changes
-  useEffect(() => {
-    if (!currentGraphId) {
-      setTopicScoreRanges([]);
-      return;
-    }
-    loadTopicScoreRanges(currentGraphId).then(ranges => {
-      if (ranges.length === 0) {
-        // Auto-calculate if empty
-        calculateAndPersistTopicScoreRanges(currentGraphId).then(setTopicScoreRanges).catch(() => {});
-      } else {
-        setTopicScoreRanges(ranges);
-      }
-    }).catch(() => {});
-  }, [currentGraphId]);
 
   // Extract skill IDs for demo data generation
   const skillIds = useMemo(
@@ -492,10 +474,6 @@ export function KnowledgeGraphApp() {
                 setIsAutoGrouping(true);
                 await groupingHook.autoGroupSkills();
                 setIsAutoGrouping(false);
-                // Recalculate topic score ranges after regrouping
-                if (currentGraphId) {
-                  calculateAndPersistTopicScoreRanges(currentGraphId).then(setTopicScoreRanges).catch(() => {});
-                }
               }}
             >
               <Wand2 className="h-3 w-3" />
@@ -596,19 +574,10 @@ export function KnowledgeGraphApp() {
         </div>
 
         {/* Topic Score Table */}
-        {topicScoreRanges.length > 0 && (
+        {currentGraphId && (
           <TopicScoreTable
-            topicScoreRanges={topicScoreRanges}
-            graphId={currentGraphId || ''}
-            onRecalculate={async () => {
-              if (!currentGraphId) return;
-              setIsRecalculating(true);
-              try {
-                const ranges = await calculateAndPersistTopicScoreRanges(currentGraphId);
-                setTopicScoreRanges(ranges);
-              } catch {}
-              setIsRecalculating(false);
-            }}
+            graphId={currentGraphId}
+            onRecalculate={() => {}}
             isRecalculating={isRecalculating}
           />
         )}
@@ -652,9 +621,6 @@ export function KnowledgeGraphApp() {
         const superNode = groupedData.nodes.find(n => n.id === selectedSuperNodeId) as SuperNode | undefined;
         if (!superNode || !('skillIds' in superNode)) return null;
         const containedSkills = graph.globalNodes.filter(n => superNode.skillIds.includes(n.id));
-        // Look up score range for topic nodes
-        const topicId = superNode.type === 'topic' ? superNode.id.replace('topic_', '') : undefined;
-        const scoreRange = topicId ? topicScoreRanges.find(r => r.topicId === topicId) : undefined;
         return (
           <SuperNodeDetailPanel
             superNode={superNode}
@@ -664,7 +630,6 @@ export function KnowledgeGraphApp() {
               setSelectedSuperNodeId(null);
               setSelectedNodeId(skillId);
             }}
-            scoreRange={scoreRange}
           />
         );
       })()}

@@ -12,7 +12,7 @@ import {
   CollapsibleContent,
   CollapsibleTrigger,
 } from '@/components/ui/collapsible';
-import type { SkillTopic, SkillSubtopic, AggregatedMastery, TopicScoreRange } from '@/types/grouping';
+import type { SkillTopic, SkillSubtopic, AggregatedMastery } from '@/types/grouping';
 import type { KPMastery } from '@/types/mastery';
 import {
   calculateAllGroupMastery,
@@ -30,7 +30,6 @@ interface HierarchicalMasteryViewProps {
   onDeleteTopic: (topicId: string) => Promise<void>;
   onDeleteSubtopic: (subtopicId: string) => Promise<void>;
   onAssignSubtopicToTopic: (subtopicId: string, topicId: string | null) => Promise<void>;
-  topicScoreRanges?: TopicScoreRange[];
 }
 
 export function HierarchicalMasteryView({
@@ -42,7 +41,6 @@ export function HierarchicalMasteryView({
   onDeleteTopic,
   onDeleteSubtopic,
   onAssignSubtopicToTopic,
-  topicScoreRanges = [],
 }: HierarchicalMasteryViewProps) {
   const [expandedTopics, setExpandedTopics] = useState<Set<string>>(new Set());
   const [expandedSubtopics, setExpandedSubtopics] = useState<Set<string>>(new Set());
@@ -189,7 +187,6 @@ export function HierarchicalMasteryView({
     const isExpanded = expandedTopics.has(topic.id);
     const mastery = topicMastery.get(topic.id);
     const topicSubtopics = getSubtopicsInTopic(topic.id);
-    const scoreRange = topicScoreRanges.find(r => r.topicId === topic.id);
 
     return (
       <div key={topic.id} className="border rounded-lg overflow-hidden">
@@ -207,11 +204,6 @@ export function HierarchicalMasteryView({
               <span className="flex-1 font-medium text-left">
                 {topic.name}
               </span>
-              {scoreRange && scoreRange.maxScore > 0 && (
-                <Badge variant="outline" className="text-xs">
-                  Max: {scoreRange.maxScore} ({scoreRange.uniqueQuestions} Q)
-                </Badge>
-              )}
               <Badge variant="outline" className="text-xs">
                 {topicSubtopics.length} subtopics
               </Badge>
