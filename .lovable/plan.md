@@ -1,63 +1,37 @@
 
 
-# Remove Demo Data and Retention/Recall Logic from Mastery System
+# Merge New Draft Prose into Current Prompt
 
-## Problem
+## Approach
 
-The mastery system is showing fake data because `useDemoData: true` is hardcoded in `KnowledgeGraphApp.tsx`. This causes the hook to generate random mastery values (69% overall, 31/100 mastered, etc.) instead of reading real data from the database. Additionally, retention decay, retention status badges, recall counts, and stability scores are displayed everywhere, even though we've agreed to use simplified percentage-based mastery only.
+Combine the best of both prompts: keep the current prompt's production guardrails and domain injection, but restructure using the draft's clearer phase-based explanations.
 
-## Changes
+## What Changes
 
-### 1. `src/components/KnowledgeGraphApp.tsx`
-- Change `useDemoData: true` to `useDemoData: false` (line 103)
-- Remove the `skillIds` prop passed to `useStudentMastery` (no longer needed for demo generation)
+### `supabase/functions/generate-graph/index.ts` — `buildSystemPrompt(config)`
 
-### 2. `src/hooks/useStudentMastery.ts`
-- Remove the `useDemoData` option and `skillIds` option entirely
-- Remove all imports and usage of `generateDemoMasteryForGraph`
-- Remove the demo data fallback (lines 126-128) that fills empty results with fake data
-- Remove `computeEffectiveMastery` call -- just use `rawMastery` directly (no retention decay)
-- Remove `refreshWithDecay` function
-- Remove `getAgingKPs` function
-- Simplify: load from DB, set `rawMastery` as the mastery value, no decay computation
+Replace the system prompt text with a merged version that:
 
-### 3. `src/components/mastery/MasteryOverview.tsx`
-- Remove the "Aging" and "Expired" summary cards (keep only Overall and Mastered)
-- Remove retention badges from each KP row
-- Remove "Raw: X% | Ret: Y%" and "N recalls" sub-labels
-- Show just: KP name, mastery %, and progress bar
-- Sort by mastery % (lowest first) instead of by retention status
+1. **Keeps from current prompt (non-negotiable)**:
+   - `DomainConfig` injection (skill catalog, mandatory edges, independent foundational, curriculum sequence, example IPA)
+   - 5 consolidation rules with RULE numbering and N/5 formula
+   - Skill weight computation (primary 0.6 / secondary 0.4, sum-to-1.0)
+   - 8-point quality validation checklist with "FAIL = REDO"
+   - Triple self-check (edge ratio, zero-incoming, mandatory edges)
+   - Test case handling instructions for PERCEIVE/MONITOR
+   - Target metrics (edge density 1.5–2.5, 10%+ reuse, 5–7 depth)
 
-### 4. `src/components/panels/NodeDetailPanel.tsx`
-- Remove "Retention Factor", "Retention Status", "Stability", and "Successful Recalls" sections
-- Keep: mastery %, earned/max points, last reviewed date
+2. **Replaces with draft's prose**:
+   - Phase 1 (IPA): Use the draft's detailed PERCEIVE/ENCODE/RETRIEVE/DECIDE/EXECUTE/MONITOR explanations with examples
+   - Phase 2 (LTA): Use the draft's knowledge type definitions (declarative/procedural/conditional/strategic) with examples
+   - Phase 3 (Normalization): Use the draft's 5 rules (synonym unification, general operators, atomicity, reusability, abstraction consistency) with WRONG/RIGHT examples — then append the current prompt's strict formulas and self-checks
+   - Phase 4 (DAG): Use the draft's "WITHOUT X?" rule explanation, direction of knowledge progression, minimum connectivity, transitive reduction, no cycles, and level computation prose
+   - Phase 5 (Catalog): New standalone section from draft, merged with current domain-injected catalog
+   - Phase 6 (JSON Output): Use the draft's detailed JSON schema examples, merged with current prompt's strict output rules
 
-### 5. `src/components/graph/GraphNode.tsx`
-- Remove retention-based border styles (dashed for aging, dotted for expired)
-- Remove retention warning icons (clock, alert triangle)
-- Keep mastery-based fill coloring and the mastered glow effect
-- Simplify `MasteryData` interface to just `{ mastery: number }` (no `retentionStatus`)
+3. **Structure**: 6 clearly labeled phases instead of the current less-structured format, making it easier to read and maintain
 
-### 6. `src/components/graph/GraphCanvas.tsx`
-- Update mastery data passed to GraphNode to use simplified interface (just mastery value)
+## Files Changed
 
-### 7. `src/lib/mastery/demoData.ts`
-- Delete this file entirely (no longer used anywhere)
-
-### 8. `src/lib/mastery/index.ts`
-- Remove `export * from './demoData'` line
-
-### 9. `src/hooks/useClassAnalytics.ts`
-- Remove `computeEffectiveMastery` usage -- use `rawMastery` directly
-- Remove aging/expired KP counts from student summaries
-
-### 10. `src/lib/mastery/calculateMastery.ts`
-- Remove `computeEffectiveMastery` and `getKPsNeedingReview` functions if they only serve retention logic
-
-## What Stays
-- `rawMastery` calculation (earned/max from real DB data)
-- sqrt-weighted rollup for topics/subtopics
-- Grade thresholds (A+ through F)
-- The `retentionDecay.ts` file can remain in the codebase but won't be called (can be cleaned up later)
-- `student_kp_mastery` table schema unchanged
+- `supabase/functions/generate-graph/index.ts` — rewrite `buildSystemPrompt()` body only; `DomainConfig`, `PYTHON_CONFIG`, `WEB_CONFIG`, and all other code unchanged
 
