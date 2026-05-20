@@ -1,37 +1,33 @@
+# Replace "New PF" graph skills & edges from curated CSVs
 
+## Target
 
-# Merge New Draft Prose into Current Prompt
+Graph: **New PF** (`f284056c-ad2a-4011-9f09-d9f1dd683417`)
 
-## Approach
+## Verified
 
-Combine the best of both prompts: keep the current prompt's production guardrails and domain injection, but restructure using the draft's clearer phase-based explanations.
+- CSV `graph_id` matches "New PF" — no remapping needed.
+- **Skills:** 58 in CSV, 58 in DB. All 58 `skill_id`s are identical to what currently exists, and all 58 are the exact set referenced by the 891 questions in this graph → question→skill mappings remain valid after the swap.
+- **Edges:** 69 in CSV (DB currently has 83; the curated set is a refined subset).
+- **Subtopics:** All 30 `subtopic_id`s referenced in the CSV already exist in `skill_subtopics` for this graph → no FK breakage.
+- Edge `relationship_type` is `requires` for all rows.
 
-## What Changes
+## Actions
 
-### `supabase/functions/generate-graph/index.ts` — `buildSystemPrompt(config)`
+Run as a single SQL transaction via the insert tool:
 
-Replace the system prompt text with a merged version that:
+1. `DELETE FROM skill_edges WHERE graph_id = 'f284056c-...'`
+2. `DELETE FROM skills WHERE graph_id = 'f284056c-...'`
+3. Re-insert all 58 rows from `skills-export-2026-05-20_curated.csv` (preserving `id`, `skill_id`, `name`, `tier`, `level`, `description`, `transferable_contexts`, `created_at`, `subtopic_id`).
+4. Re-insert all 69 rows from `skill_edges-export-2026-05-20_curated.csv` (preserving `id`, `from_skill`, `to_skill`, `relationship_type`, `reason`).
 
-1. **Keeps from current prompt (non-negotiable)**:
-   - `DomainConfig` injection (skill catalog, mandatory edges, independent foundational, curriculum sequence, example IPA)
-   - 5 consolidation rules with RULE numbering and N/5 formula
-   - Skill weight computation (primary 0.6 / secondary 0.4, sum-to-1.0)
-   - 8-point quality validation checklist with "FAIL = REDO"
-   - Triple self-check (edge ratio, zero-incoming, mandatory edges)
-   - Test case handling instructions for PERCEIVE/MONITOR
-   - Target metrics (edge density 1.5–2.5, 10%+ reuse, 5–7 depth)
+Use `COPY ... FROM STDIN` with `;` delimiter to load the CSVs verbatim into temp tables, then `INSERT ... SELECT` into the real tables. Mastery records (`student_kp_mastery`), questions, topics, and subtopics are untouched.
 
-2. **Replaces with draft's prose**:
-   - Phase 1 (IPA): Use the draft's detailed PERCEIVE/ENCODE/RETRIEVE/DECIDE/EXECUTE/MONITOR explanations with examples
-   - Phase 2 (LTA): Use the draft's knowledge type definitions (declarative/procedural/conditional/strategic) with examples
-   - Phase 3 (Normalization): Use the draft's 5 rules (synonym unification, general operators, atomicity, reusability, abstraction consistency) with WRONG/RIGHT examples — then append the current prompt's strict formulas and self-checks
-   - Phase 4 (DAG): Use the draft's "WITHOUT X?" rule explanation, direction of knowledge progression, minimum connectivity, transitive reduction, no cycles, and level computation prose
-   - Phase 5 (Catalog): New standalone section from draft, merged with current domain-injected catalog
-   - Phase 6 (JSON Output): Use the draft's detailed JSON schema examples, merged with current prompt's strict output rules
+## Not changed
 
-3. **Structure**: 6 clearly labeled phases instead of the current less-structured format, making it easier to read and maintain
+- Questions, skill_weights, student attempts, mastery, topics, subtopics, classes — all preserved.
+- No schema/migration changes; this is a data swap only.
 
-## Files Changed
+## Post-check
 
-- `supabase/functions/generate-graph/index.ts` — rewrite `buildSystemPrompt()` body only; `DomainConfig`, `PYTHON_CONFIG`, `WEB_CONFIG`, and all other code unchanged
-
+After load, verify counts: 58 skills, 69 edges for the graph, and re-run "referenced-but-missing" check to confirm no question references a deleted skill.
